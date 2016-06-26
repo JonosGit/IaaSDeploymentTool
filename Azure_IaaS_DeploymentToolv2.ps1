@@ -1,23 +1,27 @@
 ﻿<# 
 .SYNOPSIS 
-This script provides the following functionality for deploying Iaas environments in Azure.
+This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNET.
 Market Images supported: Redhat 6.7, PFSense 2.5, Windows 2008 R2, Windows 2012 R2, Ubuntu 14.04, CentOs 7.2, SUSE, SQL 2016 (on W2K12R2), R Server on Windows and Chef Server v12
 
-Prior to running this script make sure the environment variables have been configured for Subscription ID, TenantID, ResourceGroup and VNETName
+.PARAMETERS
 VMName is a required parameter at runtime. All other parameters are optional.
-To specify the local adminsitrator and Password Update the locadmin and locpassword
-The Public IP Address of the VM will be shown when the script completes and can be used access the server.
-
 By default the script expects an existing VNET and will deploy a dual homed PFSense Server to an existing Resource Group in Azure. Use -NewVNet to overide
 To deploy a VM to an existing VNET set the $NewVnet parameter to false. ** Update the $VNETResourceGroupName variable before running the script.
 To deploy a new VNET with multiple subnets set the $NewVnet flag to true. ** The New VNET Will be deployed to $vNetResourceGroupName.
-
-
 To deploy a specific market image enter one of the following names for $vmmMarketImage: Redhat PFSecure W2k12r2 w2k8r2 centos ubuntu chef SUSE SQL RSERVER
 
+The Public IP Address of the VM will be shown when the script completes and can be used access the server.
+
+
+.EXAMPLES
 Deployment runtime positional parameters examples:
 
 .\Azure_IaaS_Deploy.ps1 myserver RedHat myresgroup myvnet -NewVNET True
+.\Azure_IaaS_Deploy.ps1 myserver2 RedHat myresgroup myvnet
+.\Azure_IaaS_Deploy.ps1 myserver3 Suse myresgroup myvnet
+.\Azure_IaaS_Deploy.ps1 myserver4 w2k12 myresgroup myvnet
+.\Azure_IaaS_Deploy.ps1 myserver5 rserver myresgroup myvnet
+.\Azure_IaaS_Deploy.ps1 myserver5 sql myresgroup myvnet
 
 Deployment runtime named parameters examples:
 
