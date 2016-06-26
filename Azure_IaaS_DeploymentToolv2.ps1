@@ -15,7 +15,12 @@ To deploy a new VNET with multiple subnets set the $NewVnet flag to true. ** The
 
 To deploy a specific market image enter one of the following names for $vmmMarketImage: Redhat PFSecure W2k12r2 w2k8r2 centos ubuntu chef SUSE SQL RSERVER
 
-Deployment runtime parameters examples:
+Deployment runtime positional parameters examples:
+
+.\Azure_IaaS_Deploy.ps1 myserver RedHat myresgroup myvnet -NewVNET True
+
+Deployment runtime named parameters examples:
+
 Deploy SQL Server to existing VNET in existing resource group  - .\Azure_IaaS_DeployTool.ps1 -VName sqlserver1 -VMMarketImage SQL
 Deploy PFSense Server to a existing VNET in existing resource group - .\Azure_IaaS_DeployTool.ps1 -VName pfserver1 -VMMarketImage Pfsense
 Deploy PFSense Server to a new VNET in new resource group - .\Azure_IaaS_DeployTool.ps1 -VName pfserver1 -VMMarketImage Pfsense -NewVNET True -VNETName NewVNET -ResourceGroupName INFRA_RG
@@ -23,40 +28,40 @@ Deploy Windows 2012 R2 Server to a new VNET in new resource group - .\Azure_IaaS
 #> 
 
 Param( 
- [Parameter(Mandatory=$False)]
+ [Parameter(Mandatory=$False,ValueFromPipeline=$True,Position=1)]
  [string]
  $vmMarketImage = "PFSense",
 
- [Parameter(Mandatory=$False)]
+ [Parameter(Mandatory=$False,ValueFromPipeline=$True,Position=5)]
  [string]
  $NewVnet = "False",
 
- [Parameter(Mandatory=$True)]
+ [Parameter(Mandatory=$True,ValueFromPipeline=$True,Position=0)]
  [string]
  $VMName = "server0001",
 
-  [Parameter(Mandatory=$False)]
+ [Parameter(Mandatory=$False,ValueFromPipeline=$True,Position=2)]
  [string]
  $ResourceGroupName = "RESGRP",
 
- [Parameter(Mandatory=$False)]
+ [Parameter(Mandatory=$False,ValueFromPipeline=$True,Position=4)]
  [string]
  $vNetResourceGroupName = $ResourceGroupName,
 
- [Parameter(Mandatory=$False)]
+ [Parameter(Mandatory=$False,ValueFromPipeline=$True,Position=3)]
  [string]
  $VNetName = "VNET",
 
- [Parameter(Mandatory=$False)]
+ [Parameter(Mandatory=$False,ValueFromPipeline=$True)]
  [string]
  $VMSize = "Standard_A3",
 
- [Parameter(Mandatory=$False)]
+ [Parameter(Mandatory=$False,ValueFromPipeline=$True)]
  [string]
  $locadmin = 'localadmin',
 
  [Parameter(Mandatory=$False)]
- [securestring]
+ [string]
  $locpassword = 'PassW0rd!@1'
 
 )
@@ -73,7 +78,7 @@ $SecureLocPassword=Convertto-SecureString $locpassword –asplaintext -force
 $Credential1 = New-Object System.Management.Automation.PSCredential ($locadmin,$SecureLocPassword)
 
 
-Login-AzureRmAccount
+# Login-AzureRmAccount
 Set-AzureRmContext -tenantid $TenantID -subscriptionid $SubscriptionID
 
 # Resource Group
