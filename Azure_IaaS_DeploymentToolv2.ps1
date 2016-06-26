@@ -1,36 +1,43 @@
 ﻿<# 
 .SYNOPSIS 
 This script provides the following functionality for deploying Iaas environments in Azure.
-Market Images supported: Redhat 6.7, PFSense 2.5, Windows 2008 R2, Windows 2012 R2, Ubuntu, CentOs, SUSE and Chef 12 Server
+Market Images supported: Redhat 6.7, PFSense 2.5, Windows 2008 R2, Windows 2012 R2, Ubuntu 14.04, CentOs 7.2, SUSE, SQL 2016 (on W2K12R2), R Server on Windows and Chef Server v12
 
 Prior to running this script make sure the environment variables have been configured for Subscription ID, TenantID, ResourceGroup and VNETName
-Update the vmcount variable to increment the Deployed VM, i.e. 001 will result in a VM Deployed named AIP001.
+VMName is a required parameter at runtime. All other parameters are optional.
 To specify the local adminsitrator and Password Update the locadmin and locpassword
 The Public IP Address of the VM will be shown when the script completes and can be used access the server.
 
-By default a new VNET and dual homed PFSense Server are deployed to a new or existing Resource Group in Azure.
+By default the script expects an existing VNET and will deploy a dual homed PFSense Server to an existing Resource Group in Azure. Use -NewVNet to overide
 To deploy a VM to an existing VNET set the $NewVnet parameter to false. ** Update the $VNETResourceGroupName variable before running the script.
 To deploy a new VNET with multiple subnets set the $NewVnet flag to true. ** The New VNET Will be deployed to $vNetResourceGroupName.
 
-To deploy a specific market image enter one of the following names for $vmmMarketImage: Redhat PFSecure W2k12r2 w2k8r2 centos ubuntu chef SUSE (default is pfsense)
+
+To deploy a specific market image enter one of the following names for $vmmMarketImage: Redhat PFSecure W2k12r2 w2k8r2 centos ubuntu chef SUSE SQL RSERVER
+
+Deployment runtime parameters examples:
+Deploy SQL Server to existing VNET in existing resource group  - .\Azure_IaaS_DeployTool.ps1 -VName sqlserver1 -VMMarketImage SQL
+Deploy PFSense Server to a existing VNET in existing resource group - .\Azure_IaaS_DeployTool.ps1 -VName pfserver1 -VMMarketImage Pfsense
+Deploy PFSense Server to a new VNET in new resource group - .\Azure_IaaS_DeployTool.ps1 -VName pfserver1 -VMMarketImage Pfsense -NewVNET True -VNETName NewVNET -ResourceGroupName INFRA_RG
+Deploy Windows 2012 R2 Server to a new VNET in new resource group - .\Azure_IaaS_DeployTool.ps1 -VName winserver1 -VMMarketImage w2k12r2
 #> 
 
 Param( 
  [Parameter(Mandatory=$False)]
  [string]
- $vmMarketImage = "PFsense",
+ $vmMarketImage = "PFSense",
 
  [Parameter(Mandatory=$False)]
  [string]
- $NewVnet = "True",
+ $NewVnet = "False",
 
  [Parameter(Mandatory=$True)]
  [string]
- $VMName = "aipwe0001",
+ $VMName = "server0001",
 
   [Parameter(Mandatory=$False)]
  [string]
- $ResourceGroupName = "<RESGRPNAME>",
+ $ResourceGroupName = "RESGRP",
 
  [Parameter(Mandatory=$False)]
  [string]
@@ -38,7 +45,20 @@ Param(
 
  [Parameter(Mandatory=$False)]
  [string]
- $VNetName = "VNET"
+ $VNetName = "VNET",
+
+ [Parameter(Mandatory=$False)]
+ [string]
+ $VMSize = "Standard_A3",
+
+ [Parameter(Mandatory=$False)]
+ [string]
+ $locadmin = 'localadmin',
+
+ [Parameter(Mandatory=$False)]
+ [securestring]
+ $locpassword = 'PassW0rd!@1'
+
 )
 
 ## Global
@@ -49,14 +69,11 @@ $StorageName = $VMName + "str"
 $StorageType = "Standard_GRS"
 $InterfaceName1 = $VMName + "nic1"
 $InterfaceName2 = $VMName + "nic2"
-$VMSize = "Standard_A3"
-$locadmin = 'localadmin'
-$locpassword = 'PassW0rd!@1'
 $SecureLocPassword=Convertto-SecureString $locpassword –asplaintext -force
 $Credential1 = New-Object System.Management.Automation.PSCredential ($locadmin,$SecureLocPassword)
 
 
-# Login-AzureRmAccount
+Login-AzureRmAccount
 Set-AzureRmContext -tenantid $TenantID -subscriptionid $SubscriptionID
 
 # Resource Group
@@ -112,7 +129,7 @@ $OSDiskName = $VMName + "OSDisk"
 $OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDiskName + ".vhd"
 $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching
 }
-        "*re*" {
+        "*red*" {
 Write-Host "Red Hat Deployment in Progress"
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
@@ -133,6 +150,33 @@ $Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupNa
 $VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize
 $VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -Windows -ComputerName $VMName -Credential $Credential1 -ProvisionVMAgent -EnableAutoUpdate
 $VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName "MicrosoftWindowsServer" -Offer "WindowsServer" -Skus "2012-R2-Datacenter" -Version "latest"
+$VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $Interface1.Id -Primary
+$OSDiskName = $VMName + "OSDisk"
+$OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDiskName + ".vhd"
+$VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching
+}
+        "*sql*" {
+Write-Host "SQL Deployment in Progress"
+$PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
+$VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
+$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[4].Id -PublicIpAddressId $PIp.Id
+$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize
+$VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -Windows -ComputerName $VMName -Credential $Credential1 -ProvisionVMAgent -EnableAutoUpdate
+$VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName "MicrosoftSQLServer" -Offer "SQL2016-WS2012R2" -Skus "Enterprise" -Version "latest"
+$VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $Interface1.Id -Primary
+$OSDiskName = $VMName + "OSDisk"
+$OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDiskName + ".vhd"
+$VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching
+}
+        "*rserver*" {
+Write-Host "R Server Deployment in Progress"
+$PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
+$VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
+$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[6].Id -PublicIpAddressId $PIp.Id
+$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize
+$VirtualMachine = Set-AzureRmVMPlan -VM $VirtualMachine -Name msr80-win2012r2 -Publisher microsoft-r-products -Product microsoft-r-server
+$VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -Windows -ComputerName $VMName -Credential $Credential1 -ProvisionVMAgent -EnableAutoUpdate
+$VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName microsoft-r-products -Offer microsoft-r-server -Skus msr80-win2012r2 -Version "latest"
 $VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $Interface1.Id -Primary
 $OSDiskName = $VMName + "OSDisk"
 $OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDiskName + ".vhd"
