@@ -2,31 +2,43 @@
 .SYNOPSIS 
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNET.
 Market Images supported: Redhat 6.7, PFSense 2.5, Windows 2008 R2, Windows 2012 R2, Ubuntu 14.04, CentOs 7.2, SUSE, SQL 2016 (on W2K12R2), R Server on Windows and Chef Server v12
-
 .PARAMETERS
 VMName is a required parameter at runtime. All other parameters are optional at runtime.
-
-
-To deploy a VM to an existing VNET set the $NewVnet parameter to false. ** Update the $VNETResourceGroupName variable before running the script.
-To deploy a new VNET with multiple subnets set the $NewVnet flag to true. ** The New VNET Will be deployed to $vNetResourceGroupName.
-To deploy a specific market image enter one of the following names for $vmmMarketImage: Redhat PFSecure W2k12r2 w2k8r2 centos ubuntu chef SUSE SQL RSERVER
-
-The Public IP Address of the VM will be shown when the script completes and can be used access the server.
-
+To deploy a VM to an existing VNET set the -NewVnet parameter to false. ** Update the -VNETResourceGroupName variable before running the script.
+To deploy a new VNET with multiple subnets set the -NewVnet flag to true. ** The New VNET Will be deployed to -vNetResourceGroupName.
+To deploy a Network Security Group to the VNET use the -NSGEnabled (True) and -NSGName (name of the NSG group) to create an NSG for the provisioned VNET.
+To deploy a specific market image, enter one of the following names for -vmmMarketImage: Redhat PFSecure W2k12r2 w2k8r2 centos ubuntu chef SUSE SQL RSERVER
+.SYNTAX
+Required Parameters defined at Runtime
+Azure_IaaS_Deploy.ps1 -vmname
+Required Parameters defined in script
+Azure_IaaS_Deploy.ps1 -vmname -VMMarketImage -ResourceGroupName -VNETName -VNETResourceGroupName -Location -SubscriberID -StorageType -StorageName -TenantID -InterfaceName1 -IntrerfaceName2 -NSGEnabled -VMSize -locadmin -locpassword 
+Optional Parameters
+Azure_IaaS_Deploy.ps1 -vmname -VMMarketImage -ResourceGroupName -VNETName -VNETResourceGroupName -NewVNet -NSGEnabled -NSGName
+Azure_IaaS_Deploy.ps1 -vmname -VMMarketImage -ResourceGroupName -VNETName -VNETResourceGroupName -ExtMSAV
+Azure_IaaS_Deploy.ps1 -vmname -VMMarketImage -ResourceGroupName -VNETName -VNETResourceGroupName -ExtVMAccess
 .EXAMPLES
 Deployment runtime positional parameters examples:
-.\Azure_infra_arm_automater.ps1myserver RedHat myresgroup myvnet -NewVNET True -NSGEnabled True
-.\Azure_infra_arm_automater.ps1myserver2 RedHat myresgroup myvnet
-.\Azure_infra_arm_automater.ps1myserver3 Suse myresgroup myvnet
-.\Azure_infra_arm_automater.ps1myserver4 w2k12 myresgroup myvnet
-.\Azure_infra_arm_automater.ps1myserver5 rserver myresgroup myvnet
-.\Azure_infra_arm_automater.ps1myserver5 sql myresgroup myvnet
+
+.\Azure_IaaS_Deploy.ps1 myserver RedHat myresgroup myvnet -NewVNET True
+.\Azure_IaaS_Deploy.ps1 myserver2 RedHat myresgroup myvnet
+.\Azure_IaaS_Deploy.ps1 myserver3 Suse myresgroup myvnet
+.\Azure_IaaS_Deploy.ps1 myserver4 w2k12 myresgroup myvnet
+.\Azure_IaaS_Deploy.ps1 myserver5 rserver myresgroup myvnet
+.\Azure_IaaS_Deploy.ps1 myserver5 sql myresgroup myvnet
 
 Runtime named parameters examples:
-Deploy SQL Server to existing VNET in existing resource group: .\Azure_infra_arm_automater.ps1-VName sqlserver1 -VMMarketImage SQL
-Deploy PFSense Server to a existing VNET in existing resource group: .\Azure_infra_arm_automater.ps1-VName pfserver1 -VMMarketImage Pfsense
-Deploy PFSense Server to a new VNET in new resource group with a Network Security Group attached: .\Azure_infra_arm_automater.ps1-VName pfserver1 -VMMarketImage Pfsense -NewVNET True -VNETName NewVNET -ResourceGroupName INFRA_RG -NSGEnabled True 
-Deploy Windows 2012 R2 Server to a new VNET in new resource group: .\Azure_infra_arm_automater.ps1-VName winserver1 -VMMarketImage w2k12r2
+Deploy SQL Server 2016 to existing VNET in existing resource group  
+.\Azure_IaaS_DeployTool.ps1 -VName sqlserver1 -VMMarketImage SQL
+--------------------------------------------------------------------------------------------------------
+Deploy PFSense Server to existing VNET in existing resource group 
+.\Azure_IaaS_DeployTool.ps1 -VName pfserver1 -VMMarketImage Pfsense
+--------------------------------------------------------------------------------------------------------
+Deploy PFSense Server to a new VNET in new resource group 
+.\Azure_IaaS_DeployTool.ps1 -VName pfserver1 -VMMarketImage Pfsense -NewVNET True -VNETName NewVNET -ResourceGroupName INFRA_RG
+--------------------------------------------------------------------------------------------------------
+Deploy Windows 2012 R2 Server to a new VNET in new resource group
+.\Azure_IaaS_DeployTool.ps1 -VName winserver1 -VMMarketImage w2k12r2
 #> 
 
 Param( 
@@ -100,15 +112,22 @@ Param(
 
  [Parameter(Mandatory=$False,ValueFromPipeline=$True)]
  [string]
- $NSGName = "AIPNSG"
+ $NSGName = "NSG",
+
+ [Parameter(Mandatory=$False,ValueFromPipeline=$True)]
+ [string]
+ $ExtMSAV = "False",
+ 
+ [Parameter(Mandatory=$False,ValueFromPipeline=$True)]
+ [string]
+ $ExtVMAccess = "False"
 
 )
-
 ## Global
 $SecureLocPassword=Convertto-SecureString $locpassword –asplaintext -force
 $Credential1 = New-Object System.Management.Automation.PSCredential ($locadmin,$SecureLocPassword)
 
-# Login-AzureRmAccount
+Login-AzureRmAccount
 Set-AzureRmContext -tenantid $TenantID -subscriptionid $SubscriptionID
 
 # Resource Group
@@ -129,7 +148,7 @@ $subnet7 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.51.6.0/24 -Na
 $subnet8 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.51.7.0/24 -Name management
 New-AzureRmVirtualNetwork -Location WestUS -Name $VNetName -ResourceGroupName $vNetResourceGroupName -AddressPrefix '10.51.0.0/21' -Subnet $subnet1,$subnet2,$subnet3,$subnet4, $subnet5, $subnet6, $subnet7 -Force;
 
-Get-AzureRmVirtualNetwork -Name VNET -ResourceGroupName MyNewRes7 | Get-AzureRmVirtualNetworkSubnetConfig | ft "addressprefix"
+Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Get-AzureRmVirtualNetworkSubnetConfig | ft "addressprefix"
 
 Write-Host "Completed deployment of new VNET"
 }
@@ -146,9 +165,9 @@ Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vNetResourceG
 
 
 ## Add Non Image Specific objects
-# Storage
 $StorageAccount = New-AzureRmStorageAccount -ResourceGroupName $ResourceGroupName -Name $StorageName -Type $StorageType -Location $Location
 
+## New-AzureRmAvailabilitySet -Name $AvailSet -ResourceGroupName $ResourceGroupName -Location $Location -PlatformFaultDomainCount 3
 
 switch -Wildcard ($vmMarketImage)
     {
@@ -294,5 +313,21 @@ $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -Vhd
 Write-Host "Starting Azure VM Creation"
 New-AzureRmVM -ResourceGroupName $ResourceGroupName -Location $Location -VM $VirtualMachine -Verbose 
 Write-Host "Deployment Completed"
+
+If($ExtVMAccess -eq "True")
+{
+Write-Host "VM Access Agent Deployment in Progress"
+Set-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "VMAccess" -ExtensionType "VMAccessAgent" -Publisher "Microsoft.Compute" -typeHandlerVersion "2.0" -Location Westus -Verbose
+Set-AzureRmVMAccessExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "VMAccess" -Location Westus -Verbose
+Get-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "VMAccess"
+}
+If($ExtMSAV -eq "True")
+{
+Write-Host "MSAV Agent Deployment in Progress"
+Set-AzureRmVMExtension  -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "MSAVExtension" -ExtensionType "IaaSAntimalware" -Publisher "Microsoft.Azure.Security" -typeHandlerVersion 1.4 -Location $Location
+Set-AzureRmVMAccessExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "MSAVExtension" -Location Westus
+Get-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "MSAVExtension" -Status
+}
+
 Get-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName | ft "IpAddress"
 Write-Host "Remote Access availble via IP Address above"
