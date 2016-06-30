@@ -30,34 +30,42 @@ Deployment runtime positional parameters examples:
 
 Runtime named parameters examples:
 Deploy SQL Server 2016 to existing VNET in existing resource group  
-.\Azure_IaaS_Deploy.ps1 -VMName sqlserver1 -VMMarketImage SQL
+.\Azure_IaaS_DeployTool.ps1 -VMName sqlserver1 -VMMarketImage SQL
 --------------------------------------------------------------------------------------------------------
 Deploy PFSense Server to existing VNET in existing resource group 
-.\Azure_IaaS_Deploy.ps1 -VMName pfserver1 -VMMarketImage Pfsense
+.\Azure_IaaS_DeployTool.ps1 -VMName pfserver1 -VMMarketImage Pfsense
 --------------------------------------------------------------------------------------------------------
 Deploy PFSense Server to a new VNET in new resource group 
-.\Azure_IaaS_Deploy.ps1 -VMName pfserver1 -VMMarketImage Pfsense -NewVNET True -VNETName NewVNET -ResourceGroupName INFRA_RG
+.\Azure_IaaS_DeployTool.ps1 -VMName pfserver1 -VMMarketImage Pfsense -NewVNET True -VNETName NewVNET -ResourceGroupName INFRA_RG
 --------------------------------------------------------------------------------------------------------
 Deploy Windows 2012 R2 Server to a new VNET in new resource group
-.\Azure_IaaS_Deploy.ps1 -VMName winserver1 -VMMarketImage w2k12r2
+.\Azure_IaaS_DeployTool.ps1 -VMName winserver1 -VMMarketImage w2k12r2
 #> 
 [CmdletBinding()]
 Param( 
  [Parameter(Mandatory=$False,ValueFromPipeline=$True,Position=1)]
  [string]
- $vmMarketImage = "PFsense",
+ $vmMarketImage = "Red72",
 
  [Parameter(Mandatory=$False,ValueFromPipeline=$True,Position=5)]
  [string]
- $NewVnet = "False",
+ $NewVnet = "True",
 
- [Parameter(Mandatory=$True,ValueFromPipeline=$True)]
+ [Parameter(Mandatory=$False,ValueFromPipeline=$True,Position=0)]
  [string]
- $VMName = 'server001',
+ $VMName = 'mynewvm1',
+
+ [Parameter(Mandatory=$False,ValueFromPipeline=$True)]
+ [string]
+ $VM = ($VMName | Out-String),
  
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
- $StorageName = $VMName + "str",
+ $GenerateName = -join ((65..90) + (97..122) | Get-Random -Count 3 | % {[char]$_}) + "aip",
+
+ [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+ [string]
+ $StorageName = $VMName + "aip",
  
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
@@ -113,7 +121,7 @@ Param(
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
- $NSGName = "NSG",
+ $NSGName = "AIPNSG",
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
@@ -126,10 +134,9 @@ Param(
 
 # Login-AzureRmAccount
 # Set-AzureRmContext -subscriptionid $SubscriptionID -TenantId $TenantID
-# Add-AzureRmAccount -TenantId $TenantID
+Add-AzureRmAccount -TenantId $TenantID
 
-Function Do-CreateResourceGroups {
-	[CmdletBinding()]
+Function Create-ResourceGroups {
 	param()
 	BEGIN {
 {
@@ -142,8 +149,7 @@ New-AzureRmResourceGroup -Name $vNetResourceGroupName -Location $Location -force
     }
     END {}
 }
-Function Do-CreateNetwork {
-	[CmdletBinding()]
+Function Create-Network {
 	param()
 	BEGIN {
 {
@@ -164,27 +170,30 @@ Write-Host "Completed deployment of new VNET"
     }
     END {}
 }
-Function Do-CreateNSG {
-	[CmdletBinding()]
+Function Create-NSG {
 	param()
 	BEGIN {
+Write-Host "Network Security Group Preparation in Process"
 {
 }
 }
 	PROCESS {
-Write-Host "Network Security Group Preparation in Process"
-$httprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTP" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "80" -DestinationPortRange "80" -SourceAddressPrefix "*" -DestinationAddressPrefix "10.51.0.0/21" -Access Allow -Direction Inbound -Priority 200
-$httpsrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTPS" -Description "HTTPS Exception for Web frontends" -Protocol Tcp -SourcePortRange "443" -DestinationPortRange "443" -SourceAddressPrefix "*" -DestinationAddressPrefix "10.51.0.0/21" -Access Allow -Direction Inbound -Priority 201
-$sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_SSH" -Description "SSH Exception for Web frontends" -Protocol Tcp -SourcePortRange "22" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix "10.51.0.0/21" -Access Allow -Direction Inbound ` -Priority 203
-$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vNetResourceGroupName -Location "West US" -Name $NSGName -SecurityRules $httprule,$httpsrule, $sshrule -force
-
-Write-Host "Network Security Group Preparation complete"
+$httprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTP" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "80" -DestinationPortRange "80" -SourceAddressPrefix "*" -DestinationAddressPrefix "10.51.0.0/21" -Access Allow -Direction Inbound -Priority 200 -Verbose
+$httpsrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTPS" -Description "HTTPS Exception for Web frontends" -Protocol Tcp -SourcePortRange "443" -DestinationPortRange "443" -SourceAddressPrefix "*" -DestinationAddressPrefix "10.51.0.0/21" -Access Allow -Direction Inbound -Priority 201 -Verbose
+$sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_SSH" -Description "SSH Exception for Web frontends" -Protocol Tcp -SourcePortRange "22" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix "10.51.0.0/21" -Access Allow -Direction Inbound ` -Priority 203 -Verbose
+$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vNetResourceGroupName -Location "West US" -Name $NSGName -SecurityRules $httprule,$httpsrule, $sshrule -force -Verbose
     }
-    END {}
+    END {
+    Write-Host "Network Security Group Preparation complete"
+    Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vNetResourceGroupName | ft "Name"
+    }
 }
-Function Do-CreateImage {
-	[CmdletBinding()]
-	param()
+Function Create-Image {
+	param(
+ [Parameter(Mandatory=$False,ValueFromPipeline=$True)]
+ [string[]]
+ $VMNames = $VMName
+)
 	BEGIN {
 $SecureLocPassword=Convertto-SecureString $locpassword –asplaintext -force
 $Credential1 = New-Object System.Management.Automation.PSCredential ($locadmin,$SecureLocPassword)
@@ -385,24 +394,24 @@ $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -Vhd
 }
         default{"An unsupported image was referenced"}
     }
-Write-Host "Starting VM Creation"
-New-AzureRmVM -ResourceGroupName $ResourceGroupName -Location $Location -VM $VirtualMachine -Verbose
-Write-Host "Completing VM Deployment"
+
 }
 
 	PROCESS {
-		Foreach ($vm in $VMNames) {
+		Foreach ($VM in $VMName) {
+
+Write-Host "Starting VM Creation"
+New-AzureRmVM -ResourceGroupName $ResourceGroupName -Location $Location -VM $VirtualMachine -Verbose
 
 		}
     }
-    END {}
+    END {
+    Write-Host "Completing VM Deployment"
+    }
 }
-Function Do-ExtVMAccess {
-	[CmdletBinding()]
+Function Ext-VMAccess {
 	param()
 	BEGIN {
-{
-}
 }
 	PROCESS {
 Write-Host "Adding VM Access Extensions"
@@ -414,12 +423,9 @@ Write-Host "VM access Preparation complete"
     }
     END {}
 }
-Function Do-ExtMSAV {
-	[CmdletBinding()]
+Function Ext-MSAV {
 	param()
 	BEGIN {
-{
-}
 }
 	PROCESS {
 Write-Host "Adding MSAV Extensions"
@@ -432,15 +438,15 @@ Write-Host "MSAV Agent Preparation complete"
     END {}
 }
 
-If($ResourceGroupName -ne $null) {Do-CreateResourceGroups}
-If($NewVnet -eq "True"){Do-CreateNetwork}
-If($NSGEnabled -eq "True"){Do-CreateNSG}
-If($VMName -ne $null) {Do-CreateImage}
-If($ExtMSAV -eq "True"){Do-ExtVMSAv}
-If($ExtVMAccess -eq "True"){Do-ExtVMAccess}
+If($ResourceGroupName -ne $null) {Create-ResourceGroups}
+If($NewVnet -eq "True"){Create-Network}
+If($NSGEnabled -eq "True"){Create-NSG}
+If($VMName -ne $null) {Create-Image}
+If($ExtMSAV -eq "True"){Ext-VMSAv}
+If($ExtVMAccess -eq "True"){Ext-VMAccess}
 
 Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | ft "Name"
 Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Get-AzureRmVirtualNetworkSubnetConfig | ft "addressprefix"
-Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vNetResourceGroupName | ft "Name"
+
 Get-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName | ft "IpAddress"
 Write-Host "Remote Access available via IP Address above"
