@@ -43,29 +43,29 @@ Deploy Windows 2012 R2 Server to a new VNET in new resource group
 #> 
 
 Param( 
- [Parameter(Mandatory=$False,ValueFromPipeline=$True,Position=1)]
+ [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=1)]
  [string]
  $vmMarketImage = "PFsense",
 
- [Parameter(Mandatory=$False,ValueFromPipeline=$True,Position=5)]
+ [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
  $NewVnet = "True",
 
- [Parameter(Mandatory=$False,ValueFromPipeline=$True,Position=0)]
+ [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
  [string]
- $VMName = "pfsrv001",
+ $VMName = "pfsrv001b",
 
- [Parameter(Mandatory=$False,ValueFromPipeline=$True,Position=2)]
+ [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=2)]
  [string]
  $ResourceGroupName = "RESGRP",
 
- [Parameter(Mandatory=$False,ValueFromPipeline=$True,Position=4)]
+ [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=3)]
  [string]
  $vNetResourceGroupName = "RESGRP",
 
- [Parameter(Mandatory=$False,ValueFromPipeline=$True,Position=3)]
+ [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=4)]
  [string]
- $VNetName = "AIPNETf",
+ $VNetName = "vNET",
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
@@ -79,7 +79,7 @@ Param(
  [string]
  $locpassword = 'PassW0rd!@1',
 
- [Parameter(Mandatory=$False,ValueFromPipeline=$True,Position=6)]
+ [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
  $NSGEnabled = "True",
 
@@ -95,9 +95,13 @@ Param(
  [string]
  $TenantID = '',
 
+  [Parameter(Mandatory=$False)]
+ [string]
+ $GenerateName = -join ((65..90) + (97..122) | Get-Random -Count 6 | % {[char]$_}) + "aip",
+ 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
- $StorageName = $VMName + "str",
+ $StorageName = $GenerateName + "str",
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
@@ -113,7 +117,7 @@ Param(
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
- $NSGName = "AIPNS",
+ $NSGName = "NSG1",
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
@@ -143,6 +147,24 @@ Param(
 
 )
 
+Function RegisterRP {
+    Param(
+        [string]$ResourceProviderNamespace
+    )
+
+    Write-Host "Registering resource provider '$ResourceProviderNamespace'";
+    Register-AzureRmResourceProvider -ProviderNamespace $ResourceProviderNamespace -Force;
+}
+
+# Register RPs
+$resourceProviders = @("microsoft.compute","microsoft.network","microsoft.storage");
+if($resourceProviders.length) {
+    Write-Host "Registering resource providers"
+    foreach($resourceProvider in $resourceProviders) {
+        RegisterRP($resourceProvider);
+    }
+}
+
 ## Global
 $SecureLocPassword=Convertto-SecureString $locpassword –asplaintext -force
 $Credential1 = New-Object System.Management.Automation.PSCredential ($locadmin,$SecureLocPassword)
@@ -155,9 +177,9 @@ try {
 Get-AzureRmResourceGroup -Location $Location -ErrorAction Stop
 }
 catch {
-    Write-Host -foregroundcolor Yellow `
-    "User has not authenticated, use Add-AzureRmAccount or $($_.Exception.Message)"; `
-    continue 
+	Write-Host -foregroundcolor Yellow `
+	"User has not authenticated, use Add-AzureRmAccount or $($_.Exception.Message)"; `
+	continue 
 }
 Finally { }
 
@@ -199,15 +221,15 @@ Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vNetResourceG
 
 try {
 Write-Host "Starting Storage Creation"
-$StorageAccount = New-AzureRmStorageAccount -ResourceGroupName $ResourceGroupName -Name $StorageName.ToLower() -Type $StorageType -Location $Location -ErrorAction Stop
+$StorageAccount = New-AzureRmStorageAccount -ResourceGroupName $ResourceGroupName -Name $StorageName.ToLower() -Type $StorageType -Location $Location -ErrorAction Continue
 }
 catch {
-    Write-Host -foregroundcolor Yellow `
-    "$($_.Exception.Message)"; `
-    continue 
+	Write-Host -foregroundcolor Yellow `
+	"$($_.Exception.Message)"; `
+	continue 
 }
 Finally {
-Get-AzureRmStorageAccount -Name $StorageName -ResourceGroupName $ResourceGroupName | ft "StorageAccountName"
+Get-AzureRmStorageAccount -Name $StorageName.ToLower() -ResourceGroupName $ResourceGroupName | ft "StorageAccountName"
 }
 
 ## Add Non Image Specific objects
@@ -237,6 +259,7 @@ $VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -Compu
 $VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName netgate -Offer netgate-pfsense-appliance -Skus pfsense-router-fw-vpn-225 -Version "latest"
 $VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $Interface1.Id -Primary
 $VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $Interface2.Id
+$osDiskCaching = "ReadWrite"
 $OSDiskName = $VMName + "OSDisk"
 $OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDiskName + ".vhd"
 $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching
@@ -258,6 +281,7 @@ $VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize
 $VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
 $VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName "Redhat" -Offer "rhel" -Skus "7.2" -Version "latest"
 $VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $Interface1.Id -Primary
+$osDiskCaching = "ReadWrite"
 $OSDiskName = $VMName + "OSDisk"
 $OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDiskName + ".vhd"
 $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching
@@ -279,6 +303,7 @@ $VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize
 $VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
 $VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName "Redhat" -Offer "rhel" -Skus "6.7" -Version "latest"
 $VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $Interface1.Id -Primary
+$osDiskCaching = "ReadWrite"
 $OSDiskName = $VMName + "OSDisk"
 $OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDiskName + ".vhd"
 $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching
@@ -300,6 +325,7 @@ $VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize
 $VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
 $VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName "Bitnami" -Offer "mysql" -Skus "5-6" -Version "latest"
 $VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $Interface1.Id -Primary
+$osDiskCaching = "ReadWrite"
 $OSDiskName = $VMName + "OSDisk"
 $OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDiskName + ".vhd"
 $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching
@@ -321,6 +347,7 @@ $VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize
 $VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -Windows -ComputerName $VMName -Credential $Credential1 -ProvisionVMAgent -EnableAutoUpdate
 $VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName "MicrosoftWindowsServer" -Offer "WindowsServer" -Skus "2012-R2-Datacenter" -Version "latest"
 $VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $Interface1.Id -Primary
+$osDiskCaching = "ReadWrite"
 $OSDiskName = $VMName + "OSDisk"
 $OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDiskName + ".vhd"
 $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching
@@ -342,6 +369,7 @@ $VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize
 $VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -Windows -ComputerName $VMName -Credential $Credential1 -ProvisionVMAgent -EnableAutoUpdate
 $VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName "MicrosoftSQLServer" -Offer "SQL2016-WS2012R2" -Skus "Enterprise" -Version "latest"
 $VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $Interface1.Id -Primary
+$osDiskCaching = "ReadWrite"
 $OSDiskName = $VMName + "OSDisk"
 $OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDiskName + ".vhd"
 $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching
@@ -364,6 +392,7 @@ $VirtualMachine = Set-AzureRmVMPlan -VM $VirtualMachine -Name msr80-win2012r2 -P
 $VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -Windows -ComputerName $VMName -Credential $Credential1 -ProvisionVMAgent -EnableAutoUpdate
 $VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName microsoft-r-products -Offer microsoft-r-server -Skus msr80-win2012r2 -Version "latest"
 $VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $Interface1.Id -Primary
+$osDiskCaching = "ReadWrite"
 $OSDiskName = $VMName + "OSDisk"
 $OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDiskName + ".vhd"
 $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching
@@ -385,6 +414,7 @@ $VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize
 $VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -Windows -ComputerName $VMName -Credential $Credential1 -ProvisionVMAgent -EnableAutoUpdate
 $VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName "MicrosoftWindowsServer" -Offer "WindowsServer" -Skus "2008-R2-SP1" -Version "latest"
 $VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $Interface1.Id -Primary
+$osDiskCaching = "ReadWrite"
 $OSDiskName = $VMName + "OSDisk"
 $OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDiskName + ".vhd"
 $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching
@@ -406,6 +436,7 @@ $VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize
 $VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -Windows -ComputerName $VMName -Credential $Credential1 -ProvisionVMAgent -EnableAutoUpdate
 $VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName "MicrosoftWindowsServer" -Offer "WindowsServer" -Skus "Windows-Server-Technical-Preview" -Version "latest"
 $VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $Interface1.Id -Primary
+$osDiskCaching = "ReadWrite"
 $OSDiskName = $VMName + "OSDisk"
 $OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDiskName + ".vhd"
 $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching
@@ -428,6 +459,7 @@ $VirtualMachine = Set-AzureRmVMPlan -VM $VirtualMachine -Name azure_marketplace_
 $VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName chef-software -Offer chef-server -Skus azure_marketplace_100 -Version "latest"
 $VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
 $VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $Interface1.Id -Primary
+$osDiskCaching = "ReadWrite"
 $OSDiskName = $VMName + "OSDisk"
 $OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDiskName + ".vhd"
 $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching
@@ -449,6 +481,7 @@ $VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize
 $VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName OpenLogic -Offer Centos -Skus "7.2" -Version "latest"
 $VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
 $VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $Interface1.Id -Primary
+$osDiskCaching = "ReadWrite"
 $OSDiskName = $VMName + "OSDisk"
 $OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDiskName + ".vhd"
 $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching
@@ -470,6 +503,7 @@ $VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize
 $VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName Canonical -Offer UbuntuServer -Skus "14.04.4-LTS" -Version "latest"
 $VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
 $VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $Interface1.Id -Primary
+$osDiskCaching = "ReadWrite"
 $OSDiskName = $VMName + "OSDisk"
 $OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDiskName + ".vhd"
 $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching
@@ -491,6 +525,7 @@ $VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize
 $VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName SUSE -Offer openSUSE -Skus "13.2" -Version "latest"
 $VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
 $VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $Interface1.Id -Primary
+$osDiskCaching = "ReadWrite"
 $OSDiskName = $VMName + "OSDisk"
 $OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDiskName + ".vhd"
 $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching
@@ -516,6 +551,7 @@ $VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName ch
 $VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
 $VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $Interface1.Id -Primary
 $VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $Interface2.Id
+$osDiskCaching = "ReadWrite"
 $OSDiskName = $VMName + "OSDisk"
 $OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDiskName + ".vhd"
 $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching
@@ -529,9 +565,9 @@ Write-Host "Starting Azure VM Creation"
 New-AzureRmVM -ResourceGroupName $ResourceGroupName -Location $Location -VM $VirtualMachine -ErrorAction Stop | ft "StatusCode"
 }
 catch {
-    Write-Host -foregroundcolor Yellow `
-    "$($_.Exception.Message)"; `
-    continue 
+	Write-Host -foregroundcolor Yellow `
+	"$($_.Exception.Message)"; `
+	continue 
 }
 Finally {}
 
@@ -566,9 +602,33 @@ Get-AzureRmVMAEMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName
 
 If ($NoPublicIP -eq "True"){
 Write-Host "No Public IP created"
+switch ($DepSub1)
+{
+1 {Write-Host "Deployed to Perimeter Subnet 10.51.0.0/24"}
+2 {Write-Host "Deployed to Web Subnet 10.51.1.0/24"}
+3 {Write-Host "Deployed to Intake Subnet 10.51.2.0/24"}
+4 {Write-Host "Deployed to data Subnet 10.51.3.0/24"}
+5 {Write-Host "Deployed to Monitoring Subnet 10.51.4.0/24"}
+6 {Write-Host "Deployed to analytics Subnet 10.51.5.0/24"}
+7 {Write-Host "Deployed to backup Subnet 10.51.6.0/24"}
+8 {Write-Host "Deployed to management Subnet 10.51.7.0/24"}
+default {No Subnet Found}
+}
 }
 else
 {
+switch ($DepSub1)
+{
+1 {Write-Host "Deployed to Perimeter Subnet 10.51.0.0/24"}
+2 {Write-Host "Deployed to Web Subnet 10.51.1.0/24"}
+3 {Write-Host "Deployed to Intake Subnet 10.51.2.0/24"}
+4 {Write-Host "Deployed to data Subnet 10.51.3.0/24"}
+5 {Write-Host "Deployed to Monitoring Subnet 10.51.4.0/24"}
+6 {Write-Host "Deployed to analytics Subnet 10.51.5.0/24"}
+7 {Write-Host "Deployed to backup Subnet 10.51.6.0/24"}
+8 {Write-Host "Deployed to management Subnet 10.51.7.0/24"}
+default {No Subnet Found}
+}
 Get-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName | ft "IpAddress"
 Write-Host "Remote Access availble via IP Address above"
 }
