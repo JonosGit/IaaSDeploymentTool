@@ -156,14 +156,7 @@ Function RegisterRP {
     Register-AzureRmResourceProvider -ProviderNamespace $ResourceProviderNamespace -Force;
 }
 
-# Register RPs
-$resourceProviders = @("microsoft.compute","microsoft.network","microsoft.storage");
-if($resourceProviders.length) {
-    Write-Host "Registering resource providers"
-    foreach($resourceProvider in $resourceProviders) {
-        RegisterRP($resourceProvider);
-    }
-}
+
 
 ## Global
 $SecureLocPassword=Convertto-SecureString $locpassword –asplaintext -force
@@ -172,6 +165,14 @@ $Credential1 = New-Object System.Management.Automation.PSCredential ($locadmin,$
 
 Add-AzureRmAccount -TenantId $TenantID -SubscriptionId $SubscriptionID
 
+# Register RPs
+$resourceProviders = @("microsoft.compute","microsoft.network","microsoft.storage");
+if($resourceProviders.length) {
+    Write-Host "Registering resource providers"
+    foreach($resourceProvider in $resourceProviders) {
+        RegisterRP($resourceProvider);
+    }
+}
 
 try {
 Get-AzureRmResourceGroup -Location $Location -ErrorAction Stop
