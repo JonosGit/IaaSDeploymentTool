@@ -250,7 +250,11 @@ $Credential1 = New-Object System.Management.Automation.PSCredential ($locadmin,$
 # Add-AzureRmAccount -TenantId $TenantID -SubscriptionId $SubscriptionID
 
 ## To use a Profile Json file for auth
-Select-AzureRmProfile -Path “c:\Templates\pf.json”
+# Select-AzureRmProfile -Path “c:\Templates\pf.json”
+
+
+# Verify Auth
+LogintoAzure
 
 # Register RPs
 $resourceProviders = @("microsoft.compute","microsoft.network","microsoft.storage");
@@ -260,8 +264,6 @@ if($resourceProviders.length) {
 		RegisterRP($resourceProvider);
 	}
 }
-# Verify Auth
-{LogintoAzure}
 
 # Create Resource Groups
 $resourcegroups = @($ResourceGroupName,$vNetResourceGroupName);
