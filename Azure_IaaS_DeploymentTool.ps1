@@ -143,52 +143,78 @@ Param(
  $DepSub2 = 2,
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
- $NoPublicIP = "False"
-
+ $NoPublicIP = "False",
+ [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+ [string]
+ $AvailabilitySet = "False",
+ [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+ [string]
+ $AvailSetName = "AVSET4"
 )
 
 Function RegisterRP {
-    Param(
-        [string]$ResourceProviderNamespace
-    )
+	Param(
+		[string]$ResourceProviderNamespace
+	)
 
-    Write-Host "Registering resource provider '$ResourceProviderNamespace'";
-    Register-AzureRmResourceProvider -ProviderNamespace $ResourceProviderNamespace -Force;
+	Write-Host "Registering resource provider '$ResourceProviderNamespace'";
+	Register-AzureRmResourceProvider -ProviderNamespace $ResourceProviderNamespace -Force;
 }
+Function LogintoAzure(){
+		$Error_WrongCredentials = $True
+		$AzureAccount = $null
 
+		while ($Error_WrongCredentials) {
 
+	Try {
+		Write-Host "Info : Please, Enter the credentials of an Admin account of Azure" -ForegroundColor Cyan
+		#$AzureCredentials = Get-Credential -Message "Please, Enter the credentials of an Admin account of your subscription"      
+		$AzureAccount = Login-AzureRmAccount
 
-## Global
-$SecureLocPassword=Convertto-SecureString $locpassword –asplaintext -force
-$Credential1 = New-Object System.Management.Automation.PSCredential ($locadmin,$SecureLocPassword)
+		if ($AzureAccount.Context.Tenant -eq $null) 
+				  {
+				   $Error_WrongCredentials = $True
+				   $Output = " Warning : The Credentials for [" + $AzureAccount.Context.Account.id +"] are not valid or the user does not have Azure subscriptions "
+				   Write-Host $Output -BackgroundColor Red -ForegroundColor Yellow
+				   } 
+				 else
+				  {$Error_WrongCredentials = $false ; return $AzureAccount}
+		}
 
+	Catch {
+		$Output = " Warning : The Credentials for [" + $AzureAccount.Context.Account.id +"] are not valid or the user does not have Azure subscriptions "
+		Write-Host $Output -BackgroundColor Red -ForegroundColor Yellow
+		Generate-LogVerbose -Output $logFile -Message  $Output 
+		}
 
-Add-AzureRmAccount -TenantId $TenantID -SubscriptionId $SubscriptionID
+	Finally {
+				
+			}
 
-# Register RPs
-$resourceProviders = @("microsoft.compute","microsoft.network","microsoft.storage");
-if($resourceProviders.length) {
-    Write-Host "Registering resource providers"
-    foreach($resourceProvider in $resourceProviders) {
-        RegisterRP($resourceProvider);
-    }
 }
+		return $AzureAccount
 
-try {
-Get-AzureRmResourceGroup -Location $Location -ErrorAction Stop
-}
-catch {
-	Write-Host -foregroundcolor Yellow `
-	"User has not authenticated, use Add-AzureRmAccount or $($_.Exception.Message)"; `
-	continue 
-}
-Finally { }
-
-New-AzureRmResourceGroup -Name $ResourceGroupName -Location $Location -force | ft ResourceGroupName
-New-AzureRmResourceGroup -Name $vNetResourceGroupName -Location $Location -force | ft ResourceGroupName
-
-If($NewVnet -eq "True")
+		}
+Function ProvisionRGs {
+	Param(
+		[string]$ResourceGroupName
+	)
+	$resourceGroup = Get-AzureRmResourceGroup -Name $ResourceGroupName -ErrorAction SilentlyContinue
+if(!$resourceGroup)
 {
+	Write-Host "Resource group '$ResourceGroupName' does not exist. To create a new resource group, please enter a location.";
+	if(!$Location) {
+		$Location = Read-Host "resourceGroupLocation";
+	}
+	Write-Host "Creating resource group '$resourceGroupName' in location '$Location'";
+	New-AzureRmResourceGroup -Name $resourceGroupName -Location $Location
+}
+else{
+	Write-Host "Using existing resource group '$ResourceGroupName'";
+}
+
+}
+Function ProvisionNet {
 ## Create Virtual Network
 Write-Host "Network Preparation in Process"
 $subnet1 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.51.0.0/24 -Name perimeter
@@ -201,22 +227,65 @@ $subnet7 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.51.6.0/24 -Na
 $subnet8 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.51.7.0/24 -Name management
 New-AzureRmVirtualNetwork -Location WestUS -Name $VNetName -ResourceGroupName $vNetResourceGroupName -AddressPrefix '10.51.0.0/21' -Subnet $subnet1,$subnet2,$subnet3,$subnet4,$subnet5,$subnet6,$subnet7,$subnet8 -Force;
 Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Get-AzureRmVirtualNetworkSubnetConfig | ft "Name"
-
-
 Write-Host "Completed deployment of new VNET" $VNetName
 }
-else
- {Write-Host "Create new VNET not selected...Using Existing VNET" $VNetName }
-
-If($NSGEnabled -eq "True")
-{
+Function CreateNSG {
 Write-Host "Network Security Group Preparation in Process"
 $httprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTP" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "80" -DestinationPortRange "80" -SourceAddressPrefix "*" -DestinationAddressPrefix "10.51.0.0/21" -Access Allow -Direction Inbound -Priority 200
 $httpsrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTPS" -Description "HTTPS Exception for Web frontends" -Protocol Tcp -SourcePortRange "443" -DestinationPortRange "443" -SourceAddressPrefix "*" -DestinationAddressPrefix "10.51.0.0/21" -Access Allow -Direction Inbound -Priority 201
 $sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_SSH" -Description "SSH Exception for Web frontends" -Protocol Tcp -SourcePortRange "22" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix "10.51.0.0/21" -Access Allow -Direction Inbound ` -Priority 203
 $nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vNetResourceGroupName -Location "West US" -Name $NSGName -SecurityRules $httprule,$httpsrule, $sshrule
 Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vNetResourceGroupName
-} else
+}
+
+## Global
+$SecureLocPassword=Convertto-SecureString $locpassword –asplaintext -force
+$Credential1 = New-Object System.Management.Automation.PSCredential ($locadmin,$SecureLocPassword)
+
+## FOR ORG AUTH (Not Hotmail or Live Domains)
+# $Credential = Get-Credential
+# Add-AzureRmAccount -Credential $Credential
+
+## FOR Windows Account AUTH (Hotmail or Live Domains)
+# Add-AzureRmAccount -TenantId $TenantID -SubscriptionId $SubscriptionID
+
+## To use a Profile Json file for auth
+Select-AzureRmProfile -Path “c:\Templates\pf.json”
+
+# Register RPs
+$resourceProviders = @("microsoft.compute","microsoft.network","microsoft.storage");
+if($resourceProviders.length) {
+	Write-Host "Registering resource providers"
+	foreach($resourceProvider in $resourceProviders) {
+		RegisterRP($resourceProvider);
+	}
+}
+# Verify Auth
+{LogintoAzure}
+
+# Create Resource Groups
+$resourcegroups = @($ResourceGroupName,$vNetResourceGroupName);
+if($resourcegroups.length) {
+	Write-Host "Resource Group Creation Started"
+	foreach($resourcegroup in $resourcegroups) {
+		ProvisionRGs($resourcegroup);
+	}
+	}
+
+# Create Network
+If($NewVnet -eq "True")
+{
+Write-Host "Network Preparation in Process"
+ProvisionNet}
+else
+ {Write-Host "Create new VNET not selected...Using Existing VNET" $VNetName }
+
+ # Create NSG
+If($NSGEnabled -eq "True")
+{
+Write-Host "Network Security Group Preparation in Process"
+CreateNSG}
+ else
 { Write-Host "Create new NSG not selected...Using" $NSGName }
 
 
@@ -232,10 +301,6 @@ catch {
 Finally {
 Get-AzureRmStorageAccount -Name $StorageName.ToLower() -ResourceGroupName $ResourceGroupName | ft "StorageAccountName"
 }
-
-## Add Non Image Specific objects
-
-
 
 switch -Wildcard ($vmMarketImage)
 	{
@@ -254,7 +319,17 @@ $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResour
 $Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id
 $Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub2].Id
 }
+If ($AvailabilitySet -eq "True")
+ {
+New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location
+Write-Host "Created Availability Set"
+$AvailabilitySet = Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName
+$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet.Id
+}
+else
+{
 $VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize
+}
 $VirtualMachine = Set-AzureRmVMPlan -VM $VirtualMachine -Name pfsense-router-fw-vpn-225 -Publisher netgate -Product netgate-pfsense-appliance
 $VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
 $VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName netgate -Offer netgate-pfsense-appliance -Skus pfsense-router-fw-vpn-225 -Version "latest"
@@ -263,7 +338,7 @@ $VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $Interfa
 $osDiskCaching = "ReadWrite"
 $OSDiskName = $VMName + "OSDisk"
 $OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDiskName + ".vhd"
-$VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching
+$VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching 
 }
 		"*red72*" {
 Write-Host "Red Hat 7.2 VM Image Preparation in Process"
@@ -278,7 +353,17 @@ Write-Host "Skipping Public IP creation..."
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
 $Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id
 }
+If ($AvailabilitySet -eq "True")
+ {
+New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location
+Write-Host "Created Availability Set"
+$AvailabilitySet = Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName
+$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet.Id
+}
+else
+{
 $VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize
+}
 $VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
 $VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName "Redhat" -Offer "rhel" -Skus "7.2" -Version "latest"
 $VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $Interface1.Id -Primary
@@ -300,7 +385,17 @@ Write-Host "Skipping Public IP creation..."
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
 $Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id
 }
+If ($AvailabilitySet -eq "True")
+ {
+New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location
+Write-Host "Created Availability Set"
+$AvailabilitySet = Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName
+$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet.Id
+}
+else
+{
 $VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize
+}
 $VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
 $VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName "Redhat" -Offer "rhel" -Skus "6.7" -Version "latest"
 $VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $Interface1.Id -Primary
@@ -322,7 +417,17 @@ Write-Host "Skipping Public IP creation..."
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
 $Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id
 }
+If ($AvailabilitySet -eq "True")
+ {
+New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location
+Write-Host "Created Availability Set"
+$AvailabilitySet = Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName
+$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet.Id
+}
+else
+{
 $VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize
+}
 $VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
 $VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName "Bitnami" -Offer "mysql" -Skus "5-6" -Version "latest"
 $VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $Interface1.Id -Primary
@@ -344,7 +449,17 @@ Write-Host "Skipping Public IP creation..."
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
 $Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id
 }
+If ($AvailabilitySet -eq "True")
+ {
+New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location
+Write-Host "Created Availability Set"
+$AvailabilitySet = Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName
+$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet.Id
+}
+else
+{
 $VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize
+}
 $VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -Windows -ComputerName $VMName -Credential $Credential1 -ProvisionVMAgent -EnableAutoUpdate
 $VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName "MicrosoftWindowsServer" -Offer "WindowsServer" -Skus "2012-R2-Datacenter" -Version "latest"
 $VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $Interface1.Id -Primary
@@ -366,7 +481,17 @@ Write-Host "Skipping Public IP creation..."
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
 $Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id
 }
+If ($AvailabilitySet -eq "True")
+ {
+New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location
+Write-Host "Created Availability Set"
+$AvailabilitySet = Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName
+$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet.Id
+}
+else
+{
 $VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize
+}
 $VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -Windows -ComputerName $VMName -Credential $Credential1 -ProvisionVMAgent -EnableAutoUpdate
 $VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName "MicrosoftSQLServer" -Offer "SQL2016-WS2012R2" -Skus "Enterprise" -Version "latest"
 $VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $Interface1.Id -Primary
@@ -388,7 +513,17 @@ Write-Host "Skipping Public IP creation..."
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
 $Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id
 }
+If ($AvailabilitySet -eq "True")
+ {
+New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location
+Write-Host "Created Availability Set"
+$AvailabilitySet = Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName
+$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet.Id
+}
+else
+{
 $VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize
+}
 $VirtualMachine = Set-AzureRmVMPlan -VM $VirtualMachine -Name msr80-win2012r2 -Publisher microsoft-r-products -Product microsoft-r-server
 $VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -Windows -ComputerName $VMName -Credential $Credential1 -ProvisionVMAgent -EnableAutoUpdate
 $VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName microsoft-r-products -Offer microsoft-r-server -Skus msr80-win2012r2 -Version "latest"
@@ -411,7 +546,17 @@ Write-Host "Skipping Public IP creation..."
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
 $Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id
 }
+If ($AvailabilitySet -eq "True")
+ {
+New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location
+Write-Host "Created Availability Set"
+$AvailabilitySet = Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName
+$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet.Id
+}
+else
+{
 $VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize
+}
 $VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -Windows -ComputerName $VMName -Credential $Credential1 -ProvisionVMAgent -EnableAutoUpdate
 $VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName "MicrosoftWindowsServer" -Offer "WindowsServer" -Skus "2008-R2-SP1" -Version "latest"
 $VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $Interface1.Id -Primary
@@ -433,7 +578,17 @@ Write-Host "Skipping Public IP creation..."
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
 $Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id
 }
+If ($AvailabilitySet -eq "True")
+ {
+New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location
+Write-Host "Created Availability Set"
+$AvailabilitySet = Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName
+$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet.Id
+}
+else
+{
 $VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize
+}
 $VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -Windows -ComputerName $VMName -Credential $Credential1 -ProvisionVMAgent -EnableAutoUpdate
 $VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName "MicrosoftWindowsServer" -Offer "WindowsServer" -Skus "Windows-Server-Technical-Preview" -Version "latest"
 $VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $Interface1.Id -Primary
@@ -455,7 +610,17 @@ Write-Host "Skipping Public IP creation..."
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
 $Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id
 }
+If ($AvailabilitySet -eq "True")
+ {
+New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location
+Write-Host "Created Availability Set"
+$AvailabilitySet = Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName
+$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet.Id
+}
+else
+{
 $VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize
+}
 $VirtualMachine = Set-AzureRmVMPlan -VM $VirtualMachine -Name azure_marketplace_100 -Publisher chef-software -Product chef-server
 $VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName chef-software -Offer chef-server -Skus azure_marketplace_100 -Version "latest"
 $VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
@@ -478,7 +643,17 @@ Write-Host "Skipping Public IP creation..."
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
 $Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id
 }
+If ($AvailabilitySet -eq "True")
+ {
+New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location
+Write-Host "Created Availability Set"
+$AvailabilitySet = Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName
+$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet.Id
+}
+else
+{
 $VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize
+}
 $VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName OpenLogic -Offer Centos -Skus "7.2" -Version "latest"
 $VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
 $VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $Interface1.Id -Primary
@@ -500,7 +675,17 @@ Write-Host "Skipping Public IP creation..."
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
 $Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id
 }
+If ($AvailabilitySet -eq "True")
+ {
+New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location
+Write-Host "Created Availability Set"
+$AvailabilitySet = Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName
+$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet.Id
+}
+else
+{
 $VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize
+}
 $VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName Canonical -Offer UbuntuServer -Skus "14.04.4-LTS" -Version "latest"
 $VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
 $VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $Interface1.Id -Primary
@@ -522,7 +707,17 @@ Write-Host "Skipping Public IP creation..."
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
 $Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id
 }
+If ($AvailabilitySet -eq "True")
+ {
+New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location
+Write-Host "Created Availability Set"
+$AvailabilitySet = Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName
+$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet.Id
+}
+else
+{
 $VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize
+}
 $VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName SUSE -Offer openSUSE -Skus "13.2" -Version "latest"
 $VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
 $VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $Interface1.Id -Primary
@@ -546,7 +741,17 @@ $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResour
 $Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id
 $Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub2].Id
 }
+If ($AvailabilitySet -eq "True")
+ {
+New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location
+Write-Host "Created Availability Set"
+$AvailabilitySet = Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName
+$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet.Id
+}
+else
+{
 $VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize
+}
 $VirtualMachine = Set-AzureRmVMPlan -VM $VirtualMachine -Name sg-ngtp -Publisher checkpoint -Product check-point-r77-10
 $VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName checkpoint -Offer check-point-r77-10 -Skus sg-ngtp -Version "latest"
 $VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
@@ -562,8 +767,14 @@ $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -Vhd
 
 ## Create the VM in Azure
 try {
-Write-Host "Starting Azure VM Creation"
+$ProvisionVMs = @($VirtualMachine);
+if($ProvisionVMs.length) {
+	Write-Host "Starting Azure VM Creation"
+   foreach($provisionvm in $ProvisionVMs) {
 New-AzureRmVM -ResourceGroupName $ResourceGroupName -Location $Location -VM $VirtualMachine -ErrorAction Stop | ft "StatusCode"
+Write-Host "Completed deployment of new" $VMName
+}
+}
 }
 catch {
 	Write-Host -foregroundcolor Yellow `
@@ -571,8 +782,6 @@ catch {
 	continue 
 }
 Finally {}
-
-
 
 If($ExtVMAccess -eq "True")
 {
@@ -631,6 +840,6 @@ switch ($DepSub1)
 default {No Subnet Found}
 }
 Get-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName | ft "IpAddress"
-Write-Host "Remote Access availble via IP Address above"
+Write-Host "Remote Access available via IP Address above"
 }
-Write-Host $VMName.ToUpper() "deployed to Resource Group:" $ResourceGroupName "using Market Image:" $vmMarketImage "on VNET" $VNetName "in" $vNetResourceGroupName
+Write-Host $VMName.ToUpper() "deployed to Resource Group:" $ResourceGroupName "using Market Image:" $vmMarketImage "on VNET" $VNetName "in the VNET RG:" $vNetResourceGroupName
