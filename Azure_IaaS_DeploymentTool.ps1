@@ -21,51 +21,37 @@ Azure_IaaS_Deploy.ps1 -vmname -VMMarketImage -ResourceGroupName -VNETName -VNETR
 .EXAMPLES
 Deployment runtime positional parameters examples:
 
-.\Azure_IaaS_Deploy.ps1 myserver RedHat myresgroup myvnet -NewVNET True
-.\Azure_IaaS_Deploy.ps1 myserver2 RedHat myresgroup myvnet
-.\Azure_IaaS_Deploy.ps1 myserver3 Suse myresgroup myvnet
-.\Azure_IaaS_Deploy.ps1 myserver4 w2k12 myresgroup myvnet
-.\Azure_IaaS_Deploy.ps1 myserver5 rserver myresgroup myvnet
-.\Azure_IaaS_Deploy.ps1 myserver5 sql myresgroup myvnet
-
-Runtime named parameters examples:
-Deploy SQL Server 2016 to existing VNET in existing resource group  
-.\Azure_IaaS_DeployTool.ps1 -VMName sqlserver1 -VMMarketImage SQL
---------------------------------------------------------------------------------------------------------
-Deploy PFSense Server to existing VNET in existing resource group 
-.\Azure_IaaS_DeployTool.ps1 -VMName pfserver1 -VMMarketImage Pfsense
---------------------------------------------------------------------------------------------------------
-Deploy PFSense Server to a new VNET in new resource group 
-.\Azure_IaaS_DeployTool.ps1 -VMName pfserver1 -VMMarketImage Pfsense -NewVNET True -VNETName NewVNET -ResourceGroupName INFRA_RG
---------------------------------------------------------------------------------------------------------
-Deploy Windows 2012 R2 Server to a new VNET in new resource group
-.\Azure_IaaS_DeployTool.ps1 -VMName winserver1 -VMMarketImage w2k12r2
+\.Azure_IaaS_Deploy.ps1 red01 red67 -ResourceGroupName RedRG -vNetResourceGroupName RedRG -VNetName vNet -depsub1 3 -AvailabilitySet "True" -AvailSetName "10" -NoPublicIP "True"
+\.Azure_IaaS_Deploy.ps1 win01 w2k16 -ResourceGroupName WinRG -vNetResourceGroupName WinRG -VNetName vNet -depsub1 4 -NoPublicIP "True"
+\.Azure_IaaS_Deploy.ps1 pfs01 Pfsense -ResourceGroupName PFRG -vNetResourceGroupName PFRG -VNetName vNet -depsub1 1 -depsub2 2 -NewVnet True -NSGEnabled True
 #> 
+##Setting Global Paramaters##
 
+[CmdletBinding()]
 Param( 
- [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=1)]
+ [Parameter(Mandatory=$False,ValueFromPipeline=$true,ValueFromPipelinebyPropertyName=$true,Position=1)]
  [string]
- $vmMarketImage = "PFsense",
+ $vmMarketImage = "PfSense",
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
- $NewVnet = "True",
+ $NewVnet = "False",
 
- [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
+ [Parameter(Mandatory=$False,ValueFromPipeline=$true,ValueFromPipelinebyPropertyName=$true,Position=0)]
  [string]
- $VMName = "pfsrv001b",
+ $VMName = "pfsens01",
 
- [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=2)]
+ [Parameter(Mandatory=$False,ValueFromPipeline=$true,ValueFromPipelinebyPropertyName=$true,Position=2)]
  [string]
- $ResourceGroupName = "RESGRP",
+ $ResourceGroupName = "ResGrp",
 
- [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=3)]
+ [Parameter(Mandatory=$False,ValueFromPipeline=$true,ValueFromPipelinebyPropertyName=$true)]
  [string]
- $vNetResourceGroupName = "RESGRP",
+ $vNetResourceGroupName = $ResourceGroupName,
 
- [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=4)]
+ [Parameter(Mandatory=$False,ValueFromPipeline=$true,ValueFromPipelinebyPropertyName=$true,Position=3)]
  [string]
- $VNetName = "vNET",
+ $VNetName = "vnet",
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
@@ -81,7 +67,7 @@ Param(
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
- $NSGEnabled = "True",
+ $NSGEnabled = "False",
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
@@ -99,7 +85,7 @@ Param(
  [string]
  $GenerateName = -join ((65..90) + (97..122) | Get-Random -Count 6 | % {[char]$_}) + "aip",
  
- [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+ [Parameter(Mandatory=$False)]
  [string]
  $StorageName = $GenerateName + "str",
 
@@ -107,17 +93,17 @@ Param(
  [string]
  $StorageType = "Standard_GRS",
 
- [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+ [Parameter(Mandatory=$False)]
  [string]
- $InterfaceName1 = $VMName + "nic1",
+ $InterfaceName1 = $GenerateName + "nic1",
+
+ [Parameter(Mandatory=$False)]
+ [string]
+ $InterfaceName2 = $GenerateName + "nic2",
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
- $InterfaceName2 = $VMName + "nic2",
-
- [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
- [string]
- $NSGName = "NSG1",
+ $NSGName = "NSG",
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
@@ -149,9 +135,47 @@ Param(
  $AvailabilitySet = "False",
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
- $AvailSetName = "AVSET4"
+ $AvailSetName = "AVSET4",
+ [Parameter(Mandatory = $false)]
+ [PSObject] 
+ $provisionvm,
+ [Parameter(Mandatory = $false)]
+ [PSObject[]]
+ $ProvisionVMs
 )
+# Global
+$ErrorActionPreference = "Stop"
+$date = Get-Date -UFormat "%Y-%m-%d-%H-%M"
+$workfolder = "c:\Temp\"
+$logFile = $workfolder+'\'+$vmname+'-'+$date+'.log'
+$SecureLocPassword=Convertto-SecureString $locpassword –asplaintext -force
+$Credential1 = New-Object System.Management.Automation.PSCredential ($locadmin,$SecureLocPassword)
 
+
+# Fuctions
+Function WriteLog-Command([string]$Description, [ScriptBlock]$Command, [string]$LogFile, [string]$VMName ){
+Try{
+$Output = $Description+'  ... '
+Write-Host $Output -ForegroundColor Blue
+((Get-Date -UFormat "[%d-%m-%Y %H:%M:%S] ") + $Output) | Out-File -FilePath $LogFile -Append -Force
+$Result = Invoke-Command -ScriptBlock $Command 
+}
+Catch {
+$ErrorMessage = $_.Exception.Message
+$Output = 'Error '+$ErrorMessage
+((Get-Date -UFormat "[%d-%m-%Y %H:%M:%S] ") + $Output) | Out-File -FilePath $LogFile -Append -Force
+$Result = ""
+}
+Finally
+{
+if ($ErrorMessage -eq $null) {$Output = "[Completed]  $Description  ... "} else {$Output = "[Failed]  $Description  ... "}
+((Get-Date -UFormat "[%d-%m-%Y %H:%M:%S] ") + $Output) | Out-File -FilePath $LogFile -Append -Force
+
+}
+Return $Result
+
+
+}
 Function RegisterRP {
 	Param(
 		[string]$ResourceProviderNamespace
@@ -169,13 +193,13 @@ Function LogintoAzure(){
 	Try {
 		Write-Host "Info : Please, Enter the credentials of an Admin account of Azure" -ForegroundColor Cyan
 		#$AzureCredentials = Get-Credential -Message "Please, Enter the credentials of an Admin account of your subscription"      
-		$AzureAccount = Login-AzureRmAccount
+		$AzureAccount = Add-AzureRmAccount
 
-		if ($AzureAccount.Context.Tenant -eq $null) 
+		if ($AzureAccount -eq $null) 
 				  {
 				   $Error_WrongCredentials = $True
-				   $Output = " Warning : The Credentials for [" + $AzureAccount.Context.Account.id +"] are not valid or the user does not have Azure subscriptions "
-				   Write-Host $Output -BackgroundColor Red -ForegroundColor Yellow
+				   $Output = " Warning : The Credentials for [" + $AzureAccount +"] are not valid or the user does not have Azure subscriptions "
+				   Write-Host $Output -BackgroundColor Black -ForegroundColor Yellow
 				   } 
 				 else
 				  {$Error_WrongCredentials = $false ; return $AzureAccount}
@@ -183,7 +207,7 @@ Function LogintoAzure(){
 
 	Catch {
 		$Output = " Warning : The Credentials for [" + $AzureAccount.Context.Account.id +"] are not valid or the user does not have Azure subscriptions "
-		Write-Host $Output -BackgroundColor Red -ForegroundColor Yellow
+		Write-Host $Output -BackgroundColor Black -ForegroundColor Yellow
 		Generate-LogVerbose -Output $logFile -Message  $Output 
 		}
 
@@ -206,17 +230,20 @@ if(!$resourceGroup)
 	if(!$Location) {
 		$Location = Read-Host "resourceGroupLocation";
 	}
-	Write-Host "Creating resource group '$resourceGroupName' in location '$Location'";
-	New-AzureRmResourceGroup -Name $resourceGroupName -Location $Location
+	$Description = "Creating resource group $resourceGroupName in location $Location";
+	$Command = {New-AzureRmResourceGroup -Name $resourceGroupName -Location $Location}
+    WriteLog-Command -Description $Description -Command $Command -LogFile $LogFile
 }
 else{
-	Write-Host "Using existing resource group '$ResourceGroupName'";
+	$Description = "Using existing resource group $ResourceGroupName";
+    $Command = {Get-AzureRmResourceGroup -Name $ResourceGroupName -ErrorAction SilentlyContinue}
+    WriteLog-Command -Description $Description -Command $Command -LogFile $LogFile
 }
 
 }
 Function ProvisionNet {
 ## Create Virtual Network
-Write-Host "Network Preparation in Process"
+$Description = {"Network Preparation in Process"}
 $subnet1 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.51.0.0/24 -Name perimeter
 $subnet2 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.51.1.0/24 -Name web
 $subnet3 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.51.2.0/24 -Name intake
@@ -226,36 +253,49 @@ $subnet6 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.51.5.0/24 -Na
 $subnet7 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.51.6.0/24 -Name backup
 $subnet8 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.51.7.0/24 -Name management
 New-AzureRmVirtualNetwork -Location WestUS -Name $VNetName -ResourceGroupName $vNetResourceGroupName -AddressPrefix '10.51.0.0/21' -Subnet $subnet1,$subnet2,$subnet3,$subnet4,$subnet5,$subnet6,$subnet7,$subnet8 -Force;
-Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Get-AzureRmVirtualNetworkSubnetConfig | ft "Name"
-Write-Host "Completed deployment of new VNET" $VNetName
+$Command = {Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Get-AzureRmVirtualNetworkSubnetConfig | ft "Name" }
+$Description = "Completed deployment of new VNET $VNetName"
+WriteLog-Command -Description $Description -Command $Command -LogFile $LogFile
 }
+
+
 Function CreateNSG {
-Write-Host "Network Security Group Preparation in Process"
 $httprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTP" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "80" -DestinationPortRange "80" -SourceAddressPrefix "*" -DestinationAddressPrefix "10.51.0.0/21" -Access Allow -Direction Inbound -Priority 200
 $httpsrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTPS" -Description "HTTPS Exception for Web frontends" -Protocol Tcp -SourcePortRange "443" -DestinationPortRange "443" -SourceAddressPrefix "*" -DestinationAddressPrefix "10.51.0.0/21" -Access Allow -Direction Inbound -Priority 201
 $sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_SSH" -Description "SSH Exception for Web frontends" -Protocol Tcp -SourcePortRange "22" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix "10.51.0.0/21" -Access Allow -Direction Inbound ` -Priority 203
-$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vNetResourceGroupName -Location "West US" -Name $NSGName -SecurityRules $httprule,$httpsrule, $sshrule
-Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vNetResourceGroupName
+$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vNetResourceGroupName -Location "West US" -Name $NSGName -SecurityRules $httprule,$httpsrule, $sshrule -force
+$Description = "Completed deployment of NSG Configuration $NSGName"
+$Command = {Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vNetResourceGroupName}
+WriteLog-Command -Description $Description -Command $Command -LogFile $LogFile
 }
+Function SubnetMatch {
+	Param(
+		[INT]$Subnet
+	)
+switch ($Subnet)
+{
+1 {Write-Host "Deployed to Perimeter Subnet 10.51.0.0/24"}
+2 {Write-Host "Deployed to Web Subnet 10.51.1.0/24"}
+3 {Write-Host "Deployed to Intake Subnet 10.51.2.0/24"}
+4 {Write-Host "Deployed to data Subnet 10.51.3.0/24"}
+5 {Write-Host "Deployed to Monitoring Subnet 10.51.4.0/24"}
+6 {Write-Host "Deployed to analytics Subnet 10.51.5.0/24"}
+7 {Write-Host "Deployed to backup Subnet 10.51.6.0/24"}
+8 {Write-Host "Deployed to management Subnet 10.51.7.0/24"}
+default {No Subnet Found}
+}
+}
+Function Select-Subscription ($SubscriptionID, $TenantID)
+        {
+        Set-AzureRmContext -tenantid $TenantID -subscriptionid $SubscriptionID
+        }
 
-## Global
-$SecureLocPassword=Convertto-SecureString $locpassword –asplaintext -force
-$Credential1 = New-Object System.Management.Automation.PSCredential ($locadmin,$SecureLocPassword)
 
-## FOR ORG AUTH (Not Hotmail or Live Domains)
-# $Credential = Get-Credential
-# Add-AzureRmAccount -Credential $Credential
-
-## FOR Windows Account AUTH (Hotmail or Live Domains)
-# Add-AzureRmAccount -TenantId $TenantID -SubscriptionId $SubscriptionID
-
-## To use a Profile Json file for auth
-# Select-AzureRmProfile -Path “c:\Templates\pf.json”
-
-
-# Verify Auth
-LogintoAzure
-
+##Login to Azure##
+$Description = "Connecting to Azure"
+$Command = {LogintoAzure}
+$AzureAccount = WriteLog-Command -Description $Description -Command $Command -LogFile $LogFile
+# Select-Subscription
 # Register RPs
 $resourceProviders = @("microsoft.compute","microsoft.network","microsoft.storage");
 if($resourceProviders.length) {
@@ -264,11 +304,12 @@ if($resourceProviders.length) {
 		RegisterRP($resourceProvider);
 	}
 }
+Write-Output "Steps will be tracked on the log file : [ $logFile ]"
 
 # Create Resource Groups
 $resourcegroups = @($ResourceGroupName,$vNetResourceGroupName);
+# $resourcegroups = @($ResourceGroupName);
 if($resourcegroups.length) {
-	Write-Host "Resource Group Creation Started"
 	foreach($resourcegroup in $resourcegroups) {
 		ProvisionRGs($resourcegroup);
 	}
@@ -277,41 +318,63 @@ if($resourcegroups.length) {
 # Create Network
 If($NewVnet -eq "True")
 {
-Write-Host "Network Preparation in Process"
-ProvisionNet}
+ProvisionNet
+}
 else
- {Write-Host "Create new VNET not selected...Using Existing VNET" $VNetName }
+ {$Description = "Create new VNET not selected...Using Existing $VNetName"
+ $Command = {Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Get-AzureRmVirtualNetworkSubnetConfig | ft "Name" }
+ WriteLog-Command -Description $Description -Command $Command -LogFile $LogFile
+ }
 
  # Create NSG
 If($NSGEnabled -eq "True")
 {
-Write-Host "Network Security Group Preparation in Process"
 CreateNSG}
  else
-{ Write-Host "Create new NSG not selected...Using" $NSGName }
+{$Description = "Create new NSG not selected...Using existing $NSGName"
+$Command = {Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vNetResourceGroupName}
+WriteLog-Command -Description $Description -Command $Command -LogFile $LogFile
+}
 
 
+#CreateStorage
 try {
 Write-Host "Starting Storage Creation"
 $StorageAccount = New-AzureRmStorageAccount -ResourceGroupName $ResourceGroupName -Name $StorageName.ToLower() -Type $StorageType -Location $Location -ErrorAction Continue
+$Command = {Get-AzureRmStorageAccount -Name $StorageName.ToLower() -ResourceGroupName $ResourceGroupName | ft "StorageAccountName"}
+$Description = {'Storage Creation'}
+WriteLog-Command -Description $Description -Command $Command -LogFile $LogFile
 }
 catch {
 	Write-Host -foregroundcolor Yellow `
 	"$($_.Exception.Message)"; `
-	continue 
-}
+	WriteLog-Command $Command -Description $_ -LogFile $LogFile
+    continue
 Finally {
-Get-AzureRmStorageAccount -Name $StorageName.ToLower() -ResourceGroupName $ResourceGroupName | ft "StorageAccountName"
+}
 }
 
+#Match and prepare image
 switch -Wildcard ($vmMarketImage)
 	{
 		"*pf*" {
-Write-Host "PfSense VM Image Preparation in Process"
+$Command = {"PfSense VM Image Preparation in Process"}
+$Description = "Starting Azure VM Creation"
+    WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
 If ($NoPublicIP -eq "False")
 {
+
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
-$VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
+try{ 
+$VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork }
+catch { 	Write-Host -foregroundcolor Yellow `
+	"$($_.Exception.Message)"; `
+	WriteLog -Command $Command -Description $_ -LogFile $LogFile
+    continue
+    ProvisionNet
+    }
+finally{}
+
 $Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id
 $Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub2].Id
 } else
@@ -325,8 +388,8 @@ If ($AvailabilitySet -eq "True")
  {
 New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location
 Write-Host "Created Availability Set"
-$AvailabilitySet = Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName
-$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet.Id
+$AvailabilitySet =(Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName).Id
+$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet
 }
 else
 {
@@ -343,7 +406,9 @@ $OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDis
 $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching 
 }
 		"*red72*" {
-Write-Host "Red Hat 7.2 VM Image Preparation in Process"
+$Command = {"Redhat VM Image Preparation in Process"}
+$Description = "Starting Azure VM Creation"
+    WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
 If ($NoPublicIP -eq "False")
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
@@ -359,8 +424,8 @@ If ($AvailabilitySet -eq "True")
  {
 New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location
 Write-Host "Created Availability Set"
-$AvailabilitySet = Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName
-$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet.Id
+$AvailabilitySet =(Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName).Id
+$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet
 }
 else
 {
@@ -375,7 +440,9 @@ $OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDis
 $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching
 }
 		"*red67*" {
-Write-Host "Red Hat 6.7 VM Image Preparation in Process"
+$Command = {"Redhat VM Image Preparation in Process"}
+$Description = "Starting Azure VM Creation"
+    WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
 If ($NoPublicIP -eq "False")
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
@@ -390,9 +457,9 @@ $Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupNa
 If ($AvailabilitySet -eq "True")
  {
 New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location
-Write-Host "Created Availability Set"
-$AvailabilitySet = Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName
-$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet.Id
+Write-Host 
+$AvailabilitySet =(Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName).Id
+$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet
 }
 else
 {
@@ -407,7 +474,9 @@ $OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDis
 $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching
 }
 		"*MySql*" {
-Write-Host "MySql VM Image Preparation in Process"
+$Command = {"MySql VM Image Preparation in Process"}
+$Description = "Starting Azure VM Creation"
+    WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
 If ($NoPublicIP -eq "False")
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
@@ -423,8 +492,8 @@ If ($AvailabilitySet -eq "True")
  {
 New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location
 Write-Host "Created Availability Set"
-$AvailabilitySet = Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName
-$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet.Id
+$AvailabilitySet =(Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName).Id
+$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet
 }
 else
 {
@@ -439,7 +508,9 @@ $OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDis
 $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching
 }
 		"*w2k12*" {
-Write-Host "Windows VM Image Preparation in Process"
+$Command = {"Windows VM Image Preparation in Process"}
+$Description = "Starting Azure VM Creation"
+    WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
 If ($NoPublicIP -eq "False")
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
@@ -455,8 +526,8 @@ If ($AvailabilitySet -eq "True")
  {
 New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location
 Write-Host "Created Availability Set"
-$AvailabilitySet = Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName
-$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet.Id
+$AvailabilitySet =(Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName).Id
+$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet
 }
 else
 {
@@ -470,8 +541,10 @@ $OSDiskName = $VMName + "OSDisk"
 $OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDiskName + ".vhd"
 $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching
 }
-		"*sql2k16*" {
-Write-Host "SQL VM Image Preparation in Process"
+		"*sql*" {
+$Command = {"SQL VM Image Preparation in Process"}
+$Description = "Starting Azure VM Creation"
+    WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
 If ($NoPublicIP -eq "False")
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
@@ -487,8 +560,8 @@ If ($AvailabilitySet -eq "True")
  {
 New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location
 Write-Host "Created Availability Set"
-$AvailabilitySet = Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName
-$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet.Id
+$AvailabilitySet =(Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName).Id
+$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet
 }
 else
 {
@@ -503,7 +576,9 @@ $OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDis
 $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching
 }
 		"*rserver*" {
-Write-Host "R Server VM Image Preparation in Process"
+$Command = {"R Server VM Image Preparation in Process"}
+$Description = "Starting Azure VM Creation"
+    WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
 If ($NoPublicIP -eq "False")
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
@@ -519,8 +594,9 @@ If ($AvailabilitySet -eq "True")
  {
 New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location
 Write-Host "Created Availability Set"
-$AvailabilitySet = Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName
-$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet.Id
+$AvailabilitySet =(Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName).Id
+$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet
+(Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName).Id
 }
 else
 {
@@ -536,7 +612,9 @@ $OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDis
 $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching
 }
 		"*w2k8*" {
-Write-Host "Windows 2008 R2 VM Image Preparation in Process"
+$Command = {"Windows 2k8 VM Image Preparation in Process"}
+$Description = "Starting Azure VM Creation"
+    WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
 If ($NoPublicIP -eq "False")
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
@@ -552,8 +630,8 @@ If ($AvailabilitySet -eq "True")
  {
 New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location
 Write-Host "Created Availability Set"
-$AvailabilitySet = Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName
-$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet.Id
+$AvailabilitySet =(Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName).Id
+$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet
 }
 else
 {
@@ -568,7 +646,9 @@ $OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDis
 $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching
 }
 		"*w2k16*" {
-Write-Host "Windows Server Preview VM Image Preparation in Process"
+$Command = {"Windows 2k16 VM Image Preparation in Process"}
+$Description = "Starting Azure VM Creation"
+    WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
 If ($NoPublicIP -eq "False")
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
@@ -584,8 +664,8 @@ If ($AvailabilitySet -eq "True")
  {
 New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location
 Write-Host "Created Availability Set"
-$AvailabilitySet = Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName
-$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet.Id
+$AvailabilitySet =(Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName).Id
+$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet
 }
 else
 {
@@ -600,7 +680,9 @@ $OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDis
 $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching
 }
 		"*chef*" {
-Write-Host "Chef VM Image Preparation in Process"
+$Command = {"Chef VM Image Preparation in Process"}
+$Description = "Starting Azure VM Creation"
+    WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
 If ($NoPublicIP -eq "False")
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
@@ -616,8 +698,8 @@ If ($AvailabilitySet -eq "True")
  {
 New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location
 Write-Host "Created Availability Set"
-$AvailabilitySet = Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName
-$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet.Id
+$AvailabilitySet =(Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName).Id
+$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet
 }
 else
 {
@@ -633,7 +715,9 @@ $OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDis
 $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching
 }
 		"*cent*" {
-Write-Host "Centos VM Image Preparation in Process"
+$Command = {"CentOS VM Image Preparation in Process"}
+$Description = "Starting Azure VM Creation"
+    WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
 If ($NoPublicIP -eq "False")
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
@@ -649,8 +733,8 @@ If ($AvailabilitySet -eq "True")
  {
 New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location
 Write-Host "Created Availability Set"
-$AvailabilitySet = Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName
-$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet.Id
+$AvailabilitySet =(Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName).Id
+$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet
 }
 else
 {
@@ -665,9 +749,12 @@ $OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDis
 $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching
 }
 		"*ub*" {
-Write-Host "Ubuntu VM Image Preparation in Process"
+$Command = {"Ubuntu VM Image Preparation in Process"}
+$Description = "Starting Azure VM Creation"
+    WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
 If ($NoPublicIP -eq "False")
 {
+Write-Host "Finishing Public IP creation..."
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
 $Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id
@@ -681,8 +768,8 @@ If ($AvailabilitySet -eq "True")
  {
 New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location
 Write-Host "Created Availability Set"
-$AvailabilitySet = Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName
-$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet.Id
+$AvailabilitySet =(Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName).Id
+$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet
 }
 else
 {
@@ -697,7 +784,9 @@ $OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDis
 $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching
 }
 		"*SU*" {
-Write-Host "Open SUSE VM Image Preparation in Process"
+$Command = {"SuSe VM Image Preparation in Process"}
+$Description = "Starting Azure VM Creation"
+    WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
 If ($NoPublicIP -eq "False")
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
@@ -713,8 +802,8 @@ If ($AvailabilitySet -eq "True")
  {
 New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location
 Write-Host "Created Availability Set"
-$AvailabilitySet = Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName
-$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet.Id
+$AvailabilitySet =(Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName).Id
+$VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet
 }
 else
 {
@@ -729,7 +818,9 @@ $OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDis
 $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching
 }
 		"*check*" {
-Write-Host "CheckPoint VM Image Preparation in Process"
+$Command = {"Checkpoint VM Image Preparation in Process"}
+$Description = "Starting Azure VM Creation"
+    WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
 If ($NoPublicIP -eq "False")
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
@@ -747,7 +838,7 @@ If ($AvailabilitySet -eq "True")
  {
 New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location
 Write-Host "Created Availability Set"
-$AvailabilitySet = Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName
+$AvailabilitySet =(Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName).Id
 $VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet.Id
 }
 else
@@ -767,14 +858,16 @@ $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -Vhd
 		default{"An unsupported image was referenced"}
 	}
 
-## Create the VM in Azure
+
 try {
 $ProvisionVMs = @($VirtualMachine);
 if($ProvisionVMs.length) {
-	Write-Host "Starting Azure VM Creation"
    foreach($provisionvm in $ProvisionVMs) {
 New-AzureRmVM -ResourceGroupName $ResourceGroupName -Location $Location -VM $VirtualMachine -ErrorAction Stop | ft "StatusCode"
-Write-Host "Completed deployment of new" $VMName
+ Get-AzureRmVM -ResourceGroupName $ResourceGroupName -Name $VMName -Status
+ $Command = {"$VMName deployed to RG $ResourceGroupName using MarketImage $vmMarketImage on VNET $VNetName in VNET RG $vNetResourceGroupName"}
+ $Description = "Completing VM Creation"
+     WriteLog-Command -Description $Description -Command $Command -LogFile $LogFile
 }
 }
 }
@@ -782,8 +875,11 @@ catch {
 	Write-Host -foregroundcolor Yellow `
 	"$($_.Exception.Message)"; `
 	continue 
+}   
+Finally {
+
 }
-Finally {}
+#Add VM Extensions
 
 If($ExtVMAccess -eq "True")
 {
@@ -814,34 +910,11 @@ Get-AzureRmVMAEMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName
 
 If ($NoPublicIP -eq "True"){
 Write-Host "No Public IP created"
-switch ($DepSub1)
-{
-1 {Write-Host "Deployed to Perimeter Subnet 10.51.0.0/24"}
-2 {Write-Host "Deployed to Web Subnet 10.51.1.0/24"}
-3 {Write-Host "Deployed to Intake Subnet 10.51.2.0/24"}
-4 {Write-Host "Deployed to data Subnet 10.51.3.0/24"}
-5 {Write-Host "Deployed to Monitoring Subnet 10.51.4.0/24"}
-6 {Write-Host "Deployed to analytics Subnet 10.51.5.0/24"}
-7 {Write-Host "Deployed to backup Subnet 10.51.6.0/24"}
-8 {Write-Host "Deployed to management Subnet 10.51.7.0/24"}
-default {No Subnet Found}
-}
 }
 else
 {
-switch ($DepSub1)
-{
-1 {Write-Host "Deployed to Perimeter Subnet 10.51.0.0/24"}
-2 {Write-Host "Deployed to Web Subnet 10.51.1.0/24"}
-3 {Write-Host "Deployed to Intake Subnet 10.51.2.0/24"}
-4 {Write-Host "Deployed to data Subnet 10.51.3.0/24"}
-5 {Write-Host "Deployed to Monitoring Subnet 10.51.4.0/24"}
-6 {Write-Host "Deployed to analytics Subnet 10.51.5.0/24"}
-7 {Write-Host "Deployed to backup Subnet 10.51.6.0/24"}
-8 {Write-Host "Deployed to management Subnet 10.51.7.0/24"}
-default {No Subnet Found}
+$Command = {Get-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName | ft "IpAddress"}
+$Description = "Remote Access IP Address"
+WriteLog-Command -Description $Description -Command $Command -LogFile $LogFile
 }
-Get-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName | ft "IpAddress"
-Write-Host "Remote Access available via IP Address above"
-}
-Write-Host $VMName.ToUpper() "deployed to Resource Group:" $ResourceGroupName "using Market Image:" $vmMarketImage "on VNET" $VNetName "in the VNET RG:" $vNetResourceGroupName
+Write-Host "$VMName deployed to RG $ResourceGroupName using MarketImage $vmMarketImage on VNET $VNetName in VNET RG $vNetResourceGroupName"
