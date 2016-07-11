@@ -26,7 +26,6 @@ Deployment runtime positional parameters examples:
 \.Azure_IaaS_Deploy.ps1 pfs01 Pfsense -ResourceGroupName PFRG -vNetResourceGroupName PFRG -VNetName vNet -depsub1 1 -depsub2 2 -NewVnet True -NSGEnabled True
 #> 
 ##Setting Global Paramaters##
-
 [CmdletBinding()]
 Param( 
  [Parameter(Mandatory=$False,ValueFromPipeline=$true,ValueFromPipelinebyPropertyName=$true,Position=1)]
@@ -106,20 +105,20 @@ Param(
  $NSGName = "NSG",
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
- [string]
- $ExtMSAV = "False",
+ [Boolean]
+ $ExtMSAV = $False,
  
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
- [string]
- $ExtVMAccess = "False",
+ [Boolean]
+ $ExtVMAccess = $False,
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
- [string]
- $ExtAzureDiag = "False",
+ [Boolean]
+ $ExtAzureDiag = $False,
  
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
- [string]
- $ExtCustScript = "False",
+ [Boolean]
+ $ExtCustScript = $False,
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [Int]
@@ -129,7 +128,7 @@ Param(
  $DepSub2 = 2,
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
- $NoPublicIP = "False",
+ $NoPublicIP = $False,
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
  $AvailabilitySet = "False",
@@ -146,7 +145,7 @@ Param(
 # Global
 $ErrorActionPreference = "Stop"
 $date = Get-Date -UFormat "%Y-%m-%d-%H-%M"
-$workfolder = "c:\Temp\"
+$workfolder = Split-Path $script:MyInvocation.MyCommand.Path
 $logFile = $workfolder+'\'+$vmname+'-'+$date+'.log'
 $SecureLocPassword=Convertto-SecureString $locpassword –asplaintext -force
 $Credential1 = New-Object System.Management.Automation.PSCredential ($locadmin,$SecureLocPassword)
@@ -252,7 +251,7 @@ $subnet5 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.51.4.0/24 -Na
 $subnet6 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.51.5.0/24 -Name analytics
 $subnet7 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.51.6.0/24 -Name backup
 $subnet8 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.51.7.0/24 -Name management
-New-AzureRmVirtualNetwork -Location WestUS -Name $VNetName -ResourceGroupName $vNetResourceGroupName -AddressPrefix '10.51.0.0/21' -Subnet $subnet1,$subnet2,$subnet3,$subnet4,$subnet5,$subnet6,$subnet7,$subnet8 -Force;
+New-AzureRmVirtualNetwork -Location WestUS -Name $VNetName -ResourceGroupName $vNetResourceGroupName -AddressPrefix '10.51.0.0/21' -Subnet $subnet1,$subnet2,$subnet3,$subnet4,$subnet5,$subnet6,$subnet7,$subnet8 -Force | Out-null
 $Command = {Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Get-AzureRmVirtualNetworkSubnetConfig | ft "Name" }
 $Description = "Completed deployment of new VNET $VNetName"
 WriteLog-Command -Description $Description -Command $Command -LogFile $LogFile
@@ -263,9 +262,9 @@ Function CreateNSG {
 $httprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTP" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "80" -DestinationPortRange "80" -SourceAddressPrefix "*" -DestinationAddressPrefix "10.51.0.0/21" -Access Allow -Direction Inbound -Priority 200
 $httpsrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTPS" -Description "HTTPS Exception for Web frontends" -Protocol Tcp -SourcePortRange "443" -DestinationPortRange "443" -SourceAddressPrefix "*" -DestinationAddressPrefix "10.51.0.0/21" -Access Allow -Direction Inbound -Priority 201
 $sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_SSH" -Description "SSH Exception for Web frontends" -Protocol Tcp -SourcePortRange "22" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix "10.51.0.0/21" -Access Allow -Direction Inbound ` -Priority 203
-$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vNetResourceGroupName -Location "West US" -Name $NSGName -SecurityRules $httprule,$httpsrule, $sshrule -force
+$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vNetResourceGroupName -Location "West US" -Name $NSGName -SecurityRules $httprule,$httpsrule, $sshrule -force | Out-null
 $Description = "Completed deployment of NSG Configuration $NSGName"
-$Command = {Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vNetResourceGroupName}
+$Command = {Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vNetResourceGroupName | Out-null}
 WriteLog-Command -Description $Description -Command $Command -LogFile $LogFile
 }
 Function SubnetMatch {
@@ -291,10 +290,13 @@ Function Select-Subscription ($SubscriptionID, $TenantID)
 		}
 
 
+## To use a Profile Json file for auth
+Select-AzureRmProfile -Path “c:\Templates\pf.json”
+
 ##Login to Azure##
-$Description = "Connecting to Azure"
-$Command = {LogintoAzure}
-$AzureAccount = WriteLog-Command -Description $Description -Command $Command -LogFile $LogFile
+# $Description = "Connecting to Azure"
+# $Command = {LogintoAzure}
+# $AzureAccount = WriteLog-Command -Description $Description -Command $Command -LogFile $LogFile
 # Select-Subscription
 # Register RPs
 $resourceProviders = @("microsoft.compute","microsoft.network","microsoft.storage");
@@ -322,9 +324,11 @@ ProvisionNet
 }
 else
  {$Description = "Create new VNET not selected...Using Existing $VNetName"
- $Command = {Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Get-AzureRmVirtualNetworkSubnetConfig | ft "Name" }
+ $Command = {Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Get-AzureRmVirtualNetworkSubnetConfig | Out-null}
  WriteLog-Command -Description $Description -Command $Command -LogFile $LogFile
  }
+ 
+ Start-sleep 5
 
  # Create NSG
 If($NSGEnabled -eq "True")
@@ -340,8 +344,9 @@ WriteLog-Command -Description $Description -Command $Command -LogFile $LogFile
 #CreateStorage
 try {
 Write-Host "Starting Storage Creation"
+#$Command = {$StorageAccount = New-AzureRmStorageAccount -ResourceGroupName $ResourceGroupName -Name $StorageName.ToLower() -Type $StorageType -Location $Location -ErrorAction Continue | Out-null}
 $StorageAccount = New-AzureRmStorageAccount -ResourceGroupName $ResourceGroupName -Name $StorageName.ToLower() -Type $StorageType -Location $Location -ErrorAction Continue
-$Command = {Get-AzureRmStorageAccount -Name $StorageName.ToLower() -ResourceGroupName $ResourceGroupName | ft "StorageAccountName"}
+$Command = {Get-AzureRmStorageAccount -Name $StorageName.ToLower() -ResourceGroupName $ResourceGroupName | Out-null}
 $Description = {'Storage Creation'}
 WriteLog-Command -Description $Description -Command $Command -LogFile $LogFile
 }
@@ -361,7 +366,7 @@ switch -Wildcard ($vmMarketImage)
 $Command = {"PfSense VM Image Preparation in Process"}
 $Description = "Starting Azure VM Creation"
 	WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
-If ($NoPublicIP -eq "False")
+If ($NoPublicIP)
 {
 
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
@@ -409,7 +414,7 @@ $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -Vhd
 $Command = {"Redhat VM Image Preparation in Process"}
 $Description = "Starting Azure VM Creation"
 	WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
-If ($NoPublicIP -eq "False")
+If ($NoPublicIP)
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
@@ -443,7 +448,7 @@ $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -Vhd
 $Command = {"Redhat VM Image Preparation in Process"}
 $Description = "Starting Azure VM Creation"
 	WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
-If ($NoPublicIP -eq "False")
+If ($NoPublicIP)
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
@@ -477,7 +482,7 @@ $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -Vhd
 $Command = {"MySql VM Image Preparation in Process"}
 $Description = "Starting Azure VM Creation"
 	WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
-If ($NoPublicIP -eq "False")
+If ($NoPublicIP)
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
@@ -511,7 +516,7 @@ $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -Vhd
 $Command = {"Windows VM Image Preparation in Process"}
 $Description = "Starting Azure VM Creation"
 	WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
-If ($NoPublicIP -eq "False")
+If ($NoPublicIP)
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
@@ -545,7 +550,7 @@ $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -Vhd
 $Command = {"SQL VM Image Preparation in Process"}
 $Description = "Starting Azure VM Creation"
 	WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
-If ($NoPublicIP -eq "False")
+If ($NoPublicIP)
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
@@ -579,7 +584,7 @@ $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -Vhd
 $Command = {"R Server VM Image Preparation in Process"}
 $Description = "Starting Azure VM Creation"
 	WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
-If ($NoPublicIP -eq "False")
+If ($NoPublicIP)
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
@@ -615,7 +620,7 @@ $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -Vhd
 $Command = {"Windows 2k8 VM Image Preparation in Process"}
 $Description = "Starting Azure VM Creation"
 	WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
-If ($NoPublicIP -eq "False")
+If ($NoPublicIP)
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
@@ -649,7 +654,7 @@ $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -Vhd
 $Command = {"Windows 2k16 VM Image Preparation in Process"}
 $Description = "Starting Azure VM Creation"
 	WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
-If ($NoPublicIP -eq "False")
+If ($NoPublicIP)
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
@@ -683,7 +688,7 @@ $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -Vhd
 $Command = {"Chef VM Image Preparation in Process"}
 $Description = "Starting Azure VM Creation"
 	WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
-If ($NoPublicIP -eq "False")
+If ($NoPublicIP)
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
@@ -718,7 +723,7 @@ $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -Vhd
 $Command = {"CentOS VM Image Preparation in Process"}
 $Description = "Starting Azure VM Creation"
 	WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
-If ($NoPublicIP -eq "False")
+If ($NoPublicIP)
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
@@ -752,7 +757,7 @@ $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -Vhd
 $Command = {"Ubuntu VM Image Preparation in Process"}
 $Description = "Starting Azure VM Creation"
 	WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
-If ($NoPublicIP -eq "False")
+If ($NoPublicIP)
 {
 Write-Host "Finishing Public IP creation..."
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
@@ -787,7 +792,7 @@ $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -Vhd
 $Command = {"SuSe VM Image Preparation in Process"}
 $Description = "Starting Azure VM Creation"
 	WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
-If ($NoPublicIP -eq "False")
+If ($NoPublicIP)
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
@@ -821,7 +826,7 @@ $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -Vhd
 $Command = {"Checkpoint VM Image Preparation in Process"}
 $Description = "Starting Azure VM Creation"
 	WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
-If ($NoPublicIP -eq "False")
+If ($NoPublicIP)
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
@@ -863,10 +868,9 @@ try {
 $ProvisionVMs = @($VirtualMachine);
 if($ProvisionVMs.length) {
    foreach($provisionvm in $ProvisionVMs) {
-New-AzureRmVM -ResourceGroupName $ResourceGroupName -Location $Location -VM $VirtualMachine -ErrorAction Stop | ft "StatusCode"
- Get-AzureRmVM -ResourceGroupName $ResourceGroupName -Name $VMName -Status
- $Command = {"$VMName deployed to RG $ResourceGroupName using MarketImage $vmMarketImage on VNET $VNetName in VNET RG $vNetResourceGroupName"}
- $Description = "Completing VM Creation"
+ $Command = {New-AzureRmVM -ResourceGroupName $ResourceGroupName -Location $Location -VM $VirtualMachine | Out-null }
+ ## $Command = {"$VMName deployed to RG $ResourceGroupName using MarketImage $vmMarketImage on VNET $VNetName in VNET RG $vNetResourceGroupName"}
+ $Description = "Completed - [VM]:$VMName [RG]:$ResourceGroupName [IMAGE]:$vmMarketImage [VNET]:$VNetName [VNETRG]:$vNetResourceGroupName"
 	 WriteLog-Command -Description $Description -Command $Command -LogFile $LogFile
 }
 }
@@ -881,40 +885,42 @@ Finally {
 }
 #Add VM Extensions
 
-If($ExtVMAccess -eq "True")
+If($ExtVMAccess)
 {
 Write-Host "VM Access Agent VM Image Preparation in Process"
 Set-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "VMAccess" -ExtensionType "VMAccessAgent" -Publisher "Microsoft.Compute" -typeHandlerVersion "2.0" -Location Westus -Verbose
 Set-AzureRmVMAccessExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "VMAccess" -Location Westus -Verbose
 Get-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "VMAccess"
 }
-If($ExtMSAV -eq "True")
+If($ExtMSAV)
 {
 Write-Host "MSAV Agent VM Image Preparation in Process"
 Set-AzureRmVMExtension  -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "MSAVExtension" -ExtensionType "IaaSAntimalware" -Publisher "Microsoft.Azure.Security" -typeHandlerVersion 1.4 -Location $Location
 Set-AzureRmVMAccessExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "MSAVExtension" -Location Westus
 Get-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "MSAVExtension" -Status
 }
-If($ExtCustScript -eq "True")
+If($ExtCustScript)
 {
 Write-Host "Updating server with custom script"
 Set-AzureRmVMCustomScriptExtension -Name "CustScript" -ResourceGroupName $ResourceGroupName -Run "CustScript.ps1" -VMName $VMName -FileUri $StorageName -Location $Location -TypeHandlerVersion "1.1"
 Get-AzureRmVMCustomScriptExtension -ResourceGroupName $ResourceGroupName -Name "CustScript"
 }
-If($ExtAzureDiag -eq "True")
+If($ExtAzureDiag)
 {
 Write-Host "Adding Azure Enhanced Diagnostics"
 Set-AzureRmVMAEMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -WADStorageAccountName $StorageName
 Get-AzureRmVMAEMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName
 }
 
-If ($NoPublicIP -eq "True"){
+If ($NoPublicIP){
 Write-Host "No Public IP created"
+Get-AzureRmVM -ResourceGroupName $ResourceGroupName -Name $VMName -Status
 }
 else
 {
+Get-AzureRmVM -ResourceGroupName $ResourceGroupName -Name $VMName -Status
 $Command = {Get-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName | ft "IpAddress"}
 $Description = "Remote Access IP Address"
 WriteLog-Command -Description $Description -Command $Command -LogFile $LogFile
-}
-Write-Host "$VMName deployed to RG $ResourceGroupName using MarketImage $vmMarketImage on VNET $VNetName in VNET RG $vNetResourceGroupName"
+} 
+Write-Host "Completed - [VM]:$VMName [RG]:$ResourceGroupName [IMAGE]:$vmMarketImage [VNET]: $VNetName [VNETRG]: $vNetResourceGroupName"
