@@ -232,12 +232,12 @@ if(!$resourceGroup)
 	}
 	$Description = "Creating resource group $resourceGroupName in location $Location";
 	$Command = {New-AzureRmResourceGroup -Name $resourceGroupName -Location $Location}
-    WriteLog-Command -Description $Description -Command $Command -LogFile $LogFile
+	WriteLog-Command -Description $Description -Command $Command -LogFile $LogFile
 }
 else{
 	$Description = "Using existing resource group $ResourceGroupName";
-    $Command = {Get-AzureRmResourceGroup -Name $ResourceGroupName -ErrorAction SilentlyContinue}
-    WriteLog-Command -Description $Description -Command $Command -LogFile $LogFile
+	$Command = {Get-AzureRmResourceGroup -Name $ResourceGroupName -ErrorAction SilentlyContinue}
+	WriteLog-Command -Description $Description -Command $Command -LogFile $LogFile
 }
 
 }
@@ -286,9 +286,9 @@ default {No Subnet Found}
 }
 }
 Function Select-Subscription ($SubscriptionID, $TenantID)
-        {
-        Set-AzureRmContext -tenantid $TenantID -subscriptionid $SubscriptionID
-        }
+		{
+		Set-AzureRmContext -tenantid $TenantID -subscriptionid $SubscriptionID
+		}
 
 
 ##Login to Azure##
@@ -349,7 +349,7 @@ catch {
 	Write-Host -foregroundcolor Yellow `
 	"$($_.Exception.Message)"; `
 	WriteLog-Command $Command -Description $_ -LogFile $LogFile
-    continue
+	continue
 Finally {
 }
 }
@@ -360,7 +360,7 @@ switch -Wildcard ($vmMarketImage)
 		"*pf*" {
 $Command = {"PfSense VM Image Preparation in Process"}
 $Description = "Starting Azure VM Creation"
-    WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
+	WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
 If ($NoPublicIP -eq "False")
 {
 
@@ -370,9 +370,9 @@ $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResour
 catch { 	Write-Host -foregroundcolor Yellow `
 	"$($_.Exception.Message)"; `
 	WriteLog -Command $Command -Description $_ -LogFile $LogFile
-    continue
-    ProvisionNet
-    }
+	continue
+	ProvisionNet
+	}
 finally{}
 
 $Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id
@@ -408,7 +408,7 @@ $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -Vhd
 		"*red72*" {
 $Command = {"Redhat VM Image Preparation in Process"}
 $Description = "Starting Azure VM Creation"
-    WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
+	WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
 If ($NoPublicIP -eq "False")
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
@@ -442,7 +442,7 @@ $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -Vhd
 		"*red67*" {
 $Command = {"Redhat VM Image Preparation in Process"}
 $Description = "Starting Azure VM Creation"
-    WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
+	WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
 If ($NoPublicIP -eq "False")
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
@@ -476,7 +476,7 @@ $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -Vhd
 		"*MySql*" {
 $Command = {"MySql VM Image Preparation in Process"}
 $Description = "Starting Azure VM Creation"
-    WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
+	WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
 If ($NoPublicIP -eq "False")
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
@@ -510,7 +510,7 @@ $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -Vhd
 		"*w2k12*" {
 $Command = {"Windows VM Image Preparation in Process"}
 $Description = "Starting Azure VM Creation"
-    WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
+	WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
 If ($NoPublicIP -eq "False")
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
@@ -544,7 +544,7 @@ $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -Vhd
 		"*sql*" {
 $Command = {"SQL VM Image Preparation in Process"}
 $Description = "Starting Azure VM Creation"
-    WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
+	WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
 If ($NoPublicIP -eq "False")
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
@@ -578,7 +578,7 @@ $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -Vhd
 		"*rserver*" {
 $Command = {"R Server VM Image Preparation in Process"}
 $Description = "Starting Azure VM Creation"
-    WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
+	WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
 If ($NoPublicIP -eq "False")
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
@@ -614,7 +614,7 @@ $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -Vhd
 		"*w2k8*" {
 $Command = {"Windows 2k8 VM Image Preparation in Process"}
 $Description = "Starting Azure VM Creation"
-    WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
+	WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
 If ($NoPublicIP -eq "False")
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
@@ -648,7 +648,7 @@ $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -Vhd
 		"*w2k16*" {
 $Command = {"Windows 2k16 VM Image Preparation in Process"}
 $Description = "Starting Azure VM Creation"
-    WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
+	WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
 If ($NoPublicIP -eq "False")
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
@@ -682,7 +682,7 @@ $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -Vhd
 		"*chef*" {
 $Command = {"Chef VM Image Preparation in Process"}
 $Description = "Starting Azure VM Creation"
-    WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
+	WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
 If ($NoPublicIP -eq "False")
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
@@ -717,7 +717,7 @@ $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -Vhd
 		"*cent*" {
 $Command = {"CentOS VM Image Preparation in Process"}
 $Description = "Starting Azure VM Creation"
-    WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
+	WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
 If ($NoPublicIP -eq "False")
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
@@ -751,7 +751,7 @@ $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -Vhd
 		"*ub*" {
 $Command = {"Ubuntu VM Image Preparation in Process"}
 $Description = "Starting Azure VM Creation"
-    WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
+	WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
 If ($NoPublicIP -eq "False")
 {
 Write-Host "Finishing Public IP creation..."
@@ -786,7 +786,7 @@ $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -Vhd
 		"*SU*" {
 $Command = {"SuSe VM Image Preparation in Process"}
 $Description = "Starting Azure VM Creation"
-    WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
+	WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
 If ($NoPublicIP -eq "False")
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
@@ -820,7 +820,7 @@ $VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -Vhd
 		"*check*" {
 $Command = {"Checkpoint VM Image Preparation in Process"}
 $Description = "Starting Azure VM Creation"
-    WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
+	WriteLog-Command -Description $Description -Command $Command  -LogFile $LogFile
 If ($NoPublicIP -eq "False")
 {
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic"
@@ -867,7 +867,7 @@ New-AzureRmVM -ResourceGroupName $ResourceGroupName -Location $Location -VM $Vir
  Get-AzureRmVM -ResourceGroupName $ResourceGroupName -Name $VMName -Status
  $Command = {"$VMName deployed to RG $ResourceGroupName using MarketImage $vmMarketImage on VNET $VNetName in VNET RG $vNetResourceGroupName"}
  $Description = "Completing VM Creation"
-     WriteLog-Command -Description $Description -Command $Command -LogFile $LogFile
+	 WriteLog-Command -Description $Description -Command $Command -LogFile $LogFile
 }
 }
 }
