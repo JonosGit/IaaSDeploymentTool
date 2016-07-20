@@ -1,7 +1,7 @@
 ﻿<#
 .NOTES
 Written by John Lewis
-Version 1.6
+Version 1.7
 
 .SYNOPSIS
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNETs.
@@ -198,6 +198,20 @@ Write-Output "Information will be sent to the Output file : [ $OutputFile ]"
 # Login-AzureRmAccount -TenantId $TenantId
 
 # Fuctions
+Function AzureVersion{
+$name='Azure'
+if(Get-Module -ListAvailable | 
+	Where-Object { $_.name -eq $name }) 
+{ 
+	(Get-Module -ListAvailable | Where-Object{ $_.Name -eq $name }) | 
+	Select Version, Name, Author, PowerShellVersion  | Format-List; 
+} 
+else 
+{ 
+	“The Azure PowerShell module is not installed.”
+}
+}
+
 Function WriteLog-Command([string]$Description, [ScriptBlock]$Command, [string]$LogFile, [string]$VMName ){
 Try{
 $Output = $Description+'  ... '
@@ -218,11 +232,14 @@ if ($ErrorMessage -eq $null) {$Output = "[Completed]  $Description  ... "} else 
 }
 Return $Result
 }
+# End of Log Wrapping Function
 Function Output-Command ([string]$Desc, [string]$OutputFile, [string]$VMName){
 $Output = $Desc+'  ... '
 Write-Host $Output -ForegroundColor White
-$Result = ((Get-Date -UFormat "[%d-%m-%Y %H:%M:%S] ") + $Output) | Out-File -FilePath $OutputFile -Append –Confirm:$false -Force
+$OutResult = ((Get-Date -UFormat "[%d-%m-%Y %H:%M:%S] ") + $Output) | Out-File -FilePath $OutputFile -Append –Confirm:$false -Force
+Return $OutResult
 }
+# End of Data Wrapping Function
 Function RegisterRP {
 	Param(
 		[string]$ResourceProviderNamespace
@@ -231,7 +248,7 @@ Function RegisterRP {
 	Write-Host "Registering resource provider '$ResourceProviderNamespace'";
 	Register-AzureRmResourceProvider -ProviderNamespace $ResourceProviderNamespace –Confirm:$false -Force;
 }
-
+# End of Resgister Resource Providers Function
 Function ProvisionRGs {
 	Param(
 		[string]$ResourceGroupName
@@ -253,6 +270,7 @@ else{
 	WriteLog-Command -Description $Description -Command $Command -LogFile $LogFile
 }
 }
+# End of Provision Resource Groups Function
 Function ProvisionNet {
 ## Create Virtual Network
 $Description = {"Network Preparation in Process"}
@@ -264,21 +282,22 @@ $subnet5 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.4.0/24 -N
 $subnet6 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.5.0/24 -Name analytics
 $subnet7 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.6.0/24 -Name backup
 $subnet8 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.7.0/24 -Name management
-New-AzureRmVirtualNetwork -Location WestUS -Name $VNetName -ResourceGroupName $vNetResourceGroupName -AddressPrefix '10.120.0.0/21' -Subnet $subnet1,$subnet2,$subnet3,$subnet4,$subnet5,$subnet6,$subnet7,$subnet8 –Confirm:$false -Force | Out-Null
+New-AzureRmVirtualNetwork -Location $Location -Name $VNetName -ResourceGroupName $vNetResourceGroupName -AddressPrefix '10.120.0.0/21' -Subnet $subnet1,$subnet2,$subnet3,$subnet4,$subnet5,$subnet6,$subnet7,$subnet8 –Confirm:$false -Force | Out-Null
 $Command = { Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Get-AzureRmVirtualNetworkSubnetConfig | Out-Null }
 $Description = "Completed deployment of new VNET $VNetName"
 WriteLog-Command -Description $Description -Command $Command -LogFile $LogFile
 }
-
+# End of Provision VNET Function
 Function CreateNSG {
 $httprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTP" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "80" -DestinationPortRange "80" -SourceAddressPrefix "*" -DestinationAddressPrefix "10.120.0.0/21" -Access Allow -Direction Inbound -Priority 200
 $httpsrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTPS" -Description "HTTPS Exception for Web frontends" -Protocol Tcp -SourcePortRange "443" -DestinationPortRange "443" -SourceAddressPrefix "*" -DestinationAddressPrefix "10.120.0.0/21" -Access Allow -Direction Inbound -Priority 201
 $sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_SSH" -Description "SSH Exception for Web frontends" -Protocol Tcp -SourcePortRange "22" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix "10.120.0.0/21" -Access Allow -Direction Inbound ` -Priority 203
-$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vNetResourceGroupName -Location "West US" -Name $NSGName -SecurityRules $httprule,$httpsrule, $sshrule –Confirm:$false -Force | Out-Null
+$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vNetResourceGroupName -Location $Location -Name $NSGName -SecurityRules $httprule,$httpsrule, $sshrule –Confirm:$false -Force | Out-Null
 $Description = "Completed deployment of NSG Configuration $NSGName"
-$Command = { Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vNetResourceGroupName }
+$Command = { Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vNetResourceGroupName | Out-Null }
 WriteLog-Command -Description $Description -Command $Command -LogFile $LogFile
 }
+# End of Provision Network Security Groups Function
 Function SubnetMatch {
 	Param(
 		[INT]$Subnet
@@ -296,13 +315,31 @@ switch ($Subnet)
 default {No Subnet Found}
 }
 }
+# End of SubnetMatch Function
+Function SignInProfile {
+try {
+$GetPath = test-path -Path $ProfPath
+Write-Host $GetPath
+if($GetPath -eq "False")
+{Add-AzureRmAccount -TenantId $TenantID}
+}
+catch {
+	Write-Host -foregroundcolor Yellow `
+	"$($_.Exception.Message)"; `
+	continue
+}
+	finally {
+	Select-AzureRmProfile -Path $ProfPath
+	}
+}
 
 ## To use a Profile Json file for auth
-Select-AzureRmProfile -Path “c:\Templates\pf.json”
-Add-AzureRmAccount -TenantId $TenantID
-# Set-AzureRmContext -tenantid $TenantID -subscriptionid $SubscriptionID
-# Register RPs
-# Add-AzureRmAccount -TenantId $TenantID -SubscriptionId $SubscriptionID
+# Select-AzureRmProfile -Path “c:\Templates\pf1.json”
+# Add-AzureRmAccount -TenantId $TenantID
+Select-AzureRmProfile -Path “C:\Users\leonardo.borysiuk\Desktop\Azure\azureprofile.json”
+AzureVersion
+SignInProfile
+
 
 try {
 Get-AzureRmResourceGroup -Location $Location -ErrorAction Stop | Out-Null
@@ -321,6 +358,7 @@ catch {
 	}
  }
 
+
 # Create Resource Groups
 $resourcegroups = @($ResourceGroupName,$vNetResourceGroupName);
 # $resourcegroups = @($ResourceGroupName);
@@ -338,7 +376,7 @@ ProvisionNet
 else
  {$Description = "Create new VNET not selected...Using Existing $VNetName"
  $Command = {Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Get-AzureRmVirtualNetworkSubnetConfig | Out-null
- Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Select Name, ResourceGroupName, Subnets
+ Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Select Name, ResourceGroupName, Subnets | Out-null
  }
  WriteLog-Command -Description $Description -Command $Command -LogFile $LogFile
  }
@@ -358,11 +396,9 @@ WriteLog-Command -Description $Description -Command $Command -LogFile $LogFile
 #CreateStorage
 try {
 Write-Host "Starting Storage Creation"
-#$Command = {$StorageAccount = New-AzureRmStorageAccount -ResourceGroupName $ResourceGroupName -Name $StorageName.ToLower() -Type $StorageType -Location $Location -ErrorAction Continue | Out-null}
 $StorageAccount = New-AzureRmStorageAccount -ResourceGroupName $ResourceGroupName -Name $StorageName.ToLower() -Type $StorageType -Location $Location -ErrorAction Continue
-$Desc = Get-AzureRmStorageAccount -Name $StorageName.ToLower() -ResourceGroupName $ResourceGroupName | ft "StorageAccountName" -Wrap -HideTableHeaders
+Get-AzureRmStorageAccount -Name $StorageName.ToLower() -ResourceGroupName $ResourceGroupName | ft "StorageAccountName" -Wrap -HideTableHeaders | Out-File $OutputFile -Append default -NoNewline
 $Description = {'Storage Creation'}
-# Output-Command -Description $Desc -LogFile $OutputFile
 }
 catch {
 	Write-Host -foregroundcolor Yellow `
@@ -386,8 +422,8 @@ switch -Wildcard ($ConfigIPs)
 Write-Host "Public/Static Pvt IP"
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic" –Confirm:$false -Force
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
-$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -Force
-$Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub2].Id -PrivateIpAddress $PvtIPNic2 –Confirm:$false -Force
+$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -Force 
+$Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub2].Id -PrivateIpAddress $PvtIPNic2 –Confirm:$false -Force 
 }
 		"*NoPublicStatPvtIP*" {
 Write-Host "No Public IP/Static Pvt Ip"
@@ -405,7 +441,7 @@ $Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupNa
 Write-Host "Default IP Configuration"
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic" –Confirm:$false -Force
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
-$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id –Confirm:$false -Force
+$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id –Confirm:$false -Force 
 $Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub2].Id –Confirm:$false -Force
 }
 		default{"An unsupported network configuration was referenced"}
@@ -441,8 +477,8 @@ switch -Wildcard ($ConfigIPs)
 Write-Host "Public/Static Pvt IP"
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic" –Confirm:$false -Force
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
-$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -Force
-$Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub2].Id -PrivateIpAddress $PvtIPNic2 –Confirm:$false -Force
+$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -Force 
+$Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub2].Id -PrivateIpAddress $PvtIPNic2 –Confirm:$false -Force 
 }
 		"*NoPublicStatPvtIP*" {
 Write-Host "No Public IP/Static Pvt Ip"
@@ -460,7 +496,7 @@ $Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupNa
 Write-Host "Default IP Configuration"
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic" –Confirm:$false -Force
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
-$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id –Confirm:$false -Force
+$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id –Confirm:$false -Force 
 $Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub2].Id –Confirm:$false -Force
 }
 		default{"An unsupported image was referenced"}
@@ -496,7 +532,7 @@ switch -Wildcard ($ConfigIPs)
 Write-Host "Public/Static Pvt IP"
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic" –Confirm:$false -Force
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
-$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -Force
+$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -Force 
 }
 		"*NoPublicStatPvtIP*" {
 Write-Host "No Public IP/Static Pvt Ip"
@@ -518,9 +554,9 @@ $Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupNa
 }
 If ($AvailabilitySet -eq "True")
  {
-New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location
+New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location  | Out-Null
 Write-Host "Created Availability Set"
-$AvailabilitySet =(Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName).Id
+$AvailabilitySet =(Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName).Id | Out-Null
 $VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet
 }
 else
@@ -580,7 +616,7 @@ switch -Wildcard ($ConfigIPs)
 Write-Host "Public/Static Pvt IP"
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic" –Confirm:$false -Force
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
-$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -Force
+$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -Force 
 }
 		"*NoPublicStatPvtIP*" {
 Write-Host "No Public IP/Static Pvt Ip"
@@ -629,7 +665,7 @@ switch -Wildcard ($ConfigIPs)
 Write-Host "Public/Static Pvt IP"
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic" –Confirm:$false -Force
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
-$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -Force
+$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -Force 
 }
 		"*NoPublicStatPvtIP*" {
 Write-Host "No Public IP/Static Pvt Ip"
@@ -678,7 +714,7 @@ switch -Wildcard ($ConfigIPs)
 Write-Host "Public/Static Pvt IP"
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic" –Confirm:$false -Force
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
-$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -Force
+$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -Force 
 }
 		"*NoPublicStatPvtIP*" {
 Write-Host "No Public IP/Static Pvt Ip"
@@ -727,7 +763,7 @@ switch -Wildcard ($ConfigIPs)
 Write-Host "Public/Static Pvt IP"
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic" –Confirm:$false -Force
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
-$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -Force
+$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -Force 
 }
 		"*NoPublicStatPvtIP*" {
 Write-Host "No Public IP/Static Pvt Ip"
@@ -778,7 +814,7 @@ switch -Wildcard ($ConfigIPs)
 Write-Host "Public/Static Pvt IP"
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic" –Confirm:$false -Force
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
-$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -Force
+$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -Force 
 }
 		"*NoPublicStatPvtIP*" {
 Write-Host "No Public IP/Static Pvt Ip"
@@ -827,7 +863,7 @@ switch -Wildcard ($ConfigIPs)
 Write-Host "Public/Static Pvt IP"
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic" –Confirm:$false -Force
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
-$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -Force
+$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -Force 
 }
 		"*NoPublicStatPvtIP*" {
 Write-Host "No Public IP/Static Pvt Ip"
@@ -876,7 +912,7 @@ switch -Wildcard ($ConfigIPs)
 Write-Host "Public/Static Pvt IP"
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic" –Confirm:$false -Force
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
-$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -Force
+$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -Force 
 }
 		"*NoPublicStatPvtIP*" {
 Write-Host "No Public IP/Static Pvt Ip"
@@ -926,7 +962,7 @@ switch -Wildcard ($ConfigIPs)
 Write-Host "Public/Static Pvt IP"
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic" –Confirm:$false -Force
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
-$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -Force
+$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -Force 
 }
 		"*NoPublicStatPvtIP*" {
 Write-Host "No Public IP/Static Pvt Ip"
@@ -975,7 +1011,7 @@ switch -Wildcard ($ConfigIPs)
 Write-Host "Public/Static Pvt IP"
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic" –Confirm:$false -Force
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
-$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic –Confirm:$false -Force
+$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic –Confirm:$false -Force 
 }
 		"*NoPublicStatPvtIP*" {
 Write-Host "No Public IP/Static Pvt Ip"
@@ -999,7 +1035,7 @@ If ($AvailabilitySet -eq "True")
  {
 New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location
 Write-Host "Created Availability Set"
-$AvailabilitySet =(Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName).Id
+$AvailabilitySet = (Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName).Id | Out-Null
 $VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet
 }
 else
@@ -1024,7 +1060,7 @@ switch -Wildcard ($ConfigIPs)
 Write-Host "Public/Static Pvt IP"
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic" –Confirm:$false -Force
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
-$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -Force
+$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -Force 
 }
 		"*NoPublicStatPvtIP*" {
 Write-Host "No Public IP/Static Pvt Ip"
@@ -1073,8 +1109,8 @@ switch -Wildcard ($ConfigIPs)
 Write-Host "Public/Static Pvt IP"
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic" –Confirm:$false -Force
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
-$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -Force
-$Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub2].Id -PrivateIpAddress $PvtIPNic2 –Confirm:$false -Force
+$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -Force 
+$Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub2].Id -PrivateIpAddress $PvtIPNic2 –Confirm:$false -Force 
 }
 		"*NoPublicStatPvtIP*" {
 Write-Host "No Public IP/Static Pvt Ip"
@@ -1092,14 +1128,14 @@ $Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupNa
 Write-Host "Default IP Configuration"
 $PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic" –Confirm:$false -Force
 $VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
-$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id –Confirm:$false -Force
+$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id –Confirm:$false -Force 
 $Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub2].Id –Confirm:$false -Force
 }
 		default{"An unsupported image was referenced"}
 }
 If ($AvailabilitySet -eq "True")
  {
-New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location
+New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location | Out-Null
 Write-Host "Created Availability Set"
 $AvailabilitySet =(Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName).Id
 $VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet.Id
@@ -1133,6 +1169,8 @@ catch {
 	continue
 }
 
+
+
 If ($ConfigIPs -eq "NoPublicStatPvtIP" -OR $ConfigIPs -eq "DynPvtNoPublic"){
 Write-Host "No Public IP created"
 Get-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName | ft Name,Location,ResourceGroupName
@@ -1143,9 +1181,11 @@ Get-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGro
 	Get-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName | ft Name,Location,ResourceGroupName
 }
 
+
 	if ($AzExtConfig){
 	 switch -Wildcard ($AzExtConfig)
 {
+
 		"*ExtVMAccess*" {
 Write-Host "VM Access Agent VM Image Preparation in Process"
 Set-AzureRmVMAccessExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "VMAccess" -ExtensionType "VMAccessAgent" -Publisher "Microsoft.Compute" -typeHandlerVersion "2.0" -Location $Location -Verbose
@@ -1154,7 +1194,7 @@ Get-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Na
 		"*ExtMSAV*" {
 Write-Host "MSAV Agent VM Image Preparation in Process"
 Set-AzureRmVMExtension  -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "MSAVExtension" -ExtensionType "IaaSAntimalware" -Publisher "Microsoft.Azure.Security" -typeHandlerVersion 1.4 -Location $Location
-Set-AzureRmVMAccessExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "MSAVExtension" -Location Westus
+Set-AzureRmVMAccessExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "MSAVExtension" -Location $Location
 Get-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "MSAVExtension" -Status
 }
 		"*ExtCustScript" {
@@ -1188,7 +1228,9 @@ knife bootstrap $BootIp --node-name $VMName --ssh-user localadmin --ssh-password
 
 		default{"An unsupported Extensions command was used"}
 	}
+
 }
+
 
 If ($AvailabilitySet -ne "True"){
 Write-Host "Completed - [VM]:$VMName [RG]:$ResourceGroupName [IMAGE]:$vmMarketImage [VNET]: $VNetName [VNETRG]: $vNetResourceGroupName [AVAILSET]: $AvailSetName"
@@ -1197,9 +1239,11 @@ Write-Host "Completed - [VM]:$VMName [RG]:$ResourceGroupName [IMAGE]:$vmMarketIm
 else
 {
 Write-Host "Completed - [VM]:$VMName [RG]:$ResourceGroupName [IMAGE]:$vmMarketImage [VNET]: $VNetName [VNETRG]: $vNetResourceGroupName"
+Write-Output "Completed - [VM]:$VMName [RG]:$ResourceGroupName [IMAGE]:$vmMarketImage [VNET]: $VNetName [VNETRG]: $vNetResourceGroupName" | Out-File $OutputFile -Append default -NoNewline
 Get-AzureRmResource | where { $_.ResourceGroupName -eq $ResourceGroupName } | ft  "Name", "ResourceType" | Format-Table
 }
 
  Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Select Name, ResourceGroupName, Subnets
  Get-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName | ft "Name","IpAddress"
+ Get-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName | ft "Name","IpAddress" | Out-File $OutputFile -Append default -NoNewline
  Get-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName | ft Name,Location,ResourceGroupName
