@@ -104,7 +104,7 @@ Param(
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
- $VNetName = "aipvnet",
+ $VNetName = "vnet",
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
@@ -116,7 +116,7 @@ Param(
 
   [Parameter(Mandatory=$False)]
  [string]
- $locpassword = 'Seattle.2017',
+ $locpassword = 'P@55W0rd',
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
@@ -193,14 +193,12 @@ Param(
  $ConfigIPs = "Managed",
   [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
- $DNSLabel = "aipchef001",
+ $DNSLabel = "dnslabel",
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
- $AzExtConfig = 'Lin',
- [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
- [string]
- $ProfPath = “C:\Users\leonardo.borysiuk\Desktop\Azure\azureprofile.json”,
+ $AzExtConfig = '',
+
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
  $DomName = 'aipdom.local'
@@ -417,8 +415,8 @@ Write-Host "         Availability Set to 'False'"
 }
 
 ## To use a Profile Json file for auth
-Select-AzureRmProfile -Path “C:\Templates\pf1.json”
-# Add-AzureRmAccount -TenantId $TenantID
+
+Add-AzureRmAccount -TenantId $TenantID
 
 # GetAzureVersion
 AzureVersion
