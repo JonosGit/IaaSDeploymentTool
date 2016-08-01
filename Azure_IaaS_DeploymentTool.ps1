@@ -128,11 +128,11 @@ Param(
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
- $SubscriptionID = 'fa6f2051-c65d-43cd-b29c-0766b9c28a78',
+ $SubscriptionID = '',
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
- $TenantID = 'ddc5d28b-6a8c-49ca-8ec8-20c47cc79bc0',
+ $TenantID = '',
 
  [Parameter(Mandatory=$False)]
  [string]
