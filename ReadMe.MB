@@ -1,40 +1,67 @@
-.SYNOPSIS 
-This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNET.
-Market Images supported: Redhat 6.7, PFSense 2.5, Windows 2008 R2, Windows 2012 R2, Ubuntu 14.04, CentOs 7.2, SUSE, SQL 2016 (on W2K12R2), R Server on Windows and Chef Server v12
-.PARAMETERS
-VMName is a required parameter at runtime. All other parameters are optional at runtime.
-To deploy a VM to an existing VNET set the -NewVnet parameter to false. ** Update the -VNETResourceGroupName variable before running the script.
-To deploy a new VNET with multiple subnets set the -NewVnet flag to true. ** The New VNET Will be deployed to -vNetResourceGroupName.
-To deploy a Network Security Group to the VNET use the -NSGEnabled (True) and -NSGName (name of the NSG group) to create an NSG for the provisioned VNET.
-To deploy a specific market image, enter one of the following names for -vmmMarketImage: Redhat PFSecure W2k12r2 w2k8r2 centos ubuntu chef SUSE SQL RSERVER
-.SYNTAX
-Required Parameters defined at Runtime
-Azure_IaaS_Deploy.ps1 -vmname
-Required Parameters defined in script
-Azure_IaaS_Deploy.ps1 -vmname -VMMarketImage -ResourceGroupName -VNETName -VNETResourceGroupName -Location -SubscriberID -StorageType -StorageName -TenantID -InterfaceName1 -IntrerfaceName2 -NSGEnabled -VMSize -locadmin -locpassword 
-Optional Parameters
-Azure_IaaS_Deploy.ps1 -vmname -VMMarketImage -ResourceGroupName -VNETName -VNETResourceGroupName -NewVNet -NSGEnabled -NSGName
-Azure_IaaS_Deploy.ps1 -vmname -VMMarketImage -ResourceGroupName -VNETName -VNETResourceGroupName -ExtMSAV
-Azure_IaaS_Deploy.ps1 -vmname -VMMarketImage -ResourceGroupName -VNETName -VNETResourceGroupName -ExtVMAccess
-.EXAMPLES
-Deployment runtime positional parameters examples:
+<#
+.SYNOPSIS
+This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNETs.
+The script supports dual homed servers (PFSense/Checkpoint/FreeBSD)
+The script allows select of subnet prior to VM Deployment
+The script supports deploying Availability Sets as well as adding new servers to existing Availability Sets through the -AvailabilitySet "True" and -AvailSetName switches.
+The script will generate a name for azure storage endpoint unless the -StorageName variable is updated or referenced at runtime.
+The script will log all processes to the log file location $logFile = $workfolder+'\'+$vmname+'-'+$date+'.log'
 
-.\Azure_IaaS_Deploy.ps1 myserver RedHat myresgroup myvnet -NewVNET True
-.\Azure_IaaS_Deploy.ps1 myserver2 RedHat myresgroup myvnet
-.\Azure_IaaS_Deploy.ps1 myserver3 Suse myresgroup myvnet
-.\Azure_IaaS_Deploy.ps1 myserver4 w2k12 myresgroup myvnet
-.\Azure_IaaS_Deploy.ps1 myserver5 rserver myresgroup myvnet
-.\Azure_IaaS_Deploy.ps1 myserver5 sql myresgroup myvnet
+Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windows 2012 R2, Ubuntu 14.04, CentOs 7.2, SUSE, SQL 2016 (on W2K12R2), R Server on Windows, Windows 2016 (Preview), Checkpoint Firewall, FreeBsd
+.PARAMETERS
+
+  .PARAMETER VMName
+	Defines VMName for new VM
+  .PARAMETER ResourceGroupName
+	Specifies Resource Group to use for deployment
+  .PARAMETER NewVnet
+	Determines whether to create a new VNET
+  .PARAMETER VNetName
+	Name of new or existing VNET to use for the deployment
+  .PARAMETER vNetResourceGroupName
+	Name of Resource Group the VNET should be deployed in.
+  .PARAMETER NSGEnabled
+	Determmines whether a new NSG is deployed.
+  .PARAMETER AvailabilitySet
+	Specifies whether an Availability Set should be used for the deployment.
+  .PARAMETER AvailabilitySetName
+	Availability set name.
+  .PARAMETER depsub1
+   Deployment Subnet for all Nic1 instances. 0-7 Are the acceptable values.
+  .PARAMETER depsub2
+	Deployment Subnet for all Nic2 instances. 0-7 Are the acceptable values.
+  .PARAMETER ConfigIps
+	Determines Network Interface configuration settings for VM
+  .PARAMETER VMMarketImage
+	Determines Market Image to use for the deployment
+.NOTES
+
+	-ConfigIps  <Configuration>
+	PvtSingleStat & PvtDualStat – Deploys the server with a Public IP and the private IP(s) specified by the user.
+	NoPubSingle & NoPubDual - Deploys the server without Public IP using automatically generated private IP(s).
+	Single & Dual – Deploys the default configuration of a Public IP and automatically generated private IP(s).
+	StatPvtNoPubDual & StatPvtNoPubSingle – Deploys the server without a Public IP using the private IP(s) specified by the user.
+
+	To specify Store Image
+	-VMMarketImage <Image ShortName>
+	Redhat 6.7 – Red67
+	Redhat7.2 – Red72
+	Windows 2012 R2 – w2k12
+	PFSense 2.5 – pfsense
+	Free BSD – free
+	Suse – suse
+	CentOs 7.2 – cent
+	Ubuntu 14.04 – ubun
+	SQL Server 2016 (on Windows 2012 host) – sql
+	MySql – mysql
+	CheckPoint – check
+	Windows 2008 R2 – w2k8
+	Windows 2016 – w2k16
+	Chef v12 - chef
 
 Runtime named parameters examples:
-Deploy SQL Server 2016 to existing VNET in existing resource group  
-.\Azure_IaaS_DeployTool.ps1 -VName sqlserver1 -VMMarketImage SQL
---------------------------------------------------------------------------------------------------------
-Deploy PFSense Server to existing VNET in existing resource group 
-.\Azure_IaaS_DeployTool.ps1 -VName pfserver1 -VMMarketImage Pfsense
---------------------------------------------------------------------------------------------------------
-Deploy PFSense Server to a new VNET in new resource group 
-.\Azure_IaaS_DeployTool.ps1 -VName pfserver1 -VMMarketImage Pfsense -NewVNET True -VNETName NewVNET -ResourceGroupName INFRA_RG
---------------------------------------------------------------------------------------------------------
-Deploy Windows 2012 R2 Server to a new VNET in new resource group
-.\Azure_IaaS_DeployTool.ps1 -VName winserver1 -VMMarketImage w2k12r2
+\.azdeploy.ps1 -VMName pf001 -VMMarketImage pfsense -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup1 -VNetName VNET -depsub1 0 -depsub2 1 -ConfigIPs DualPvtNoPub -PvtIPNic1 10.120.0.7 -PvtIPNic2 10.120.1.7
+\.azdeploy.ps1 -VMName suse003 -VMMarketImage suse -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup1 -VNetName VNET -depsub1 5 -ConfigIPs Single -AvailabilitySet "True"
+\.azdeploy.ps1 -VMName cent006 -VMMarketImage centos -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup1 -VNetName VNET -depsub1 4 -ConfigIPs SinglePvt -PvtIPNic1 10.120.4.120
+\.azdeploy.ps1 -VMName win006 -VMMarketImage w2k12 -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup1 -VNetName VNET -depsub1 6 -ConfigIPs SinglePvtNoPub -PvtIPNic1 10.120.6.120 -AvailabilitySet "True"
+\.azdeploy.ps1 -VMName red76 -VMMarketImage red67 -ResourceGroupName $ResGroup1 -vNetResourceGroupName $ResGroup2 -VNetName VNET -depsub1 6 -ConfigIPs SinglePvtNoPub -PvtIPNic1 10.120.6.124
