@@ -1,0 +1,15 @@
+.SYNOPSIS
+This script takes two parameters, a Resource Group Name and an Azure regional location. 
+The script will retrive all network components in a Resource Group including VNET, Network Interfaces
+ Public IP and Private IP info.
+
+.PARAMETERS
+  .PARAMETER ResourceGroupName
+	Specifies Resource Group to get Network info from
+  .PARAMETER Location
+	Defines Regional Location
+.NOTES
+.EXAMPLE
+Runtime named parameters examples:
+\azNetinfo.ps2 -ResourceGroupName "MyResGrp"
+\azNetinfo.ps2 -ResourceGroupName "MyResGrp" -Location "WestUs"
