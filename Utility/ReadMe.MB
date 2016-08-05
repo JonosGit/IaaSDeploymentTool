@@ -1,15 +1,9 @@
-.SYNOPSIS
-This script takes two parameters, a Resource Group Name and an Azure regional location. 
-The script will retrive all network components in a Resource Group including VNET, Network Interfaces
- Public IP and Private IP info.
+Utility Directory Read Me
 
-.PARAMETERS
-  .PARAMETER ResourceGroupName
-	Specifies Resource Group to get Network info from
-  .PARAMETER Location
-	Defines Regional Location
-.NOTES
-.EXAMPLE
-Runtime named parameters examples:
-\azNetinfo.ps2 -ResourceGroupName "MyResGrp"
-\azNetinfo.ps2 -ResourceGroupName "MyResGrp" -Location "WestUs"
+The Utility Directory contains scripts and resources that support or are derived from the azure_iaas_deploymenttool.ps1
+
+	azure_iaas_deploy_csv.ps1 - Provides wrapper for deployment of IaaS Infrastructure based on newinfra.csv
+	newinfra.csv - Example of csv based deployment file
+	azure_iaas_extensiontool.ps1 - Deploys Azure Extensions to existing Azure VMs
+	azure_iaas_netinfo.ps1 - Retrieves network components for a specific Resource Group
+	azure_iaas_reip.ps1 - Provides ability to change private IP addresses on existing Azure VMs
