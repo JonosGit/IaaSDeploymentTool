@@ -1,5 +1,3 @@
-<#
-.SYNOPSIS
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD)
 The script allows select of subnet prior to VM Deployment
@@ -8,56 +6,6 @@ The script will generate a name for azure storage endpoint unless the -StorageNa
 The script will log all processes to the log file location $logFile = $workfolder+'\'+$vmname+'-'+$date+'.log'
 
 Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windows 2012 R2, Ubuntu 14.04, CentOs 7.2, SUSE, SQL 2016 (on W2K12R2), R Server on Windows, Windows 2016 (Preview), Checkpoint Firewall, FreeBsd
-.PARAMETERS
-
-  .PARAMETER VMName
-	Defines VMName for new VM
-  .PARAMETER ResourceGroupName
-	Specifies Resource Group to use for deployment
-  .PARAMETER NewVnet
-	Determines whether to create a new VNET
-  .PARAMETER VNetName
-	Name of new or existing VNET to use for the deployment
-  .PARAMETER vNetResourceGroupName
-	Name of Resource Group the VNET should be deployed in.
-  .PARAMETER NSGEnabled
-	Determmines whether a new NSG is deployed.
-  .PARAMETER AvailabilitySet
-	Specifies whether an Availability Set should be used for the deployment.
-  .PARAMETER AvailabilitySetName
-	Availability set name.
-  .PARAMETER depsub1
-   Deployment Subnet for all Nic1 instances. 0-7 Are the acceptable values.
-  .PARAMETER depsub2
-	Deployment Subnet for all Nic2 instances. 0-7 Are the acceptable values.
-  .PARAMETER ConfigIps
-	Determines Network Interface configuration settings for VM
-  .PARAMETER VMMarketImage
-	Determines Market Image to use for the deployment
-.NOTES
-
-	-ConfigIps  <Configuration>
-	PvtSingleStat & PvtDualStat – Deploys the server with a Public IP and the private IP(s) specified by the user.
-	NoPubSingle & NoPubDual - Deploys the server without Public IP using automatically generated private IP(s).
-	Single & Dual – Deploys the default configuration of a Public IP and automatically generated private IP(s).
-	StatPvtNoPubDual & StatPvtNoPubSingle – Deploys the server without a Public IP using the private IP(s) specified by the user.
-
-	To specify Store Image
-	-VMMarketImage <Image ShortName>
-	Redhat 6.7 – Red67
-	Redhat7.2 – Red72
-	Windows 2012 R2 – w2k12
-	PFSense 2.5 – pfsense
-	Free BSD – free
-	Suse – suse
-	CentOs 7.2 – cent
-	Ubuntu 14.04 – ubun
-	SQL Server 2016 (on Windows 2012 host) – sql
-	MySql – mysql
-	CheckPoint – check
-	Windows 2008 R2 – w2k8
-	Windows 2016 – w2k16
-	Chef v12 - chef
 
 Runtime named parameters examples:
 \.azdeploy.ps1 -VMName pf001 -VMMarketImage pfsense -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup1 -VNetName VNET -depsub1 0 -depsub2 1 -ConfigIPs DualPvtNoPub -PvtIPNic1 10.120.0.7 -PvtIPNic2 10.120.1.7
