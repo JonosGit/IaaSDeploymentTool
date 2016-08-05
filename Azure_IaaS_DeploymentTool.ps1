@@ -1,63 +1,85 @@
 ﻿<#
-	.SYNOPSIS
-    Written by John N Lewis
-    Ver 2.5
-	This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNETs.
-	The script supports dual homed servers (PFSense/Checkpoint/FreeBSD)
-	The script allows select of subnet prior to VM Deployment
-	The script supports deploying Availability Sets as well as adding new servers to existing Availability Sets through the -AvailabilitySet "True" and -AvailSetName switches.
-	The script will generate a name for azure storage endpoint unless the -StorageName variable is updated or referenced at runtime.
-	The script will log all processes to the log file location $logFile = $workfolder+'\'+$vmname+'-'+$date+'.log'
-	
-	.DESCRIPTION
-	Deploys 12 Market Images on a new or existing VNET.
-	Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windows 2012 R2, Ubuntu 14.04, CentOs 7.2, SUSE, SQL 2016 (on W2K12R2), R Server on Windows, Windows 2016 (Preview), Checkpoint Firewall, FreeBsd
-	.PARAMETERS
-	.PARAMETER VMName
-	Defines VMName for new VM
-	.PARAMETER ResourceGroupName
-	Specifies Resource Group to use for deployment
-	.PARAMETER NewVnet
-	Determines whether to create a new VNET
-	.PARAMETER VNetName
-	Name of new or existing VNET to use for the deployment
-	.PARAMETER vNetResourceGroupName
-	Name of Resource Group the VNET should be deployed in.
-	.PARAMETER NSGEnabled
-	Determmines whether a new NSG is deployed.
-	.PARAMETER AvailabilitySet
-	Specifies whether an Availability Set should be used for the deployment.
-	.PARAMETER AvailabilitySetName
-	Availability set name.
-	.PARAMETER depsub1
-	Deployment Subnet for all Nic1 instances. 0-7 Are the acceptable values.
-	.PARAMETER depsub2
-	Deployment Subnet for all Nic2 instances. 0-7 Are the acceptable values.
-	.PARAMETER ConfigIps
-	Determines Network Interface configuration settings for VM
-	.PARAMETER VMMarketImage
-	Determines Market Image to use for the deployment
-	.PARAMETER AzExtConfig
-	Determines Post Deployment Extensions
-	.PARAMETER Location
-	Regional Location in Azure
-	.PARAMETER VMSize
-	VMSize in Azure
-	.PARAMETER Locadmin
-	Name of Local Administrator Account for VM
-	.PARAMETER LocPassword
-	Local Admin Password
-	.PARAMETER StorageName
-	Name of Storage Account
-	.PARAMETER StorageType
-   Type of Storage Account
-	.NOTES
-	.NOTES -ConfigIps  <Configuration>
+.SYNOPSIS
+Written By John N Lewis 
+email: jonos@live.com
+Ver 3.5
+This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNETs.
+The script supports dual homed servers (PFSense/Checkpoint/FreeBSD)
+The script allows select of subnet prior to VM Deployment
+The script supports deploying Availability Sets as well as adding new servers to existing Availability Sets through the -AvailabilitySet "True" and -AvailSetName switches.
+The script will generate a name for azure storage endpoint unless the -StorageName variable is updated or referenced at runtime.
+
+.DESCRIPTION
+Deploys 12 Market Images on a new or existing VNET. Supports post deployment configuration through Azure Extensions.
+Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windows 2012 R2, Ubuntu 14.04, CentOs 7.2, SUSE, SQL 2016 (on W2K12R2), R Server on Windows, Windows 2016 (Preview), Checkpoint Firewall, FreeBsd
+
+.PARAMETER vmMarketImage
+
+.PARAMETER NewVnet
+
+.PARAMETER VMName
+
+.PARAMETER ResourceGroupName
+
+.PARAMETER vNetResourceGroupName
+
+.PARAMETER VNetName
+
+.PARAMETER ConfigIPs
+
+.PARAMETER VMSize
+
+.PARAMETER locadmin
+
+.PARAMETER locpassword
+
+.PARAMETER NSGEnabled
+
+.PARAMETER Location
+
+.PARAMETER SubscriptionID
+
+.PARAMETER TenantID
+
+.PARAMETER GenerateName
+
+.PARAMETER StorageName
+
+.PARAMETER StorageType
+
+.PARAMETER InterfaceName1
+
+.PARAMETER InterfaceName2
+
+.PARAMETER NSGName
+
+.PARAMETER DepSub1
+
+.PARAMETER DepSub2
+
+.PARAMETER AvailabilitySet
+
+.PARAMETER AvailSetName
+
+.PARAMETER PvtIPNic1
+
+.PARAMETER PvtIPNic2
+
+.PARAMETER AzExtConfig
+
+.EXAMPLE
+\.azdeploy.ps1 -VMName pf001 -VMMarketImage pfsense -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup1 -VNetName VNET -depsub1 0 -depsub2 1 -ConfigIPs DualPvtNoPub -PvtIPNic1 10.120.0.7 -PvtIPNic2 10.120.1.7
+.EXAMPLE
+\.azdeploy.ps1 -VMName red76 -VMMarketImage red67 -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup2 -VNetName VNET -depsub1 6 -ConfigIPs SinglePvtNoPub -PvtIPNic1 10.120.6.124 -AzExtConfig linuxbackup
+.EXAMPLE
+\.azdeploy.ps1 -VMName win006 -VMMarketImage w2k12 -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup1 -VNetName VNET -depsub1 6 -ConfigIPs SinglePvtNoPub -PvtIPNic1 10.120.6.120 -AvailabilitySet "True"
+.NOTES
+-ConfigIps  <Configuration>
 			PvtSingleStat & PvtDualStat – Deploys the server with a Public IP and the private IP(s) specified by the user.
 			NoPubSingle & NoPubDual - Deploys the server without Public IP using automatically generated private IP(s).
 			Single & Dual – Deploys the default configuration of a Public IP and automatically generated private IP(s).
 			StatPvtNoPubDual & StatPvtNoPubSingle – Deploys the server without a Public IP using the private IP(s) specified by the user.
-	.NOTES -VMMarketImage <Image ShortName>
+-VMMarketImage <Image ShortName>
 			Redhat 6.7 – Red67
 			Redhat7.2 – Red72
 			Windows 2012 R2 – w2k12
@@ -72,7 +94,7 @@
 			Windows 2008 R2 – w2k8
 			Windows 2016 – w2k16
 			Chef v12 - chef
-	.NOTES -AzExtConfig <Extension Type>
+-AzExtConfig <Extension Type>
 			access – Adds Azure Access Extension – Added by default during VM creation
 			msav – Adds Azure Antivirus Extension
 			custScript – Adds Custom Script for Execution (Requires Table Storage Configuration first)
@@ -83,12 +105,8 @@
 			chef – Adds Azure Chef Extension (Requires Chef Certificate and Settings info first)
 			winChef – Calls Knife command to install Chef Agent on Server
 			linChef – Calls Knife command to install Chef Agent on Server
-.EXAMPLE
-			\.azdeploy.ps1 -VMName pf001 -VMMarketImage pfsense -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup1 -VNetName VNET -depsub1 0 -depsub2 1 -ConfigIPs DualPvtNoPub -PvtIPNic1 10.120.0.7 -PvtIPNic2 10.120.1.7
-			\.azdeploy.ps1 -VMName suse003 -VMMarketImage suse -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup1 -VNetName VNET -depsub1 5 -ConfigIPs Single -AvailabilitySet "True"
-			\.azdeploy.ps1 -VMName cent006 -VMMarketImage centos -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup1 -VNetName VNET -depsub1 4 -ConfigIPs SinglePvt -PvtIPNic1 10.120.4.120
-			\.azdeploy.ps1 -VMName win006 -VMMarketImage w2k12 -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup1 -VNetName VNET -depsub1 6 -ConfigIPs SinglePvtNoPub -PvtIPNic1 10.120.6.120 -AvailabilitySet "True"
-			\.azdeploy.ps1 -VMName red76 -VMMarketImage red67 -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup2 -VNetName VNET -depsub1 6 -ConfigIPs SinglePvtNoPub -PvtIPNic1 10.120.6.124 -AzExtConfig linuxbackup
+.LINK
+https://github.com/JonosGit/IaaSDeploymentTool
 #>
 
 [CmdletBinding()]
