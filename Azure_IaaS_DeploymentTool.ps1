@@ -2,7 +2,7 @@
 .SYNOPSIS
 Written By John N Lewis 
 email: jonos@live.com
-Ver 3.5
+Ver 3.6
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD)
 The script allows select of subnet prior to VM Deployment
@@ -232,6 +232,51 @@ $Credential1 = New-Object System.Management.Automation.PSCredential ($locadmin,$
 # Write-Output "Steps will be tracked on the log file : [ $logFile ]"
 ## To use a Profile Json file for auth
 # Login-AzureRmAccount -TenantId $TenantId
+function verifyIpnic2 {
+
+if($PvtIPNic1)
+{
+if($PvtIPNic1 -match "^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$")
+{Write-Host "IP Address Format is correct"}
+else 
+{Write-Host "Incorrect Format, please use 192.12.1.1"
+$PvtIPNic1 = Read-Host "Please Enter the IP Address in the correct format"
+}
+}
+else
+{
+$PvtIPNic1 = Read-Host Read-Host "Please Enter the IP Address"
+}
+
+if($PvtIPNic2)
+{
+if($PvtIPNic2 -match "^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$")
+{Write-Host "IP Address Format is correct"}
+else 
+{Write-Host "Incorrect Format, please use 192.12.1.1"
+$PvtIPNic2 = Read-Host "Please Enter the IP Address in the correct format"
+}
+}
+else
+{
+$PvtIPNic2 = Read-Host Read-Host "Please Enter the IP Address"
+}
+
+}
+
+Function VerifyProfile {
+$ProfileFile = "c:\Temp\jl.json"
+$fileexist = Test-Path $ProfileFile
+  if($fileexist)
+  {Write-Host "Profile Found"
+  Select-AzureRmProfile -Path $ProfileFile
+  }
+  else
+  {
+  Write-Host "Please enter your credentials"
+  Add-AzureRmAccount
+  }
+}
 
 Function ConfigNet {
 switch ($ConfigIPs)
@@ -861,7 +906,7 @@ Remove-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $Resourc
 
 ##--------------------------- Begin Script Execution -------------------------------------------------------##
 
-Add-AzureRmAccount -TenantId $TenantId
+VerifyProfile
 
 try {
 	[Microsoft.Azure.Common.Authentication.AzureSession]::ClientFactory.AddUserAgent("VSAzureTools-$UI$($host.name)".replace(" ","_"), "2.9")

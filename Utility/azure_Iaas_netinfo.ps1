@@ -1,7 +1,8 @@
 ﻿<#
 .SYNOPSIS
-Written By John Lewis v.6
-This script takes two parameters, a Resource Group Name and an Azure regional location. 
+Written By John Lewis
+
+This script takes two parameters, a Resource Group Name and an Azure regional location.
 The script will retrive all network components in a Resource Group including VNET, Network Interfaces
  Public IP and Private IP info.
 .PARAMETERS
@@ -28,8 +29,21 @@ Function RegisterRP {
 	Write-Host "Registering resource provider '$ResourceProviderNamespace'";
 	Register-AzureRmResourceProvider -ProviderNamespace $ResourceProviderNamespace –Confirm:$false -Force -WarningAction SilentlyContinue;
 }
+Function VerifyProfile {
+$ProfileFile = "c:\Temp\jl.json"
+$fileexist = Test-Path $ProfileFile
+  if($fileexist)
+  {Write-Host "Profile Found"
+  Select-AzureRmProfile -Path $ProfileFile
+  }
+  else
+  {
+  Write-Host "Please enter your credentials"
+  Add-AzureRmAccount
+  }
+}
 
-Add-AzureRmAccount
+VerifyProfile
 
  $resourceProviders = @("microsoft.compute","microsoft.network","microsoft.storage");
  if($resourceProviders.length) {
@@ -47,21 +61,20 @@ catch {
 	" $($_.Exception.Message)"; `
 	continue
 }
- 
+
  Get-AzureRmVirtualNetwork -ResourceGroupName $ResourceGroupName | ft Name, ResourceGroupName
- 
+
  Write-Host "Subnets located in RG" $ResourceGroupName -NoNewline
  Get-AzureRmVirtualNetwork -ResourceGroupName $ResourceGroupName | Get-AzureRmVirtualNetworkSubnetConfig | ft Name,AddressPrefix
- 
+
  Write-Host "Public Ips located in RG" $ResourceGroupName -NoNewline
  Get-AzureRmPublicIpAddress -ResourceGroupName $ResourceGroupName | ft "Name","IpAddress"
- 
+
  Write-Host "NICs located in RG" $ResourceGroupName -NoNewline
  Get-AzureRmNetworkInterface -ResourceGroupName $ResourceGroupName | ft Name,Location,ResourceGroupName
- 
+
  Write-Host "VMs located in RG" $ResourceGroupName -NoNewline
  Get-AzureRmVM -ResourceGroupName $ResourceGroupName | ft "Name"
-
 
 Write-Host "Private Network Interfaces located in " $ResourceGroupName
 $vms = get-azurermvm -ResourceGroupName $ResourceGroupName
@@ -73,4 +86,3 @@ foreach($nic in $nics)
 	$alloc =  $nic.IpConfigurations | select-object -ExpandProperty PrivateIpAllocationMethod
 	Write-Output "$($vm.Name): $prv - $alloc" | Format-Table
 }
-

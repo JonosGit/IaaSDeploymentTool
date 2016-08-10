@@ -1,9 +1,18 @@
 ﻿<#
 .SYNOPSIS
 This Script updates the private IP address of an existing Network Interface on an existing VM in Azure.
+.DESCRIPTION
 
-.EXAMPLES
+.PARAMETER ResourceGroupName
+
+.PARAMETER PvtIPNic
+
+.PARAMETER InterfaceName
+
+.EXAMPLE
 .\Iaas-ReIP.ps1 -ResourceGroupName MyRes -InterfaceName MyNic -PvtIPNic 10.10.0.100
+.LINK
+https://github.com/JonosGit/IaaSDeploymentTool
 #>
 
 Param(
@@ -16,8 +25,38 @@ $PvtIPNic = "10.120.4.74",
 [Parameter(Mandatory=$True,ValueFromPipelinebyPropertyName=$true,Position=1)]
 $InterfaceName = "red88y_nic1"
 )
+function verifyIpnic {
+if($PvtIPNic)
+{
+if($PvtIPNic -match "^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$")
+{Write-Host "IP Address Format is correct"}
+else
+{Write-Host "Incorrect Format, please use 192.12.1.1"
+$PvtIPNic = Read-Host "Please Enter the IP Address in the correct format"
+}
+}
+else
+{
+$PvtIPNic = Read-Host Read-Host "Please Enter the IP Address"
+}
+}
 
-Add-AzureRmAccount
+Function VerifyProfile {
+$ProfileFile = "c:\Temp\jl.json"
+$fileexist = Test-Path $ProfileFile
+  if($fileexist)
+  {Write-Host "Profile Found"
+  Select-AzureRmProfile -Path $ProfileFile
+  }
+  else
+  {
+  Write-Host "Please enter your credentials"
+  Add-AzureRmAccount
+  }
+}
+
+VerifyProfile
+verifyIpnic
 
 $nic = Get-AzureRmNetworkInterface -Name $InterfaceName -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
 if($nic) 
