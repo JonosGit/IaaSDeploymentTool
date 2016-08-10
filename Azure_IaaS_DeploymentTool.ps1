@@ -2,7 +2,7 @@
 .SYNOPSIS
 Written By John N Lewis 
 email: jonos@live.com
-Ver 3.6
+Ver 3.7
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD)
 The script allows select of subnet prior to VM Deployment
@@ -230,8 +230,25 @@ $workfolder = Split-Path $script:MyInvocation.MyCommand.Path
 $SecureLocPassword=Convertto-SecureString $locpassword –asplaintext -Force
 $Credential1 = New-Object System.Management.Automation.PSCredential ($locadmin,$SecureLocPassword)
 # Write-Output "Steps will be tracked on the log file : [ $logFile ]"
-## To use a Profile Json file for auth
-# Login-AzureRmAccount -TenantId $TenantId
+
+function verifyIpnic1 {
+
+if($PvtIPNic1)
+{
+if($PvtIPNic1 -match "^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$")
+{Write-Host "IP Address Format is correct"}
+else 
+{Write-Host "Incorrect Format, please use 192.12.1.1"
+$PvtIPNic1 = Read-Host "Please Enter the IP Address in the correct format"
+}
+}
+else
+{
+$PvtIPNic1 = Read-Host Read-Host "Please Enter the IP Address"
+}
+
+}
+
 function verifyIpnic2 {
 
 if($PvtIPNic1)
@@ -278,6 +295,15 @@ $fileexist = Test-Path $ProfileFile
   }
 }
 
+Function NSGEnabled
+{
+if($NSGEnabled = "True"){
+$nsg = Get-AzureRmNetworkSecurityGroup -ResourceGroupName $ResourceGroupName -Name $NSGName
+$nic = Get-AzureRmNetworkInterface -ResourceGroupName $ResourceGroupName -Name $InterfaceName1
+$nic.NetworkSecurityGroup = $nsg
+Set-AzureRmNetworkInterface -NetworkInterface $nic
+}
+}
 Function ConfigNet {
 switch ($ConfigIPs)
 	{
@@ -375,6 +401,21 @@ AddNICs
 		break
 					}
 }
+}
+
+Function VerifyNicConfig {
+if($ConfigIPs-EQ "Dual"){Write-Host "Dual Pvt IP & Public IP will be created" }
+	elseif($ConfigIPs-EQ "Single"){Write-Host "Single Pvt IP & Public IP will be created" }
+			elseif($ConfigIPs-EQ "PvtDualStat"){verifyIpnic2}
+				  elseif($ConfigIPs-EQ"PvtSingleStat"){verifyIpnic1}
+						 elseif($ConfigIPs-EQ "SinglePvtNoPub"){verifyIpnic1}
+							   elseif($ConfigIPs-EQ "StatPvtNoPubDual"){verifyIpnic2}
+										elseif($ConfigIPs-EQ "StatPvtNoPubSingle"){verifyIpnic1}
+											   elseif($ConfigIPs-EQ "NoPubSingle"){Write-Host "Single Pvt IP & No Public IP"}
+													elseif($ConfigIPs-EQ "NoPubDual"){Write-Host "Dual Pvt IP & No Public IP"}
+	else {
+	Write-Host "No Network Config Found - Warning" -ForegroundColor Red
+	}
 }
 
 Function SelectNicDescrtipt {
@@ -655,7 +696,7 @@ $httprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTP" -Descript
 $httpsrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTPS" -Description "HTTPS Exception for Web frontends" -Protocol Tcp -SourcePortRange "443" -DestinationPortRange "443" -SourceAddressPrefix "*" -DestinationAddressPrefix "10.120.0.0/21" -Access Allow -Direction Inbound -Priority 201
 $sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_SSH" -Description "SSH Exception for Web frontends" -Protocol Tcp -SourcePortRange "22" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix "10.120.0.0/21" -Access Allow -Direction Inbound ` -Priority 203
 $nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vNetResourceGroupName -Location $Location -Name $NSGName -SecurityRules $httprule,$httpsrule, $sshrule –Confirm:$false -Force -WarningAction SilentlyContinue | Out-Null
-Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vNetResourceGroupName -WarningAction SilentlyContinue | Out-Null
+$nsgid = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vNetResourceGroupName -WarningAction SilentlyContinue | Out-Null
 Write-Host "Network Security Group creation completed" -ForegroundColor White
 }
 # End of Provision Network Security Groups Function
@@ -1027,5 +1068,6 @@ Provvms #Provisions Final Step of VM Creation
 if($AzExtConfig) {
 InstallExt
 } #Installs Azure Extensions
+NSGEnabled #Adds NSG to NIC
 #End State Report
 EndState # Presents Final State for Deployment
