@@ -1,8 +1,8 @@
 ﻿<#
 .SYNOPSIS
-Written By John N Lewis 
+Written By John N Lewis
 email: jonos@live.com
-Ver 3.7
+Ver 3.8
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD)
 The script allows select of subnet prior to VM Deployment
@@ -232,12 +232,11 @@ $Credential1 = New-Object System.Management.Automation.PSCredential ($locadmin,$
 # Write-Output "Steps will be tracked on the log file : [ $logFile ]"
 
 function verifyIpnic1 {
-
 if($PvtIPNic1)
 {
 if($PvtIPNic1 -match "^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$")
 {Write-Host "IP Address Format is correct"}
-else 
+else
 {Write-Host "Incorrect Format, please use 192.12.1.1"
 $PvtIPNic1 = Read-Host "Please Enter the IP Address in the correct format"
 }
@@ -246,16 +245,14 @@ else
 {
 $PvtIPNic1 = Read-Host Read-Host "Please Enter the IP Address"
 }
-
 }
 
 function verifyIpnic2 {
-
 if($PvtIPNic1)
 {
 if($PvtIPNic1 -match "^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$")
 {Write-Host "IP Address Format is correct"}
-else 
+else
 {Write-Host "Incorrect Format, please use 192.12.1.1"
 $PvtIPNic1 = Read-Host "Please Enter the IP Address in the correct format"
 }
@@ -269,7 +266,7 @@ if($PvtIPNic2)
 {
 if($PvtIPNic2 -match "^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$")
 {Write-Host "IP Address Format is correct"}
-else 
+else
 {Write-Host "Incorrect Format, please use 192.12.1.1"
 $PvtIPNic2 = Read-Host "Please Enter the IP Address in the correct format"
 }
@@ -278,11 +275,10 @@ else
 {
 $PvtIPNic2 = Read-Host Read-Host "Please Enter the IP Address"
 }
-
 }
 
 Function VerifyProfile {
-$ProfileFile = "c:\Temp\jl.json"
+$ProfileFile = "c:\Temp\outlook.json"
 $fileexist = Test-Path $ProfileFile
   if($fileexist)
   {Write-Host "Profile Found"
@@ -295,15 +291,6 @@ $fileexist = Test-Path $ProfileFile
   }
 }
 
-Function NSGEnabled
-{
-if($NSGEnabled = "True"){
-$nsg = Get-AzureRmNetworkSecurityGroup -ResourceGroupName $ResourceGroupName -Name $NSGName
-$nic = Get-AzureRmNetworkInterface -ResourceGroupName $ResourceGroupName -Name $InterfaceName1
-$nic.NetworkSecurityGroup = $nsg
-Set-AzureRmNetworkInterface -NetworkInterface $nic
-}
-}
 Function ConfigNet {
 switch ($ConfigIPs)
 	{
@@ -402,7 +389,27 @@ AddNICs
 					}
 }
 }
-
+Function NSGEnabled
+{
+if($NSGEnabled = "True"){
+$nic1 = Get-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
+$nic2 = Get-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
+if($nic1)
+{
+$nsg = Get-AzureRmNetworkSecurityGroup -ResourceGroupName $ResourceGroupName -Name $NSGName
+$nic = Get-AzureRmNetworkInterface -ResourceGroupName $ResourceGroupName -Name $InterfaceName1
+$nic.NetworkSecurityGroup = $nsg
+Set-AzureRmNetworkInterface -NetworkInterface $nic | Out-Null
+}
+if($nic2)
+{
+$nsg = Get-AzureRmNetworkSecurityGroup -ResourceGroupName $ResourceGroupName -Name $NSGName
+$nic = Get-AzureRmNetworkInterface -ResourceGroupName $ResourceGroupName -Name $InterfaceName2
+$nic.NetworkSecurityGroup = $nsg
+Set-AzureRmNetworkInterface -NetworkInterface $nic | Out-Null
+}
+}
+}
 Function VerifyNicConfig {
 if($ConfigIPs-EQ "Dual"){Write-Host "Dual Pvt IP & Public IP will be created" }
 	elseif($ConfigIPs-EQ "Single"){Write-Host "Single Pvt IP & Public IP will be created" }
@@ -437,7 +444,6 @@ Function RegisterRP {
 		[string]$ResourceProviderNamespace
 	)
 
-	# Write-Host "Registering resource provider '$ResourceProviderNamespace'";
 	Register-AzureRmResourceProvider -ProviderNamespace $ResourceProviderNamespace –Confirm:$false -Force -WarningAction SilentlyContinue | Out-Null;
 }
 
@@ -472,7 +478,6 @@ $global:osDiskCaching = "ReadWrite"
 $global:OSDiskName = $VMName + "OSDisk"
 $global:OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDiskName + ".vhd"
 $global:VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching -WarningAction SilentlyContinue
-# New-AzureRmVM -ResourceGroupName $ResourceGroupName -Location $Location -VM $VirtualMachine –Confirm:$false -WarningAction SilentlyContinue
 }
 
 function Provvms {
@@ -835,7 +840,6 @@ Function ProvisionRGs {
 	$resourceGroup = Get-AzureRmResourceGroup -Name $ResourceGroupName -ErrorAction SilentlyContinue -WarningAction SilentlyContinue | Out-Null
 if(!$resourceGroup)
 {
-#	Write-Host "Resource group '$ResourceGroupName' does not exist. Creating...";
 	if(!$Location) {
 		$Location = Read-Host "resourceGroupLocation";
 	}
@@ -857,7 +861,6 @@ New-AzureRmResourceGroup -Name $resourceGroupName -Location $Location –Confirm
 Function CreateStorage {
 Write-Host "Starting Storage Creation.."
 $Global:StorageAccount = New-AzureRmStorageAccount -ResourceGroupName $ResourceGroupName -Name $StorageName.ToLower() -Type $StorageType -Location $Location -ErrorAction Stop -WarningAction SilentlyContinue
-#Get-AzureRmStorageAccount -Name $StorageName.ToLower() -ResourceGroupName $ResourceGroupName -WarningAction SilentlyContinue | ft "StorageAccountName" -OutVariable $stracct
 Write-Host "Completed Storage Creation" -ForegroundColor White
 } # Creates Storage
 
@@ -942,7 +945,6 @@ Remove-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $Resourc
  }
  else {Write-Host "No Orphans Found, proceeding with deployment.." -ForegroundColor Green}
  }
-# Write-Host "No Orphans Found" -ForegroundColor Green
 } # Verifies no left over components will prohibit deployment of the new VM, cleans up any if the exist.
 
 ##--------------------------- Begin Script Execution -------------------------------------------------------##
