@@ -2,7 +2,7 @@
 .SYNOPSIS
 Written By John N Lewis
 email: jonos@live.com
-Ver 3.8
+Ver 3.9
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD)
 The script allows select of subnet prior to VM Deployment
@@ -94,6 +94,12 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 			Windows 2008 R2 – w2k8
 			Windows 2016 – w2k16
 			Chef v12 - chef
+			Bitnami LampStack - lamp
+			Bitnami MySql - mysql
+			Bitnami NodeJs - node
+			Bitnami Elastics Search - elastics
+			Bitnami Jenkins - jenkins
+			Bitnami Jenkins - postgres
 -AzExtConfig <Extension Type>
 			access – Adds Azure Access Extension – Added by default during VM creation
 			msav – Adds Azure Antivirus Extension
@@ -114,7 +120,7 @@ Param(
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=1)]
 [string]
 $vmMarketImage = "pfsense",
-[ValidateSet("w2k12","red67","red72","suse","free","ubuntu","centos","w2k16","sql","chef","check","pfsense")]
+[ValidateSet("w2k12","red67","red72","suse","free","ubuntu","centos","w2k16","sql","chef","check","pfsense","lamp","jenkins","nodejs","elastics","postgres")]
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
@@ -494,6 +500,126 @@ catch {
 	"$($_.Exception.Message)"; `
 	continue
 }
+}
+Function MakeImagePlanInfo_Bitnami_Lamp {
+param(
+[string]$Publisher = 'bitnami',
+[string]$offer = 'lampstack',
+[string]$Skus = '5-6',
+[string]$version = 'latest',
+[string]$Product = 'lampstack',
+[string]$name = '5-6'
+)
+Write-Host "Image Creation in Process - Plan Info - LampStack" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+}
+Function MakeImagePlanInfo_Bitnami_elastic {
+param(
+[string]$Publisher = 'bitnami',
+[string]$offer = 'elastic-search',
+[string]$Skus = '2-2',
+[string]$version = 'latest',
+[string]$Product = 'elastic-search',
+[string]$name = '2-2'
+)
+Write-Host "Image Creation in Process - Plan Info - Elastic Search" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+}
+Function MakeImagePlanInfo_Bitnami_jenkins {
+param(
+[string]$Publisher = 'bitnami',
+[string]$offer = 'jenkins',
+[string]$Skus = '1-650',
+[string]$version = 'latest',
+[string]$Product = 'jenkins',
+[string]$name = '1-650'
+)
+Write-Host "Image Creation in Process - Plan Info - Jenkins" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+}
+Function MakeImagePlanInfo_Bitnami_mongodb {
+param(
+[string]$Publisher = 'bitnami',
+[string]$offer = 'mongodb',
+[string]$Skus = '3-2',
+[string]$version = 'latest',
+[string]$Product = 'mongodb',
+[string]$name = '3-2'
+)
+Write-Host "Image Creation in Process - Plan Info - MongoDb" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+}
+Function MakeImagePlanInfo_Bitnami_mysql {
+param(
+[string]$Publisher = 'bitnami',
+[string]$offer = 'mysql',
+[string]$Skus = '5-6',
+[string]$version = 'latest',
+[string]$Product = 'mysql',
+[string]$name = '5-6'
+)
+Write-Host "Image Creation in Process - Plan Info - MySql" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+}
+Function MakeImagePlanInfo_Bitnami_nginxstack {
+param(
+[string]$Publisher = 'bitnami',
+[string]$offer = 'nginxstack',
+[string]$Skus = '1-9',
+[string]$version = 'latest',
+[string]$Product = 'nginxstack',
+[string]$name = '1-9'
+)
+Write-Host "Image Creation in Process - Plan Info - Nginxstack" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+}
+Function MakeImagePlanInfo_Bitnami_nodejs {
+param(
+[string]$Publisher = 'bitnami',
+[string]$offer = 'nodejs',
+[string]$Skus = '4-3',
+[string]$version = 'latest',
+[string]$Product = 'nodejs',
+[string]$name = '4-3'
+)
+Write-Host "Image Creation in Process - Plan Info - Nodejs" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+}
+Function MakeImagePlanInfo_Bitnami_postgresql {
+param(
+[string]$Publisher = 'bitnami',
+[string]$offer = 'postgresql',
+[string]$Skus = '9-5',
+[string]$version = 'latest',
+[string]$Product = 'postgresql',
+[string]$name = '9-5'
+)
+Write-Host "Image Creation in Process - Plan Info - postgresql" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
 }
 
 Function MakeImagePlanInfo_Pfsense {
@@ -1063,7 +1189,54 @@ MakeImagePlanInfo_Chef  # Begins Image Creation
 ConfigSet # Adds Network Interfaces
 AddDiskImage # Completes Image Creation
 }
-
+		"*lamp*" {
+ConfigNet  #Sets network connection info
+MakeImagePlanInfo_Bitnami_Lamp # Begins Image Creation
+ConfigSet # Adds Network Interfaces
+AddDiskImage # Completes Image Creation
+}
+		"*mongodb*" {
+ConfigNet  #Sets network connection info
+MakeImagePlanInfo_Bitnami_mongodb # Begins Image Creation
+ConfigSet # Adds Network Interfaces
+AddDiskImage # Completes Image Creation
+}
+		"*mysql*" {
+ConfigNet  #Sets network connection info
+MakeImagePlanInfo_Bitnami_mysql # Begins Image Creation
+ConfigSet # Adds Network Interfaces
+AddDiskImage # Completes Image Creation
+}
+		"*elastics*" {
+ConfigNet  #Sets network connection info
+MakeImagePlanInfo_Bitnami_elastic # Begins Image Creation
+ConfigSet # Adds Network Interfaces
+AddDiskImage # Completes Image Creation
+}
+		"*nodejs*" {
+ConfigNet  #Sets network connection info
+MakeImagePlanInfo_Bitnami_nodejs # Begins Image Creation
+ConfigSet # Adds Network Interfaces
+AddDiskImage # Completes Image Creation
+}
+		"*nginxstack*" {
+ConfigNet  #Sets network connection info
+MakeImagePlanInfo_Bitnami_nginxstack # Begins Image Creation
+ConfigSet # Adds Network Interfaces
+AddDiskImage # Completes Image Creation
+}
+		"*postgresql*" {
+ConfigNet  #Sets network connection info
+MakeImagePlanInfo_Bitnami_postgresql # Begins Image Creation
+ConfigSet # Adds Network Interfaces
+AddDiskImage # Completes Image Creation
+}
+		"*jenkins*" {
+ConfigNet  #Sets network connection info
+MakeImagePlanInfo_Bitnami_jenkins # Begins Image Creation
+ConfigSet # Adds Network Interfaces
+AddDiskImage # Completes Image Creation
+}
 		default{"An unsupported image was referenced"}
 	}
 Provvms #Provisions Final Step of VM Creation
