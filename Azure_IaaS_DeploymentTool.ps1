@@ -2,7 +2,7 @@
 .SYNOPSIS
 Written By John N Lewis
 email: jonos@live.com
-Ver 3.9
+Ver 3.91
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD)
 The script allows select of subnet prior to VM Deployment
@@ -10,8 +10,8 @@ The script supports deploying Availability Sets as well as adding new servers to
 The script will generate a name for azure storage endpoint unless the -StorageName variable is updated or referenced at runtime.
 
 .DESCRIPTION
-Deploys 12 Market Images on a new or existing VNET. Supports post deployment configuration through Azure Extensions.
-Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windows 2012 R2, Ubuntu 14.04, CentOs 7.2, SUSE, SQL 2016 (on W2K12R2), R Server on Windows, Windows 2016 (Preview), Checkpoint Firewall, FreeBsd
+Deploys 26 Market Images on a new or existing VNET. Supports post deployment configuration through Azure Extensions.
+Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windows 2012 R2, Ubuntu 14.04, CentOs 7.2, SUSE, SQL 2016 (on W2K12R2), R Server on Windows, Windows 2016 (Preview), Checkpoint Firewall, FreeBsd, Oracle Linux, Puppet, Splunk, Oracle Web-Logic, Oracle DB, Bitnami Lamp, Bitnami PostGresSql, Bitnami nodejs, Bitnami Elastics, Bitnami MySql
 
 .PARAMETER vmMarketImage
 
@@ -83,6 +83,8 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 			Redhat 6.7 – Red67
 			Redhat7.2 – Red72
 			Windows 2012 R2 – w2k12
+			Windows 2008 R2 - w2k8
+			Windows 2016 Preview - w2k16
 			PFSense 2.5 – pfsense
 			Free BSD – free
 			Suse – suse
@@ -91,15 +93,19 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 			SQL Server 2016 (on Windows 2012 host) – sql
 			MySql – mysql
 			CheckPoint – check
-			Windows 2008 R2 – w2k8
-			Windows 2016 – w2k16
 			Chef v12 - chef
 			Bitnami LampStack - lamp
 			Bitnami MySql - mysql
 			Bitnami NodeJs - node
 			Bitnami Elastics Search - elastics
 			Bitnami Jenkins - jenkins
-			Bitnami Jenkins - postgres
+			Bitnami PostGres - postgres
+			Oracle Web Logic - weblogic
+			Oracle Linux - oracle-linux
+			Oracle Standard Edition DB - stddb-oracle
+			Oracle Enterprise Edition DB - entdb-oracle
+			Puppet Enterprise - puppet
+			Splunk Enterprise - splunk
 -AzExtConfig <Extension Type>
 			access – Adds Azure Access Extension – Added by default during VM creation
 			msav – Adds Azure Antivirus Extension
@@ -120,7 +126,7 @@ Param(
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=1)]
 [string]
 $vmMarketImage = "pfsense",
-[ValidateSet("w2k12","red67","red72","suse","free","ubuntu","centos","w2k16","sql","chef","check","pfsense","lamp","jenkins","nodejs","elastics","postgres")]
+[ValidateSet("w2k12","red67","red72","suse","free","ubuntu","centos","w2k16","sql","chef","check","pfsense","lamp","jenkins","nodejs","elastics","postgres","splunk","oracle-linux","puppet","web-logic","stddb-oracle","entdb-oracle")]
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
@@ -616,6 +622,96 @@ param(
 [string]$name = '9-5'
 )
 Write-Host "Image Creation in Process - Plan Info - postgresql" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+}
+Function MakeImagePlanInfo_Oracle_linux {
+param(
+[string]$Publisher = 'oracle',
+[string]$offer = 'Oracle-Linux',
+[string]$Skus = '7.2',
+[string]$version = 'latest',
+[string]$Product = 'Oracle-Linux',
+[string]$name = '7.2'
+)
+Write-Host "Image Creation in Process - Plan Info - Oracle Linux" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+}
+Function MakeImagePlanInfo_Oracle_weblogic {
+param(
+[string]$Publisher = 'oracle',
+[string]$offer = 'Oracle-WebLogic-Server',
+[string]$Skus = 'Oracle-WebLogic-Server',
+[string]$version = 'latest',
+[string]$Product = 'Oracle-WebLogic-Server',
+[string]$name = 'Oracle-WebLogic-Server'
+)
+Write-Host "Image Creation in Process - Plan Info - Oracle WebLogic" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+}
+Function MakeImagePlanInfo_Oracle_EntDB {
+param(
+[string]$Publisher = 'oracle',
+[string]$offer = 'Oracle-database-Ee',
+[string]$Skus = '12.1.0.2',
+[string]$version = 'latest',
+[string]$Product = '12.1.0.2',
+[string]$name = 'Oracle-database-Ee'
+)
+Write-Host "Image Creation in Process - Plan Info - Oracle Enterprise Edition" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+}
+Function MakeImagePlanInfo_Oracle_StdDB {
+param(
+[string]$Publisher = 'oracle',
+[string]$offer = 'Oracle-database-Se',
+[string]$Skus = '12.1.0.2',
+[string]$version = 'latest',
+[string]$Product = '12.1.0.2',
+[string]$name = 'Oracle-database-Se'
+)
+Write-Host "Image Creation in Process - Plan Info - Oracle Standard Edition" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+}
+Function MakeImagePlanInfo_puppet_puppetent {
+param(
+[string]$Publisher = 'puppet',
+[string]$offer = 'puppet-enterprise',
+[string]$Skus = '2016-1',
+[string]$version = 'latest',
+[string]$Product = '2016-1',
+[string]$name = 'puppet-enterprise'
+)
+Write-Host "Image Creation in Process - Plan Info - Puppet Enterprise" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+}
+Function MakeImagePlanInfo_splunk {
+param(
+[string]$Publisher = 'splunk',
+[string]$offer = 'splunk-enterprise-base-image',
+[string]$Skus = 'splunk-on-ubuntu-14-04-lts',
+[string]$version = 'latest',
+[string]$Product = 'splunk-on-ubuntu-14-04-lts',
+[string]$name = 'splunk-enterprise-base-image'
+)
+Write-Host "Image Creation in Process - Plan Info - Puppet Enterprise" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
 $global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
 $global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
@@ -1228,6 +1324,42 @@ AddDiskImage # Completes Image Creation
 		"*postgresql*" {
 ConfigNet  #Sets network connection info
 MakeImagePlanInfo_Bitnami_postgresql # Begins Image Creation
+ConfigSet # Adds Network Interfaces
+AddDiskImage # Completes Image Creation
+}
+		"*oracle-linux*" {
+ConfigNet  #Sets network connection info
+MakeImagePlanInfo_Oracle_linux # Begins Image Creation
+ConfigSet # Adds Network Interfaces
+AddDiskImage # Completes Image Creation
+}
+		"*web-logic*" {
+ConfigNet  #Sets network connection info
+MakeImagePlanInfo_Oracle_weblogic # Begins Image Creation
+ConfigSet # Adds Network Interfaces
+AddDiskImage # Completes Image Creation
+}
+		"*entdb-oracle*" {
+ConfigNet  #Sets network connection info
+MakeImagePlanInfo_Oracle_EntDB  # Begins Image Creation
+ConfigSet # Adds Network Interfaces
+AddDiskImage # Completes Image Creation
+}
+		"*stddb-oracle*" {
+ConfigNet  #Sets network connection info
+MakeImagePlanInfo_Oracle_StdDB # Begins Image Creation
+ConfigSet # Adds Network Interfaces
+AddDiskImage # Completes Image Creation
+}
+		"*puppet*" {
+ConfigNet  #Sets network connection info
+MakeImagePlanInfo_puppet_puppetent # Begins Image Creation
+ConfigSet # Adds Network Interfaces
+AddDiskImage # Completes Image Creation
+}
+		"*splunk" {
+ConfigNet  #Sets network connection info
+MakeImagePlanInfo_splunk # Begins Image Creation
 ConfigSet # Adds Network Interfaces
 AddDiskImage # Completes Image Creation
 }
