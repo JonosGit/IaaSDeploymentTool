@@ -2,7 +2,7 @@
 .SYNOPSIS
 Written By John N Lewis
 email: jonos@live.com
-Ver 3.91
+Ver 3.95
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD)
 The script allows select of subnet prior to VM Deployment
@@ -66,6 +66,8 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 .PARAMETER PvtIPNic2
 
 .PARAMETER AzExtConfig
+
+.PARAMETER ProvisionVPN
 
 .EXAMPLE
 \.azdeploy.ps1 -VMName pf001 -VMMarketImage pfsense -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup1 -VNetName VNET -depsub1 0 -depsub2 1 -ConfigIPs DualPvtNoPub -PvtIPNic1 10.120.0.7 -PvtIPNic2 10.120.1.7
@@ -168,7 +170,7 @@ $locpassword = 'P@ssW0rd!',
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$NSGEnabled = "True",
+$NSGEnabled = "False",
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
@@ -232,7 +234,11 @@ $PvtIPNic2 = '10.120.1.145',
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
- $AzExtConfig = ''
+ $AzExtConfig = '',
+
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$ProvisionVPN = "False"
 
 )
 # Global
@@ -241,7 +247,6 @@ $date = Get-Date -UFormat "%Y-%m-%d-%H-%M"
 $workfolder = Split-Path $script:MyInvocation.MyCommand.Path
 $SecureLocPassword=Convertto-SecureString $locpassword –asplaintext -Force
 $Credential1 = New-Object System.Management.Automation.PSCredential ($locadmin,$SecureLocPassword)
-# Write-Output "Steps will be tracked on the log file : [ $logFile ]"
 
 function verifyIpnic1 {
 if($PvtIPNic1)
@@ -401,6 +406,24 @@ AddNICs
 					}
 }
 }
+Function VPNEnabled {
+if($ProvisionVPN = "True")
+{
+New-AzureRmLocalNetworkGateway -Name LocalSite -ResourceGroupName $ResourceGroupName -Location $Location -GatewayIpAddress '28.51.128.147' -AddressPrefix '10.20.0.0/25'
+$vpnpip= New-AzureRmPublicIpAddress -Name vpnpip -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod Dynamic
+$vnet = Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $ResourceGroupName
+$subnet = Get-AzureRmVirtualNetworkSubnetConfig -Name 'GatewaySubnet' -VirtualNetwork $vnet
+$vpnipconfig = New-AzureRmVirtualNetworkGatewayIpConfig -Name vpnipconfig1 -SubnetId $subnet.Id -PublicIpAddressId $vpnpip.Id
+New-AzureRmVirtualNetworkGateway -Name vnetvpn1 -ResourceGroupName $ResourceGroupName -Location $Location -IpConfigurations $vpnipconfig -GatewayType Vpn -VpnType RouteBased -GatewaySku Standard
+Get-AzureRmPublicIpAddress -Name vpnpip -ResourceGroupName $ResourceGroupName
+Write-Host "Configure Local Device with Azure VNET vpn Public IP"
+pause
+$gateway1 = Get-AzureRmVirtualNetworkGateway -Name vnetvpn1 -ResourceGroupName $ResourceGroupName
+$local = Get-AzureRmLocalNetworkGateway -Name LocalSite -ResourceGroupName $ResourceGroupName
+New-AzureRmVirtualNetworkGatewayConnection  -ConnectionType IPsec -Name s2s -ResourceGroupName $ResourceGroupName -Location $Location -VirtualNetworkGateway1 $gateway1 -LocalNetworkGateway2 $local -RoutingWeight 10 -SharedKey abcd4321 -Verbose
+}
+}
+
 Function NSGEnabled
 {
 if($NSGEnabled = "True"){
@@ -903,7 +926,7 @@ $global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -Publisher
 
 Function ProvisionNet {
 Write-Host "Network Preparation in Process.."
-$subnet1 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.0.0/24 -Name perimeter
+$subnet1 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.0.128/25 -Name perimeter
 $subnet2 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.1.0/24 -Name web
 $subnet3 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.2.0/24 -Name intake
 $subnet4 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.3.0/24 -Name data
@@ -911,13 +934,16 @@ $subnet5 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.4.0/24 -N
 $subnet6 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.5.0/24 -Name analytics
 $subnet7 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.6.0/24 -Name backup
 $subnet8 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.7.0/24 -Name management
-New-AzureRmVirtualNetwork -Location $Location -Name $VNetName -ResourceGroupName $vNetResourceGroupName -AddressPrefix '10.120.0.0/21' -Subnet $subnet1,$subnet2,$subnet3,$subnet4,$subnet5,$subnet6,$subnet7,$subnet8 –Confirm:$false -Force -WarningAction SilentlyContinue | Out-Null
+$subnet9 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.0.0/25 -Name GatewaySubnet
+New-AzureRmVirtualNetwork -Location $Location -Name $VNetName -ResourceGroupName $vNetResourceGroupName -AddressPrefix '10.120.0.0/21' -Subnet $subnet9,$subnet1,$subnet2,$subnet3,$subnet4,$subnet5,$subnet6,$subnet7,$subnet8 –Confirm:$false -Force -WarningAction SilentlyContinue | Out-Null
 Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Get-AzureRmVirtualNetworkSubnetConfig -WarningAction SilentlyContinue | Out-Null
 Write-Host "Network Preparation completed" -ForegroundColor White
 }
 
 # End of Provision VNET Function
 Function CreateNSG {
+if($NSGEnabled = "True")
+{
 Write-Host "Network Security Group Preparation in Process.."
 $httprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTP" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "80" -DestinationPortRange "80" -SourceAddressPrefix "*" -DestinationAddressPrefix "10.120.0.0/21" -Access Allow -Direction Inbound -Priority 200
 $httpsrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTPS" -Description "HTTPS Exception for Web frontends" -Protocol Tcp -SourcePortRange "443" -DestinationPortRange "443" -SourceAddressPrefix "*" -DestinationAddressPrefix "10.120.0.0/21" -Access Allow -Direction Inbound -Priority 201
@@ -925,6 +951,9 @@ $sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_SSH" -Descriptio
 $nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vNetResourceGroupName -Location $Location -Name $NSGName -SecurityRules $httprule,$httpsrule, $sshrule –Confirm:$false -Force -WarningAction SilentlyContinue | Out-Null
 $nsgid = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vNetResourceGroupName -WarningAction SilentlyContinue | Out-Null
 Write-Host "Network Security Group creation completed" -ForegroundColor White
+}
+else
+{Write-Host "Skipping NSG Creation" -ForegroundColor White}
 }
 # End of Provision Network Security Groups Function
 
@@ -1206,7 +1235,8 @@ AzureVersion # Display Azure Version
 CheckOrphns # Check if Orphans exist.
 WriteConfig # Displays Configuration Prior to deployment
 ProvisionNet # Creates VNET
-CreateNSG # Creates Network Security Group
+CreateNSG
+VPNEnabled
 CreateStorage # Creates Storage for VM
 NicCounts # Gets Nic Creation Info
 AvailSet # Handles Availability Set Creation
