@@ -1,8 +1,8 @@
 ﻿<#
 .SYNOPSIS
-Written By John N Lewis
+Written By John N Lewis 
 email: jonos@live.com
-Ver 3.95
+Ver 4.0
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD)
 The script allows select of subnet prior to VM Deployment
@@ -12,7 +12,6 @@ The script will generate a name for azure storage endpoint unless the -StorageNa
 .DESCRIPTION
 Deploys 26 Market Images on a new or existing VNET. Supports post deployment configuration through Azure Extensions.
 Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windows 2012 R2, Ubuntu 14.04, CentOs 7.2, SUSE, SQL 2016 (on W2K12R2), R Server on Windows, Windows 2016 (Preview), Checkpoint Firewall, FreeBsd, Oracle Linux, Puppet, Splunk, Oracle Web-Logic, Oracle DB, Bitnami Lamp, Bitnami PostGresSql, Bitnami nodejs, Bitnami Elastics, Bitnami MySql
-
 .PARAMETER vmMarketImage
 
 .PARAMETER NewVnet
@@ -67,8 +66,6 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 
 .PARAMETER AzExtConfig
 
-.PARAMETER ProvisionVPN
-
 .EXAMPLE
 \.azdeploy.ps1 -VMName pf001 -VMMarketImage pfsense -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup1 -VNetName VNET -depsub1 0 -depsub2 1 -ConfigIPs DualPvtNoPub -PvtIPNic1 10.120.0.7 -PvtIPNic2 10.120.1.7
 .EXAMPLE
@@ -85,8 +82,6 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 			Redhat 6.7 – Red67
 			Redhat7.2 – Red72
 			Windows 2012 R2 – w2k12
-			Windows 2008 R2 - w2k8
-			Windows 2016 Preview - w2k16
 			PFSense 2.5 – pfsense
 			Free BSD – free
 			Suse – suse
@@ -95,6 +90,8 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 			SQL Server 2016 (on Windows 2012 host) – sql
 			MySql – mysql
 			CheckPoint – check
+			Windows 2008 R2 – w2k8
+			Windows 2016 – w2k16
 			Chef v12 - chef
 			Bitnami LampStack - lamp
 			Bitnami MySql - mysql
@@ -148,7 +145,7 @@ $vNetResourceGroupName = $ResourceGroupName,
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$VNetName = "aip",
+$VNetName = "vnet",
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateSet("Single","Dual","NoPubDual","PvtDualStat","StatPvtNoPubSingle","PvtSingleStat","StatPvtNoPubDual","NoPubSingle")]
@@ -233,12 +230,8 @@ $PvtIPNic1 = '10.120.3.145',
 $PvtIPNic2 = '10.120.1.145',
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
- [string]
- $AzExtConfig = '',
-
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$ProvisionVPN = "False"
+$AzExtConfig = ''
 
 )
 # Global
@@ -247,52 +240,6 @@ $date = Get-Date -UFormat "%Y-%m-%d-%H-%M"
 $workfolder = Split-Path $script:MyInvocation.MyCommand.Path
 $SecureLocPassword=Convertto-SecureString $locpassword –asplaintext -Force
 $Credential1 = New-Object System.Management.Automation.PSCredential ($locadmin,$SecureLocPassword)
-
-function verifyIpnic1 {
-if($PvtIPNic1)
-{
-if($PvtIPNic1 -match "^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$")
-{Write-Host "IP Address Format is correct"}
-else
-{Write-Host "Incorrect Format, please use 192.12.1.1"
-$PvtIPNic1 = Read-Host "Please Enter the IP Address in the correct format"
-}
-}
-else
-{
-$PvtIPNic1 = Read-Host Read-Host "Please Enter the IP Address"
-}
-}
-
-function verifyIpnic2 {
-if($PvtIPNic1)
-{
-if($PvtIPNic1 -match "^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$")
-{Write-Host "IP Address Format is correct"}
-else
-{Write-Host "Incorrect Format, please use 192.12.1.1"
-$PvtIPNic1 = Read-Host "Please Enter the IP Address in the correct format"
-}
-}
-else
-{
-$PvtIPNic1 = Read-Host Read-Host "Please Enter the IP Address"
-}
-
-if($PvtIPNic2)
-{
-if($PvtIPNic2 -match "^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$")
-{Write-Host "IP Address Format is correct"}
-else
-{Write-Host "Incorrect Format, please use 192.12.1.1"
-$PvtIPNic2 = Read-Host "Please Enter the IP Address in the correct format"
-}
-}
-else
-{
-$PvtIPNic2 = Read-Host Read-Host "Please Enter the IP Address"
-}
-}
 
 Function VerifyProfile {
 $ProfileFile = "c:\Temp\outlook.json"
@@ -350,14 +297,14 @@ $global:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -Resource
 }
 		"NoPubSingle" {
 Write-Host "Single IP - No Public"
-$VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
-$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id –Confirm:$false -Force -WarningAction SilentlyContinue
+$global:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
+$global:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id –Confirm:$false -Force -WarningAction SilentlyContinue
 }
 		"NoPubDual" {
 Write-Host "Dual IP - No Public"
-$VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
-$Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id –Confirm:$false -Force -WarningAction SilentlyContinue
-$Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub2].Id –Confirm:$false -Force -WarningAction SilentlyContinue
+$global:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
+$global:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id –Confirm:$false -Force -WarningAction SilentlyContinue
+$global:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub2].Id –Confirm:$false -Force -WarningAction SilentlyContinue
 }
 		default{"Nothing matched entry criteria"}
 }
@@ -406,27 +353,9 @@ AddNICs
 					}
 }
 }
-Function VPNEnabled {
-if($ProvisionVPN = "True")
-{
-New-AzureRmLocalNetworkGateway -Name LocalSite -ResourceGroupName $ResourceGroupName -Location $Location -GatewayIpAddress '28.51.128.147' -AddressPrefix '10.20.0.0/25'
-$vpnpip= New-AzureRmPublicIpAddress -Name vpnpip -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod Dynamic
-$vnet = Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $ResourceGroupName
-$subnet = Get-AzureRmVirtualNetworkSubnetConfig -Name 'GatewaySubnet' -VirtualNetwork $vnet
-$vpnipconfig = New-AzureRmVirtualNetworkGatewayIpConfig -Name vpnipconfig1 -SubnetId $subnet.Id -PublicIpAddressId $vpnpip.Id
-New-AzureRmVirtualNetworkGateway -Name vnetvpn1 -ResourceGroupName $ResourceGroupName -Location $Location -IpConfigurations $vpnipconfig -GatewayType Vpn -VpnType RouteBased -GatewaySku Standard
-Get-AzureRmPublicIpAddress -Name vpnpip -ResourceGroupName $ResourceGroupName
-Write-Host "Configure Local Device with Azure VNET vpn Public IP"
-pause
-$gateway1 = Get-AzureRmVirtualNetworkGateway -Name vnetvpn1 -ResourceGroupName $ResourceGroupName
-$local = Get-AzureRmLocalNetworkGateway -Name LocalSite -ResourceGroupName $ResourceGroupName
-New-AzureRmVirtualNetworkGatewayConnection  -ConnectionType IPsec -Name s2s -ResourceGroupName $ResourceGroupName -Location $Location -VirtualNetworkGateway1 $gateway1 -LocalNetworkGateway2 $local -RoutingWeight 10 -SharedKey abcd4321 -Verbose
-}
-}
-
 Function NSGEnabled
 {
-if($NSGEnabled = "True"){
+if($NSGEnabled -eq "True"){
 $nic1 = Get-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
 $nic2 = Get-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
 if($nic1)
@@ -445,21 +374,6 @@ Set-AzureRmNetworkInterface -NetworkInterface $nic | Out-Null
 }
 }
 }
-Function VerifyNicConfig {
-if($ConfigIPs-EQ "Dual"){Write-Host "Dual Pvt IP & Public IP will be created" }
-	elseif($ConfigIPs-EQ "Single"){Write-Host "Single Pvt IP & Public IP will be created" }
-			elseif($ConfigIPs-EQ "PvtDualStat"){verifyIpnic2}
-				  elseif($ConfigIPs-EQ"PvtSingleStat"){verifyIpnic1}
-						 elseif($ConfigIPs-EQ "SinglePvtNoPub"){verifyIpnic1}
-							   elseif($ConfigIPs-EQ "StatPvtNoPubDual"){verifyIpnic2}
-										elseif($ConfigIPs-EQ "StatPvtNoPubSingle"){verifyIpnic1}
-											   elseif($ConfigIPs-EQ "NoPubSingle"){Write-Host "Single Pvt IP & No Public IP"}
-													elseif($ConfigIPs-EQ "NoPubDual"){Write-Host "Dual Pvt IP & No Public IP"}
-	else {
-	Write-Host "No Network Config Found - Warning" -ForegroundColor Red
-	}
-}
-
 Function SelectNicDescrtipt {
 if($ConfigIPs-EQ "Dual"){Write-Host "Dual Pvt IP & Public IP will be created" }
 	elseif($ConfigIPs-EQ "Single"){Write-Host "Single Pvt IP & Public IP will be created" }
@@ -479,6 +393,7 @@ Function RegisterRP {
 		[string]$ResourceProviderNamespace
 	)
 
+	# Write-Host "Registering resource provider '$ResourceProviderNamespace'";
 	Register-AzureRmResourceProvider -ProviderNamespace $ResourceProviderNamespace –Confirm:$false -Force -WarningAction SilentlyContinue | Out-Null;
 }
 
@@ -926,7 +841,7 @@ $global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -Publisher
 
 Function ProvisionNet {
 Write-Host "Network Preparation in Process.."
-$subnet1 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.0.128/25 -Name perimeter
+$subnet1 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.0.0/24 -Name perimeter
 $subnet2 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.1.0/24 -Name web
 $subnet3 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.2.0/24 -Name intake
 $subnet4 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.3.0/24 -Name data
@@ -934,26 +849,20 @@ $subnet5 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.4.0/24 -N
 $subnet6 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.5.0/24 -Name analytics
 $subnet7 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.6.0/24 -Name backup
 $subnet8 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.7.0/24 -Name management
-$subnet9 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.0.0/25 -Name GatewaySubnet
-New-AzureRmVirtualNetwork -Location $Location -Name $VNetName -ResourceGroupName $vNetResourceGroupName -AddressPrefix '10.120.0.0/21' -Subnet $subnet9,$subnet1,$subnet2,$subnet3,$subnet4,$subnet5,$subnet6,$subnet7,$subnet8 –Confirm:$false -Force -WarningAction SilentlyContinue | Out-Null
+New-AzureRmVirtualNetwork -Location $Location -Name $VNetName -ResourceGroupName $vNetResourceGroupName -AddressPrefix '10.120.0.0/21' -Subnet $subnet1,$subnet2,$subnet3,$subnet4,$subnet5,$subnet6,$subnet7,$subnet8 –Confirm:$false -Force -WarningAction SilentlyContinue | Out-Null
 Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Get-AzureRmVirtualNetworkSubnetConfig -WarningAction SilentlyContinue | Out-Null
 Write-Host "Network Preparation completed" -ForegroundColor White
 }
 
 # End of Provision VNET Function
 Function CreateNSG {
-if($NSGEnabled = "True")
-{
 Write-Host "Network Security Group Preparation in Process.."
 $httprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTP" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "80" -DestinationPortRange "80" -SourceAddressPrefix "*" -DestinationAddressPrefix "10.120.0.0/21" -Access Allow -Direction Inbound -Priority 200
 $httpsrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTPS" -Description "HTTPS Exception for Web frontends" -Protocol Tcp -SourcePortRange "443" -DestinationPortRange "443" -SourceAddressPrefix "*" -DestinationAddressPrefix "10.120.0.0/21" -Access Allow -Direction Inbound -Priority 201
 $sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_SSH" -Description "SSH Exception for Web frontends" -Protocol Tcp -SourcePortRange "22" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix "10.120.0.0/21" -Access Allow -Direction Inbound ` -Priority 203
 $nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vNetResourceGroupName -Location $Location -Name $NSGName -SecurityRules $httprule,$httpsrule, $sshrule –Confirm:$false -Force -WarningAction SilentlyContinue | Out-Null
-$nsgid = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vNetResourceGroupName -WarningAction SilentlyContinue | Out-Null
+Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vNetResourceGroupName -WarningAction SilentlyContinue | Out-Null
 Write-Host "Network Security Group creation completed" -ForegroundColor White
-}
-else
-{Write-Host "Skipping NSG Creation" -ForegroundColor White}
 }
 # End of Provision Network Security Groups Function
 
@@ -1091,6 +1000,7 @@ Function ProvisionRGs {
 	$resourceGroup = Get-AzureRmResourceGroup -Name $ResourceGroupName -ErrorAction SilentlyContinue -WarningAction SilentlyContinue | Out-Null
 if(!$resourceGroup)
 {
+#	Write-Host "Resource group '$ResourceGroupName' does not exist. Creating...";
 	if(!$Location) {
 		$Location = Read-Host "resourceGroupLocation";
 	}
@@ -1112,6 +1022,7 @@ New-AzureRmResourceGroup -Name $resourceGroupName -Location $Location –Confirm
 Function CreateStorage {
 Write-Host "Starting Storage Creation.."
 $Global:StorageAccount = New-AzureRmStorageAccount -ResourceGroupName $ResourceGroupName -Name $StorageName.ToLower() -Type $StorageType -Location $Location -ErrorAction Stop -WarningAction SilentlyContinue
+#Get-AzureRmStorageAccount -Name $StorageName.ToLower() -ResourceGroupName $ResourceGroupName -WarningAction SilentlyContinue | ft "StorageAccountName" -OutVariable $stracct
 Write-Host "Completed Storage Creation" -ForegroundColor White
 } # Creates Storage
 
@@ -1196,6 +1107,7 @@ Remove-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $Resourc
  }
  else {Write-Host "No Orphans Found, proceeding with deployment.." -ForegroundColor Green}
  }
+# Write-Host "No Orphans Found" -ForegroundColor Green
 } # Verifies no left over components will prohibit deployment of the new VM, cleans up any if the exist.
 
 ##--------------------------- Begin Script Execution -------------------------------------------------------##
@@ -1234,11 +1146,9 @@ if($resourcegroups.length) {
 AzureVersion # Display Azure Version
 CheckOrphns # Check if Orphans exist.
 WriteConfig # Displays Configuration Prior to deployment
-ProvisionNet # Creates VNET
-CreateNSG
-VPNEnabled
+if($NewVNET -eq "True"){ProvisionNet} # Creates VNET
+if($NSGEnabled -eq "True"){CreateNSG}
 CreateStorage # Creates Storage for VM
-NicCounts # Gets Nic Creation Info
 AvailSet # Handles Availability Set Creation
 
 switch -Wildcard ($vmMarketImage)
@@ -1402,9 +1312,9 @@ AddDiskImage # Completes Image Creation
 		default{"An unsupported image was referenced"}
 	}
 Provvms #Provisions Final Step of VM Creation
+if($NSGEnabled -eq "True"){NSGEnabled} #Adds NSG to NIC
 if($AzExtConfig) {
 InstallExt
 } #Installs Azure Extensions
-NSGEnabled #Adds NSG to NIC
 #End State Report
 EndState # Presents Final State for Deployment
