@@ -2,7 +2,7 @@
 .SYNOPSIS
 Written By John N Lewis 
 email: jonos@live.com
-Ver 4.0
+Ver 4.1
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD)
 The script allows select of subnet prior to VM Deployment
@@ -11,7 +11,7 @@ The script will generate a name for azure storage endpoint unless the -StorageNa
 
 .DESCRIPTION
 Deploys 26 Market Images on a new or existing VNET. Supports post deployment configuration through Azure Extensions.
-Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windows 2012 R2, Ubuntu 14.04, CentOs 7.2, SUSE, SQL 2016 (on W2K12R2), R Server on Windows, Windows 2016 (Preview), Checkpoint Firewall, FreeBsd, Oracle Linux, Puppet, Splunk, Oracle Web-Logic, Oracle DB, Bitnami Lamp, Bitnami PostGresSql, Bitnami nodejs, Bitnami Elastics, Bitnami MySql
+Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windows 2012 R2, Ubuntu 14.04, CentOs 7.2, SUSE, SQL 2016 (on W2K12R2), R Server on Windows, Windows 2016 (Preview), Checkpoint Firewall, FreeBsd, Oracle Linux, Puppet, Splunk, Oracle Web-Logic, Oracle DB, Bitnami Lamp, Bitnami PostGresSql, Bitnami nodejs, Bitnami Elastics, Bitnami MySql, SharePoint 2013, SharePoint 2016
 .PARAMETER vmMarketImage
 
 .PARAMETER NewVnet
@@ -105,6 +105,9 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 			Oracle Enterprise Edition DB - entdb-oracle
 			Puppet Enterprise - puppet
 			Splunk Enterprise - splunk
+            SharePoint 2013 - share2013
+            SharePoint 2016 - share2016
+
 -AzExtConfig <Extension Type>
 			access – Adds Azure Access Extension – Added by default during VM creation
 			msav – Adds Azure Antivirus Extension
@@ -119,7 +122,6 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 .LINK
 https://github.com/JonosGit/IaaSDeploymentTool
 #>
-
 [CmdletBinding()]
 Param(
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=1)]
@@ -235,14 +237,14 @@ $AzExtConfig = ''
 
 )
 # Global
-$ErrorActionPreference = "SilentlyContinue"
+# $ErrorActionPreference = "SilentlyContinue"
 $date = Get-Date -UFormat "%Y-%m-%d-%H-%M"
 $workfolder = Split-Path $script:MyInvocation.MyCommand.Path
 $SecureLocPassword=Convertto-SecureString $locpassword –asplaintext -Force
 $Credential1 = New-Object System.Management.Automation.PSCredential ($locadmin,$SecureLocPassword)
 
 Function VerifyProfile {
-$ProfileFile = "c:\Temp\outlook.json"
+$ProfileFile = "c:\Temp\profile.json"
 $fileexist = Test-Path $ProfileFile
   if($fileexist)
   {Write-Host "Profile Found"
@@ -423,7 +425,6 @@ catch {
 
 Function AddDiskImage {
 Write-Host "Completing image creation..." -ForegroundColor White
-Write-Progress -Activity
 $global:osDiskCaching = "ReadWrite"
 $global:OSDiskName = $VMName + "OSDisk"
 $global:OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDiskName + ".vhd"
@@ -567,7 +568,7 @@ $global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -Publisher
 }
 Function MakeImagePlanInfo_Oracle_linux {
 param(
-[string]$Publisher = 'oracle',
+[string]$Publisher = 'Oracle',
 [string]$offer = 'Oracle-Linux',
 [string]$Skus = '7.2',
 [string]$version = 'latest',
@@ -582,8 +583,8 @@ $global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -Publisher
 }
 Function MakeImagePlanInfo_Oracle_weblogic {
 param(
-[string]$Publisher = 'oracle',
-[string]$offer = 'Oracle-WebLogic-Server',
+[string]$Publisher = 'Oracle',
+[string]$offer = 'Oracle-WebLogic-server',
 [string]$Skus = 'Oracle-WebLogic-Server',
 [string]$version = 'latest',
 [string]$Product = 'Oracle-WebLogic-Server',
@@ -597,7 +598,7 @@ $global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -Publisher
 }
 Function MakeImagePlanInfo_Oracle_EntDB {
 param(
-[string]$Publisher = 'oracle',
+[string]$Publisher = 'Oracle',
 [string]$offer = 'Oracle-database-Ee',
 [string]$Skus = '12.1.0.2',
 [string]$version = 'latest',
@@ -612,7 +613,7 @@ $global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -Publisher
 }
 Function MakeImagePlanInfo_Oracle_StdDB {
 param(
-[string]$Publisher = 'oracle',
+[string]$Publisher = 'Oracle',
 [string]$offer = 'Oracle-database-Se',
 [string]$Skus = '12.1.0.2',
 [string]$version = 'latest',
@@ -627,7 +628,7 @@ $global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -Publisher
 }
 Function MakeImagePlanInfo_puppet_puppetent {
 param(
-[string]$Publisher = 'puppet',
+[string]$Publisher = 'Puppet',
 [string]$offer = 'puppet-enterprise',
 [string]$Skus = '2016-1',
 [string]$version = 'latest',
@@ -642,7 +643,7 @@ $global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -Publisher
 }
 Function MakeImagePlanInfo_splunk {
 param(
-[string]$Publisher = 'splunk',
+[string]$Publisher = 'Splunk',
 [string]$offer = 'splunk-enterprise-base-image',
 [string]$Skus = 'splunk-on-ubuntu-14-04-lts',
 [string]$version = 'latest',
@@ -813,6 +814,32 @@ $global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -Windo
 $global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
 }
 
+Function MakeImageNoPlanInfo_SharePoint2k13 {
+param(
+[string]$Publisher = "MicrosoftSharePoint",
+[string]$offer = "MicrosoftSharePointServer",
+[string]$Skus = "2013",
+[string]$version = "latest"
+)
+Write-Host "Image Creation in Process - No Plan Info - SharePoint 2013 server" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -Windows -ComputerName $VMName -Credential $Credential1 -ProvisionVMAgent -EnableAutoUpdate -WinRMHttp -Verbose
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+}
+
+Function MakeImageNoPlanInfo_SharePoint2k16 {
+param(
+[string]$Publisher = "MicrosoftSharePoint",
+[string]$offer = "MicrosoftSharePointServer",
+[string]$Skus = "2016",
+[string]$version = "latest"
+)
+Write-Host "Image Creation in Process - No Plan Info - SharePoint 2016 server" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -Windows -ComputerName $VMName -Credential $Credential1 -ProvisionVMAgent -EnableAutoUpdate -WinRMHttp -Verbose
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+}
+
 Function MakeImageNoPlanInfo_w2k16 {
 param(
 [string]$Publisher = "MicrosoftWindowsServer",
@@ -978,8 +1005,6 @@ Write-Host "                                                               "
 }
 
 Function EndState {
-WriteResults
-
 Write-Host "Private Network Interfaces for $ResourceGroupName"
 $vms = get-azurermvm -ResourceGroupName $ResourceGroupName
 $nics = get-azurermnetworkinterface -ResourceGroupName $ResourceGroupName | where VirtualMachine -NE $null #skip Nics with no VM
@@ -1026,131 +1051,7 @@ $Global:StorageAccount = New-AzureRmStorageAccount -ResourceGroupName $ResourceG
 Write-Host "Completed Storage Creation" -ForegroundColor White
 } # Creates Storage
 
-Function InstallExt {
-switch ($AzExtConfig)
-	{
-		"access" {
-Write-Host "VM Access Agent VM Image Preparation in Process"
-Set-AzureRmVMAccessExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "VMAccess" -ExtensionType "VMAccessAgent" -Publisher "Microsoft.Compute" -typeHandlerVersion "2.0" -Location $Location -Verbose
-Get-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "VMAccess"
-}
-		"msav" {
-Write-Host "MSAV Agent VM Image Preparation in Process"
-Set-AzureRmVMExtension  -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "MSAVExtension" -ExtensionType "IaaSAntimalware" -Publisher "Microsoft.Azure.Security" -typeHandlerVersion 1.4 -Location $Location
-Get-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "MSAVExtension" -Status
-}
-		"custScript" {
-Write-Host "Updating server with custom script"
-Set-AzureRmVMCustomScriptExtension -Name "CustScript" -ResourceGroupName $ResourceGroupName -Run "CustScript.ps1" -VMName $VMName -FileUri $StorageName -Location $Location -TypeHandlerVersion "1.1"
-Get-AzureRmVMCustomScriptExtension -ResourceGroupName $ResourceGroupName -Name "CustScript"
-}
-		"diag" {
-Write-Host "Adding Azure Enhanced Diagnostics"
-Set-AzureRmVMAEMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -WADStorageAccountName $StorageName -InformationAction SilentlyContinue -WarningAction SilentlyContinue | Out-Null
-Get-AzureRmVMAEMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName | Out-Null
-}
-		"domjoin" {
-Write-Host "Domain Join active"
-Set-AzureRmVMADDomainExtension -DomainName $DomName -ResourceGroupName $ResourceGroupName -VMName $VMName -Location $Location -Name DomJoin -WarningAction SilentlyContinue
-Get-AzureRmVMADDomainExtension -ResourceGroupName $ResourceGroupName -VMName $VMName
-		}
-		"linuxOsPatch" {
-Write-Host "Adding Azure OS Patching Linux"
-Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $ResourceGroupName -Location $Location -Name "OSPatch" -ExtensionType "OSPatchingForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.0" -InformationAction SilentlyContinue -ForceRerun -Verbose
-Get-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "OSPatch"
-		}
-		"linuxbackup" {
-Write-Host "Adding Linux VMBackup"
-Set-AzureRmVMBackupExtension -VMName $VMName -ResourceGroupName $ResourceGroupName -Location $Location -Name "VMBackup" -Tag "OSBackup" -WarningAction SilentlyContinue
-Get-AzureRmVMBackupExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "VMBackup"
-		}
-		"chefAgent" {
-Write-Host "Adding Chef Agent"
-Set-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "ChefStrap" -ExtensionType "ChefClient" -Publisher "Chef.Bootstrap.WindowsAzure" -typeHandlerVersion "1210.12" -Location $Location -Verbose -ProtectedSettingString -SettingString
-Get-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "ChefStrap"
-		}
-		"WinBootStChef" {
-Write-Host "Bootstrapping Chef Agent"
-knife bootstrap windows winrm $BootIp --winrm-user $localadmin --winrm-password $locpassword --node-name $VMName --Install-as-service
-		}
-		"linBootStChef" {
-Write-Host "Bootstrapping Chef Agent"
-knife bootstrap $BootIp --node-name $VMName --ssh-user localadmin --ssh-password $locpassword --sudo --use-sudo-password --verbose --yes
-		}
-		default{"An unsupported Extension command was used"
-break
-}
-	}
-} # Deploys Azure Extensions
-
-Function CheckOrphns {
-$extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
-$nic1 = Get-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
-$nic2 = Get-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
-$pubip =  Get-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
-
-if($extvm)
-{ Write-Host "Host VM Found, please use a different VMName for Provisioning or manually delete the existing VM" -ForegroundColor Red
- Start-sleep 10
- exit   }
-else {if($nic1)
-{ Write-Host "Nic1 already Exists, removing orphan" -ForegroundColor DarkYellow
-Remove-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Force -Confirm:$False
- }
-	 if($pubip)
-{ Write-Host "PublicIp already Exists, removing orphan" -ForegroundColor DarkYellow
-				  Remove-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Force -Confirm:$False
-}
-	 if($nic2)
-{ Write-Host "Nic2 already Exists, removing orphan" -ForegroundColor DarkYellow
-				  Remove-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $ResourceGroupName -Force -Confirm:$False
- }
- else {Write-Host "No Orphans Found, proceeding with deployment.." -ForegroundColor Green}
- }
-# Write-Host "No Orphans Found" -ForegroundColor Green
-} # Verifies no left over components will prohibit deployment of the new VM, cleans up any if the exist.
-
-##--------------------------- Begin Script Execution -------------------------------------------------------##
-
-VerifyProfile
-
-try {
-	[Microsoft.Azure.Common.Authentication.AzureSession]::ClientFactory.AddUserAgent("VSAzureTools-$UI$($host.name)".replace(" ","_"), "2.9")
-} catch { }
-
-try {
-Get-AzureRmResourceGroup -Location $Location -ErrorAction Stop | Out-Null
-}
-catch {
-	Write-Host -foregroundcolor Yellow `
-	"User has not authenticated, use Add-AzureRmAccount or $($_.Exception.Message)"; `
-	continue
-}
-
- $resourceProviders = @("microsoft.compute","microsoft.network","microsoft.storage");
- if($resourceProviders.length) {
-	Write-Host "Registering resource providers"
-	foreach($resourceProvider in $resourceProviders) {
-		RegisterRP($resourceProvider);
-	}
- } # Get Resource Providers
-
-$resourcegroups = @($ResourceGroupName,$vNetResourceGroupName);
-# $resourcegroups = @($ResourceGroupName);
-if($resourcegroups.length) {
-	foreach($resourcegroup in $resourcegroups) {
-		ProvisionResGrp($resourcegroup);
-	}
-	} # Create Resource Groups
-
-AzureVersion # Display Azure Version
-CheckOrphns # Check if Orphans exist.
-WriteConfig # Displays Configuration Prior to deployment
-if($NewVNET -eq "True"){ProvisionNet} # Creates VNET
-if($NSGEnabled -eq "True"){CreateNSG}
-CreateStorage # Creates Storage for VM
-AvailSet # Handles Availability Set Creation
-
+Function ImageConfig {
 switch -Wildcard ($vmMarketImage)
 	{
 		"*pf*" {
@@ -1297,9 +1198,21 @@ MakeImagePlanInfo_puppet_puppetent # Begins Image Creation
 ConfigSet # Adds Network Interfaces
 AddDiskImage # Completes Image Creation
 }
-		"*splunk" {
+		"*splunk*" {
 ConfigNet  #Sets network connection info
 MakeImagePlanInfo_splunk # Begins Image Creation
+ConfigSet # Adds Network Interfaces
+AddDiskImage # Completes Image Creation
+}
+		"*share2013*" {
+ConfigNet  #Sets network connection info
+MakeImageNoPlanInfo_SharePoint2k13 # Begins Image Creation
+ConfigSet # Adds Network Interfaces
+AddDiskImage # Completes Image Creation
+}
+		"*share2016*" {
+ConfigNet  #Sets network connection info
+MakeImageNoPlanInfo_SharePoint2k16 # Begins Image Creation
 ConfigSet # Adds Network Interfaces
 AddDiskImage # Completes Image Creation
 }
@@ -1311,10 +1224,149 @@ AddDiskImage # Completes Image Creation
 }
 		default{"An unsupported image was referenced"}
 	}
+}
+
+Function InstallExt {
+switch ($AzExtConfig)
+	{
+		"access" {
+Write-Host "VM Access Agent VM Image Preparation in Process"
+Set-AzureRmVMAccessExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "VMAccess" -ExtensionType "VMAccessAgent" -Publisher "Microsoft.Compute" -typeHandlerVersion "2.0" -Location $Location -Verbose
+Get-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "VMAccess"
+}
+		"msav" {
+Write-Host "MSAV Agent VM Image Preparation in Process"
+Set-AzureRmVMExtension  -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "MSAVExtension" -ExtensionType "IaaSAntimalware" -Publisher "Microsoft.Azure.Security" -typeHandlerVersion 1.4 -Location $Location
+Get-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "MSAVExtension" -Status
+}
+		"custScript" {
+Write-Host "Updating server with custom script"
+Set-AzureRmVMCustomScriptExtension -Name "CustScript" -ResourceGroupName $ResourceGroupName -Run "CustScript.ps1" -VMName $VMName -FileUri $StorageName -Location $Location -TypeHandlerVersion "1.1"
+Get-AzureRmVMCustomScriptExtension -ResourceGroupName $ResourceGroupName -Name "CustScript"
+}
+		"diag" {
+Write-Host "Adding Azure Enhanced Diagnostics"
+Set-AzureRmVMAEMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -WADStorageAccountName $StorageName -InformationAction SilentlyContinue -WarningAction SilentlyContinue | Out-Null
+Get-AzureRmVMAEMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName | Out-Null
+}
+		"domjoin" {
+Write-Host "Domain Join active"
+Set-AzureRmVMADDomainExtension -DomainName $DomName -ResourceGroupName $ResourceGroupName -VMName $VMName -Location $Location -Name DomJoin -WarningAction SilentlyContinue
+Get-AzureRmVMADDomainExtension -ResourceGroupName $ResourceGroupName -VMName $VMName
+		}
+		"linuxOsPatch" {
+Write-Host "Adding Azure OS Patching Linux"
+Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $ResourceGroupName -Location $Location -Name "OSPatch" -ExtensionType "OSPatchingForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.0" -InformationAction SilentlyContinue -ForceRerun -Verbose
+Get-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "OSPatch"
+		}
+		"linuxbackup" {
+Write-Host "Adding Linux VMBackup"
+Set-AzureRmVMBackupExtension -VMName $VMName -ResourceGroupName $ResourceGroupName -Location $Location -Name "VMBackup" -Tag "OSBackup" -WarningAction SilentlyContinue
+Get-AzureRmVMBackupExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "VMBackup"
+		}
+		"chefAgent" {
+Write-Host "Adding Chef Agent"
+Set-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "ChefStrap" -ExtensionType "ChefClient" -Publisher "Chef.Bootstrap.WindowsAzure" -typeHandlerVersion "1210.12" -Location $Location -Verbose -ProtectedSettingString -SettingString
+Get-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "ChefStrap"
+		}
+		"WinBootStChef" {
+Write-Host "Bootstrapping Chef Agent"
+knife bootstrap windows winrm $BootIp --winrm-user $localadmin --winrm-password $locpassword --node-name $VMName --Install-as-service
+		}
+		"linBootStChef" {
+Write-Host "Bootstrapping Chef Agent"
+knife bootstrap $BootIp --node-name $VMName --ssh-user localadmin --ssh-password $locpassword --sudo --use-sudo-password --verbose --yes
+		}
+		default{"An unsupported Extension command was used"
+break
+}
+	}
+} # Deploys Azure Extensions
+
+Function CheckOrphns {
+$extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
+$nic1 = Get-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
+$nic2 = Get-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
+$pubip =  Get-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
+
+if($extvm)
+{ Write-Host "Host VM Found, please use a different VMName for Provisioning or manually delete the existing VM" -ForegroundColor Red
+ Start-sleep 10
+ exit   }
+else {if($nic1)
+{ Write-Host "Nic1 already Exists, removing orphan" -ForegroundColor DarkYellow
+Remove-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Force -Confirm:$False
+ }
+	 if($pubip)
+{ Write-Host "PublicIp already Exists, removing orphan" -ForegroundColor DarkYellow
+				  Remove-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Force -Confirm:$False
+}
+	 if($nic2)
+{ Write-Host "Nic2 already Exists, removing orphan" -ForegroundColor DarkYellow
+				  Remove-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $ResourceGroupName -Force -Confirm:$False
+ }
+ else {Write-Host "No Orphans Found, proceeding with deployment.." -ForegroundColor Green}
+ }
+# Write-Host "No Orphans Found" -ForegroundColor Green
+} # Verifies no left over components will prohibit deployment of the new VM, cleans up any if the exist.
+
+# Fuctions
+Function AzureVersion{
+$name='Azure'
+if(Get-Module -ListAvailable |
+	Where-Object { $_.name -eq $name })
+{
+	(Get-Module -ListAvailable | Where-Object{ $_.Name -eq $name }) |
+	Select Version, Name, Author, PowerShellVersion  | Format-List;
+}
+else
+{
+	“The Azure PowerShell module is not installed.”
+}
+}
+
+##--------------------------- Begin Script Execution -------------------------------------------------------##
+
+VerifyProfile
+
+try {
+	[Microsoft.Azure.Common.Authentication.AzureSession]::ClientFactory.AddUserAgent("VSAzureTools-$UI$($host.name)".replace(" ","_"), "2.9")
+} catch { }
+
+try {
+Get-AzureRmResourceGroup -Location $Location -ErrorAction Stop | Out-Null
+}
+catch {
+	Write-Host -foregroundcolor Yellow `
+	"User has not authenticated, use Add-AzureRmAccount or $($_.Exception.Message)"; `
+	continue
+}
+
+ $resourceProviders = @("microsoft.compute","microsoft.network","microsoft.storage");
+ if($resourceProviders.length) {
+	Write-Host "Registering resource providers"
+	foreach($resourceProvider in $resourceProviders) {
+		RegisterRP($resourceProvider);
+	}
+ } # Get Resource Providers
+
+$resourcegroups = @($ResourceGroupName,$vNetResourceGroupName);
+# $resourcegroups = @($ResourceGroupName);
+if($resourcegroups.length) {
+	foreach($resourcegroup in $resourcegroups) {
+		ProvisionResGrp($resourcegroup);
+	}
+	} # Create Resource Groups
+
+AzureVersion # Display Azure Version
+CheckOrphns # Check if Orphans exist.
+WriteConfig # Displays Configuration Prior to deployment
+if($NewVNET -eq "True"){ProvisionNet} # Creates VNET
+if($NSGEnabled -eq "True"){CreateNSG}
+CreateStorage # Creates Storage for VM
+AvailSet # Handles Availability Set Creation
+ImageConfig # Configure Image
 Provvms #Provisions Final Step of VM Creation
 if($NSGEnabled -eq "True"){NSGEnabled} #Adds NSG to NIC
-if($AzExtConfig) {
-InstallExt
-} #Installs Azure Extensions
-#End State Report
+if($AzExtConfig) {InstallExt} #Installs Azure Extensions
 EndState # Presents Final State for Deployment
