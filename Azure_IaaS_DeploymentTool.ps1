@@ -1,8 +1,8 @@
 ﻿<#
 .SYNOPSIS
-Written By John N Lewis 
+Written By John N Lewis
 email: jonos@live.com
-Ver 4.1
+Ver 4.2
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD)
 The script allows select of subnet prior to VM Deployment
@@ -11,7 +11,7 @@ The script will generate a name for azure storage endpoint unless the -StorageNa
 
 .DESCRIPTION
 Deploys 26 Market Images on a new or existing VNET. Supports post deployment configuration through Azure Extensions.
-Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windows 2012 R2, Ubuntu 14.04, CentOs 7.2, SUSE, SQL 2016 (on W2K12R2), R Server on Windows, Windows 2016 (Preview), Checkpoint Firewall, FreeBsd, Oracle Linux, Puppet, Splunk, Oracle Web-Logic, Oracle DB, Bitnami Lamp, Bitnami PostGresSql, Bitnami nodejs, Bitnami Elastics, Bitnami MySql, SharePoint 2013, SharePoint 2016
+Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windows 2012 R2, Ubuntu 14.04, CentOs 7.2, SUSE, SQL 2016 (on W2K12R2), R Server on Windows, Windows 2016 (Preview), Checkpoint Firewall, FreeBsd, Oracle Linux, Puppet, Splunk, Oracle Web-Logic, Oracle DB, Bitnami Lamp, Bitnami PostGresSql, Bitnami nodejs, Bitnami Elastics, Bitnami MySql
 .PARAMETER vmMarketImage
 
 .PARAMETER NewVnet
@@ -66,12 +66,18 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 
 .PARAMETER AzExtConfig
 
+.PARAMETER DNLabel
+
+.PARAMETER AddFQDN
+
 .EXAMPLE
 \.azdeploy.ps1 -VMName pf001 -VMMarketImage pfsense -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup1 -VNetName VNET -depsub1 0 -depsub2 1 -ConfigIPs DualPvtNoPub -PvtIPNic1 10.120.0.7 -PvtIPNic2 10.120.1.7
 .EXAMPLE
 \.azdeploy.ps1 -VMName red76 -VMMarketImage red67 -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup2 -VNetName VNET -depsub1 6 -ConfigIPs SinglePvtNoPub -PvtIPNic1 10.120.6.124 -AzExtConfig linuxbackup
 .EXAMPLE
 \.azdeploy.ps1 -VMName win006 -VMMarketImage w2k12 -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup1 -VNetName VNET -depsub1 6 -ConfigIPs SinglePvtNoPub -PvtIPNic1 10.120.6.120 -AvailabilitySet "True"
+.EXAMPLE
+\.azdeploy.ps1 -VMName win007 -VMMarketImage w2k12 -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup1 -VNetName VNET -depsub1 6 -ConfigIPs Single -AddFQDN $True -DNLabel myw2ksrv
 .NOTES
 -ConfigIps  <Configuration>
 			PvtSingleStat & PvtDualStat – Deploys the server with a Public IP and the private IP(s) specified by the user.
@@ -105,9 +111,8 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 			Oracle Enterprise Edition DB - entdb-oracle
 			Puppet Enterprise - puppet
 			Splunk Enterprise - splunk
-            SharePoint 2013 - share2013
-            SharePoint 2016 - share2016
-
+			SharePoint 2013 - share2013
+			SharePoint 2016 - share2016
 -AzExtConfig <Extension Type>
 			access – Adds Azure Access Extension – Added by default during VM creation
 			msav – Adds Azure Antivirus Extension
@@ -122,6 +127,7 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 .LINK
 https://github.com/JonosGit/IaaSDeploymentTool
 #>
+
 [CmdletBinding()]
 Param(
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=1)]
@@ -226,6 +232,14 @@ $AvailabilitySet = "False",
 $AvailSetName = $GenerateName,
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$DNLabel = 'mytesr1',
+
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[bool]
+$AddFQDN = $False,
+
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 $PvtIPNic1 = '10.120.3.145',
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
@@ -243,8 +257,9 @@ $workfolder = Split-Path $script:MyInvocation.MyCommand.Path
 $SecureLocPassword=Convertto-SecureString $locpassword –asplaintext -Force
 $Credential1 = New-Object System.Management.Automation.PSCredential ($locadmin,$SecureLocPassword)
 
+#Begin Functions
 Function VerifyProfile {
-$ProfileFile = "c:\Temp\profile.json"
+$ProfileFile = "c:\Temp\outlook.json"
 $fileexist = Test-Path $ProfileFile
   if($fileexist)
   {Write-Host "Profile Found"
@@ -257,19 +272,40 @@ $fileexist = Test-Path $ProfileFile
   }
 }
 
+Function PubIPconfig {
+if($AddFQDN)
+{
+$global:PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic" -DomainNameLabel $DNLabel –Confirm:$false -Force -WarningAction SilentlyContinue
+}
+else
+{
+$global:PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic" –Confirm:$false -Force -WarningAction SilentlyContinue
+}
+}
+
+Function PubDNSconfig {
+if($AddFQDN)
+{
+Write-Host $DNLabel + $Location + ".cloudapp.azure.com"
+}
+else
+{
+}
+}
+
 Function ConfigNet {
 switch ($ConfigIPs)
 	{
 		"PvtDualStat" {
 Write-Host "Dual IP Configuration - Static"
-$global:PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic" –Confirm:$false -Force -WarningAction SilentlyContinue
+PubIPconfig
 $global:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
 $global:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -Force -WarningAction SilentlyContinue
 $global:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub2].Id -PrivateIpAddress $PvtIPNic2 –Confirm:$false -Force -WarningAction SilentlyContinue
 }
 		"PvtSingleStat" {
 Write-Host "Single IP Configuration - Static"
-$global:PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic" –Confirm:$false -Force -WarningAction SilentlyContinue
+PubIPconfig
 $global:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
 $global:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -Force -WarningAction SilentlyContinue
 }
@@ -286,13 +322,13 @@ $global:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -Resource
 }
 		"Single" {
 Write-Host "Default Single IP Configuration"
-$global:PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic" –Confirm:$false -Force -WarningAction SilentlyContinue
+PubIPconfig
 $global:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
 $global:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id –Confirm:$false -Force -WarningAction SilentlyContinue
 }
 		"Dual" {
 Write-Host "Default Dual IP Configuration"
-$global:PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic" –Confirm:$false -Force -WarningAction SilentlyContinue
+PubIPconfig
 $global:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
 $global:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id –Confirm:$false -Force -WarningAction SilentlyContinue
 $global:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub2].Id –Confirm:$false -Force -WarningAction SilentlyContinue
@@ -876,12 +912,13 @@ $subnet5 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.4.0/24 -N
 $subnet6 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.5.0/24 -Name analytics
 $subnet7 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.6.0/24 -Name backup
 $subnet8 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.7.0/24 -Name management
+$subnet9 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.8.0/24 -Name gatewaysubnet
 New-AzureRmVirtualNetwork -Location $Location -Name $VNetName -ResourceGroupName $vNetResourceGroupName -AddressPrefix '10.120.0.0/21' -Subnet $subnet1,$subnet2,$subnet3,$subnet4,$subnet5,$subnet6,$subnet7,$subnet8 –Confirm:$false -Force -WarningAction SilentlyContinue | Out-Null
 Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Get-AzureRmVirtualNetworkSubnetConfig -WarningAction SilentlyContinue | Out-Null
 Write-Host "Network Preparation completed" -ForegroundColor White
 }
-
 # End of Provision VNET Function
+
 Function CreateNSG {
 Write-Host "Network Security Group Preparation in Process.."
 $httprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTP" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "80" -DestinationPortRange "80" -SourceAddressPrefix "*" -DestinationAddressPrefix "10.120.0.0/21" -Access Allow -Direction Inbound -Priority 200
@@ -907,6 +944,7 @@ switch ($Subnet)
 5 {Write-Host "Deploying to Subnet 10.120.5.0/24"}
 6 {Write-Host "Deploying to Subnet 10.120.6.0/24"}
 7 {Write-Host "Deploying to Subnet 10.120.7.0/24"}
+8 {Write-Host "Deploying to Subnet 10.120.8.0/24"}
 default {No Subnet Found}
 }
 }
@@ -1005,6 +1043,7 @@ Write-Host "                                                               "
 }
 
 Function EndState {
+Write-Host "                                                               "
 Write-Host "Private Network Interfaces for $ResourceGroupName"
 $vms = get-azurermvm -ResourceGroupName $ResourceGroupName
 $nics = get-azurermnetworkinterface -ResourceGroupName $ResourceGroupName | where VirtualMachine -NE $null #skip Nics with no VM
@@ -1015,7 +1054,14 @@ foreach($nic in $nics)
 	$alloc =  $nic.IpConfigurations | select-object -ExpandProperty PrivateIpAllocationMethod
 	Write-Output "$($vm.Name) : $prv , $alloc" | Format-Table
 }
+Write-Host "Public Network Interfaces for $ResourceGroupName"
+$pubip =  Get-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
+if ($pubip)
+{
 Get-AzureRmPublicIpAddress -ResourceGroupName $ResourceGroupName | ft "Name","IpAddress"
+Get-AzureRmPublicIpAddress -ExpandResource IPConfiguration -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName | select-object -ExpandProperty DNSSettings | select-object -ExpandProperty FQDN
+}
+Write-Host "                                                               "
 }
 
 Function ProvisionRGs {
@@ -1044,10 +1090,13 @@ Function ProvisionResGrp
 New-AzureRmResourceGroup -Name $resourceGroupName -Location $Location –Confirm:$false -force -WarningAction SilentlyContinue | Out-Null
 }
 
+Function OutFile {
+$Output | Tee-Object –FilePath "c:\test\AllSystemFiles.txt" –Append
+}
+
 Function CreateStorage {
 Write-Host "Starting Storage Creation.."
 $Global:StorageAccount = New-AzureRmStorageAccount -ResourceGroupName $ResourceGroupName -Name $StorageName.ToLower() -Type $StorageType -Location $Location -ErrorAction Stop -WarningAction SilentlyContinue
-#Get-AzureRmStorageAccount -Name $StorageName.ToLower() -ResourceGroupName $ResourceGroupName -WarningAction SilentlyContinue | ft "StorageAccountName" -OutVariable $stracct
 Write-Host "Completed Storage Creation" -ForegroundColor White
 } # Creates Storage
 
@@ -1309,8 +1358,6 @@ Remove-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $Resourc
  }
 # Write-Host "No Orphans Found" -ForegroundColor Green
 } # Verifies no left over components will prohibit deployment of the new VM, cleans up any if the exist.
-
-# Fuctions
 Function AzureVersion{
 $name='Azure'
 if(Get-Module -ListAvailable |
@@ -1324,6 +1371,8 @@ else
 	“The Azure PowerShell module is not installed.”
 }
 }
+
+# End of Fuctions
 
 ##--------------------------- Begin Script Execution -------------------------------------------------------##
 
@@ -1360,7 +1409,7 @@ if($resourcegroups.length) {
 
 AzureVersion # Display Azure Version
 CheckOrphns # Check if Orphans exist.
-WriteConfig # Displays Configuration Prior to deployment
+WriteConfig
 if($NewVNET -eq "True"){ProvisionNet} # Creates VNET
 if($NSGEnabled -eq "True"){CreateNSG}
 CreateStorage # Creates Storage for VM
@@ -1369,4 +1418,4 @@ ImageConfig # Configure Image
 Provvms #Provisions Final Step of VM Creation
 if($NSGEnabled -eq "True"){NSGEnabled} #Adds NSG to NIC
 if($AzExtConfig) {InstallExt} #Installs Azure Extensions
-EndState # Presents Final State for Deployment
+EndState
