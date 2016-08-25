@@ -2,7 +2,7 @@
 .SYNOPSIS
 Written By John N Lewis
 email: jonos@live.com
-Ver 4.2
+Ver 4.3
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD)
 The script allows select of subnet prior to VM Deployment
@@ -71,13 +71,15 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 .PARAMETER AddFQDN
 
 .EXAMPLE
-\.azdeploy.ps1 -VMName pf001 -VMMarketImage pfsense -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup1 -VNetName VNET -depsub1 0 -depsub2 1 -ConfigIPs DualPvtNoPub -PvtIPNic1 10.120.0.7 -PvtIPNic2 10.120.1.7
+\.azdeploy.ps1 -VMName pf001 -VMMarketImage pfsense -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup1 -NewVNET $True -VNetName VNET -depsub1 0 -depsub2 1 -ConfigIPs DualPvtNoPub -PvtIPNic1 10.120.0.7 -PvtIPNic2 10.120.1.7
 .EXAMPLE
 \.azdeploy.ps1 -VMName red76 -VMMarketImage red67 -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup2 -VNetName VNET -depsub1 6 -ConfigIPs SinglePvtNoPub -PvtIPNic1 10.120.6.124 -AzExtConfig linuxbackup
 .EXAMPLE
-\.azdeploy.ps1 -VMName win006 -VMMarketImage w2k12 -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup1 -VNetName VNET -depsub1 6 -ConfigIPs SinglePvtNoPub -PvtIPNic1 10.120.6.120 -AvailabilitySet "True"
+\.azdeploy.ps1 -VMName win006 -VMMarketImage w2k12 -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup1 -VNetName VNET -depsub1 3 -ConfigIPs PvtSingleStat -PvtIPNic1 10.120.3.120 -AvailabilitySet $True
 .EXAMPLE
-\.azdeploy.ps1 -VMName win007 -VMMarketImage w2k12 -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup1 -VNetName VNET -depsub1 6 -ConfigIPs Single -AddFQDN $True -DNLabel myw2ksrv
+\.azdeploy.ps1 -VMName win007 -VMMarketImage w2k16 -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup1 -VNetName VNET -depsub1 2 -ConfigIPs Single -AddFQDN $True -DNLabel myw2ksrv
+.EXAMPLE
+\.azdeploy.ps1 -VMName suse001 -VMMarketImage suse  -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup1 -VNetName VNET -depsub1 4 -ConfigIPs Single -NSGEnabled $True
 .NOTES
 -ConfigIps  <Configuration>
 			PvtSingleStat & PvtDualStat – Deploys the server with a Public IP and the private IP(s) specified by the user.
@@ -132,16 +134,16 @@ https://github.com/JonosGit/IaaSDeploymentTool
 Param(
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=1)]
 [string]
-$vmMarketImage = "pfsense",
+$vmMarketImage = "",
 [ValidateSet("w2k12","red67","red72","suse","free","ubuntu","centos","w2k16","sql","chef","check","pfsense","lamp","jenkins","nodejs","elastics","postgres","splunk","oracle-linux","puppet","web-logic","stddb-oracle","entdb-oracle")]
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[string]
-$NewVnet = "True",
+[bool]
+$NewVnet = $True,
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
 [string]
-$VMName = "pfs001",
+$VMName = "",
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=2)]
 [string]
@@ -174,8 +176,8 @@ $locadmin = 'localadmin',
 $locpassword = 'P@ssW0rd!',
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[string]
-$NSGEnabled = "False",
+[bool]
+$NSGEnabled = $False,
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
@@ -224,8 +226,8 @@ $DepSub1 = 0,
 $DepSub2 = 1,
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[string]
-$AvailabilitySet = "False",
+[bool]
+$AvailabilitySet = $False,
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
@@ -251,7 +253,7 @@ $AzExtConfig = ''
 
 )
 # Global
-# $ErrorActionPreference = "SilentlyContinue"
+$ErrorActionPreference = "Stop"
 $date = Get-Date -UFormat "%Y-%m-%d-%H-%M"
 $workfolder = Split-Path $script:MyInvocation.MyCommand.Path
 $SecureLocPassword=Convertto-SecureString $locpassword –asplaintext -Force
@@ -272,6 +274,28 @@ $fileexist = Test-Path $ProfileFile
   }
 }
 
+function chknull {
+if(!$vmMarketImage) {
+Write-Host "Please Enter vmMarketImage"
+ exit }
+	elseif($VMName -eq $null) {
+	Write-Host "Please Enter vmName"
+	exit}
+		elseif(!$VNetName) {
+		Write-Host "Please Enter vNet Name"
+		exit}
+			elseif(!$ResourceGroupName) {
+			Write-Host "Please Enter Resource Group Name"
+			exit}
+				elseif(!$Location) {
+					Write-Host "Please Enter Location"
+						exit}
+					elseif(!$VNETResourceGroupName) {
+					Write-Host "Please Enter VNET Resource Group Name"
+						exit
+											}
+}
+
 Function PubIPconfig {
 if($AddFQDN)
 {
@@ -286,10 +310,11 @@ $global:PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupNam
 Function PubDNSconfig {
 if($AddFQDN)
 {
-Write-Host $DNLabel + $Location + ".cloudapp.azure.com"
+Write-Host "Creating FQDN: " $DNLabel.$Location.cloudapp.azure.com
 }
 else
 {
+Write-Host "No DNS Name Specified"
 }
 }
 
@@ -393,7 +418,7 @@ AddNICs
 }
 Function NSGEnabled
 {
-if($NSGEnabled -eq "True"){
+if($NSGEnabled){
 $nic1 = Get-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
 $nic2 = Get-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
 if($nic1)
@@ -437,12 +462,12 @@ Function RegisterRP {
 
 Function AvailSet {
  try {
- If ($AvailabilitySet -eq "True" )
+ If ($AvailabilitySet)
  {
  Write-Host "Availability Set creation in process.." -ForegroundColor White
 New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location -WarningAction SilentlyContinue | Out-Null
-$AvailabilitySet = (Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName).Id
-$global:VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet -WarningAction SilentlyContinue
+$AvailabilitySetID = (Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName).Id
+$global:VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySetID -WarningAction SilentlyContinue
 Write-Host "Availability Set has been created" -ForegroundColor White
 }
 else
@@ -999,7 +1024,7 @@ Write-Host "Nic2: $PvtIPNic2"
 if($AzExtConfig) {
 Write-Host "Extension selected for deployment: $AzExtConfig "
 }
-if($AvailabilitySet -eq "True") {
+if($AvailabilitySet) {
 Write-Host "Availability Set to 'True'"
 Write-Host "Availability Set Name:  '$AvailSetName'"
 Write-Host "                                                               "
@@ -1027,7 +1052,7 @@ Write-Host "VNET Name: $VNetName" -ForegroundColor White
 Write-Host "Storage Account Name:  $StorageName"
 SelectNicDescrtipt
 
-if($AvailabilitySet -eq "True") {
+if($AvailabilitySet) {
 Write-Host "Availability Set created"
 Write-Host "Availability Set Name:  '$AvailSetName'"
 $time = " Completed Time " + (Get-Date -UFormat "%d-%m-%Y %H:%M:%S")
@@ -1054,12 +1079,14 @@ foreach($nic in $nics)
 	$alloc =  $nic.IpConfigurations | select-object -ExpandProperty PrivateIpAllocationMethod
 	Write-Output "$($vm.Name) : $prv , $alloc" | Format-Table
 }
-Write-Host "Public Network Interfaces for $ResourceGroupName"
-$pubip =  Get-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
-if ($pubip)
+
+$pubip = Get-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
+$dns = Get-AzureRmPublicIpAddress -ExpandResource IPConfiguration -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue | select-object -ExpandProperty DNSSettings | select-object -ExpandProperty FQDN
+if($pubip)
 {
-Get-AzureRmPublicIpAddress -ResourceGroupName $ResourceGroupName | ft "Name","IpAddress"
-Get-AzureRmPublicIpAddress -ExpandResource IPConfiguration -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName | select-object -ExpandProperty DNSSettings | select-object -ExpandProperty FQDN
+Write-Host "Public Network Interfaces for $ResourceGroupName"
+Get-AzureRmPublicIpAddress -ResourceGroupName $ResourceGroupName| ft "Name","IpAddress" -Wrap
+Get-AzureRmPublicIpAddress -ResourceGroupName $ResourceGroupName | select-object -ExpandProperty DNSSettings | FT FQDN -Wrap
 }
 Write-Host "                                                               "
 }
@@ -1088,10 +1115,6 @@ Function ProvisionResGrp
 		[string]$ResourceGroupName
 	)
 New-AzureRmResourceGroup -Name $resourceGroupName -Location $Location –Confirm:$false -force -WarningAction SilentlyContinue | Out-Null
-}
-
-Function OutFile {
-$Output | Tee-Object –FilePath "c:\test\AllSystemFiles.txt" –Append
 }
 
 Function CreateStorage {
@@ -1377,7 +1400,7 @@ else
 ##--------------------------- Begin Script Execution -------------------------------------------------------##
 
 VerifyProfile
-
+chknull
 try {
 	[Microsoft.Azure.Common.Authentication.AzureSession]::ClientFactory.AddUserAgent("VSAzureTools-$UI$($host.name)".replace(" ","_"), "2.9")
 } catch { }
@@ -1410,8 +1433,8 @@ if($resourcegroups.length) {
 AzureVersion # Display Azure Version
 CheckOrphns # Check if Orphans exist.
 WriteConfig
-if($NewVNET -eq "True"){ProvisionNet} # Creates VNET
-if($NSGEnabled -eq "True"){CreateNSG}
+if($NewVNET){ProvisionNet} # Creates VNET
+if($NSGEnabled){CreateNSG}
 CreateStorage # Creates Storage for VM
 AvailSet # Handles Availability Set Creation
 ImageConfig # Configure Image
