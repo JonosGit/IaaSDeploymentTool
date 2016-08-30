@@ -2,13 +2,14 @@
 .SYNOPSIS
 Written By John N Lewis
 email: jonos@live.com
-Ver 4.6
+Ver 4.61
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
 The script allows select of subnet prior to VM Deployment
 The script supports deploying Availability Sets as well as adding new servers to existing Availability Sets through the -AvailabilitySet "True" and -AvailSetName switches.
 The script will generate a name for azure storage endpoint unless the -StorageName variable is updated or referenced at runtime.
 
+v4.61 updates - added step log
 v4.6 Updates - Added Support for F5, Barracuda, SAP and Solar Winds
 v4.5 Updates - Fixes for Azure PowerShell 2.1
 
@@ -262,6 +263,13 @@ $date = Get-Date -UFormat "%Y-%m-%d-%H-%M"
 $workfolder = Split-Path $script:MyInvocation.MyCommand.Path
 $SecureLocPassword=Convertto-SecureString $locpassword –asplaintext -Force
 $Credential1 = New-Object System.Management.Automation.PSCredential ($locadmin,$SecureLocPassword)
+$LogOutFile = $workfolder+'\'+$vmname+'-'+$date+'.log'
+
+Function Log-Command ([string]$Description, [string]$logFile, [string]$VMName){
+$Output = $LogOut+'... '
+Write-Host $Output -ForegroundColor cyan
+((Get-Date -UFormat "[%d-%m-%Y %H:%M:%S] ") + $Output) | Out-File -FilePath $LogOutFile -Append -Force
+}
 
 Function WriteLog-Command([string]$Description, [ScriptBlock]$Command, [string]$LogFile, [string]$VMName){
 Try{
@@ -324,6 +332,8 @@ Function PubIPconfig {
 if($AddFQDN)
 {
 $global:PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic" -DomainNameLabel $DNLabel –Confirm:$false -WarningAction SilentlyContinue
+$LogOut = "Completed Public DNS record creation"
+Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 else
 {
@@ -401,11 +411,15 @@ Function AddNICs {
 Write-Host "Adding 2 Network Interface(s) $InterfaceName1 $InterfaceName2" -ForegroundColor White
 $global:VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $global:Interface1.Id -Primary -WarningAction SilentlyContinue
 $global:VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $global:Interface2.Id -WarningAction SilentlyContinue
+$LogOut = "Completed adding NICs"
+Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
 Function AddNIC {
 Write-Host "Adding Network Interface $InterfaceName1" -ForegroundColor White
 $global:VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $global:Interface1.Id -Primary -WarningAction SilentlyContinue
+$LogOut = "Completed adding NIC"
+Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
 Function ConfigSet {
@@ -458,6 +472,8 @@ $nsg = Get-AzureRmNetworkSecurityGroup -ResourceGroupName $vNetResourceGroupName
 $nic = Get-AzureRmNetworkInterface -ResourceGroupName $ResourceGroupName -Name $InterfaceName2
 $nic.NetworkSecurityGroup = $nsg
 Set-AzureRmNetworkInterface -NetworkInterface $nic | Out-Null
+$LogOut = "Completed Image NSG Post Configuration"
+Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 }
 }
@@ -475,6 +491,7 @@ if($ConfigIPs-EQ "Dual"){Write-Host "Dual Pvt IP & Public IP will be created" }
 	Write-Host "No Network Config Found - Warning" -ForegroundColor Red
 	}
 }
+
 Function RegisterRP {
 	Param(
 		[string]$ResourceProviderNamespace
@@ -493,11 +510,15 @@ New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSet
 $AvailabilitySet = (Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName).Id
 $global:VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet -WarningAction SilentlyContinue
 Write-Host "Availability Set has been created" -ForegroundColor White
+$LogOut = "Completed Availability Set Creation"
+Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 else
 {
 Write-Host "Skipping Availability Set creation" -ForegroundColor White
 $global:VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -WarningAction SilentlyContinue
+$LogOut = "Skipped Availability Set Creation"
+Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 	}
 
@@ -515,6 +536,8 @@ $global:OSDiskName = $VMName + "OSDisk"
 $global:OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDiskName + ".vhd"
 $global:VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching -WarningAction SilentlyContinue
 New-AzureRmVM -ResourceGroupName $ResourceGroupName -Location $Location -VM $VirtualMachine –Confirm:$false -WarningAction SilentlyContinue | Out-Null
+$LogOut = "Completed Image Deployment"
+Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
 Function MakeImagePlanInfo_Bitnami_Lamp {
@@ -1093,6 +1116,8 @@ $subnet9 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.8.0/24 -N
 New-AzureRmVirtualNetwork -Location $Location -Name $VNetName -ResourceGroupName $vNetResourceGroupName -AddressPrefix '10.120.0.0/21' -Subnet $subnet1,$subnet2,$subnet3,$subnet4,$subnet5,$subnet6,$subnet7,$subnet8 –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
 Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Get-AzureRmVirtualNetworkSubnetConfig -WarningAction SilentlyContinue | Out-Null
 Write-Host "Network Preparation completed" -ForegroundColor White
+$LogOut = "Completed Network Configuration"
+Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
 # End of Provision VNET Function
@@ -1104,6 +1129,8 @@ $sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_SSH" -Descriptio
 $nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vNetResourceGroupName -Location $Location -Name $NSGName -SecurityRules $httprule,$httpsrule, $sshrule –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
 Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vNetResourceGroupName -WarningAction SilentlyContinue | Out-Null
 Write-Host "Network Security Group creation completed" -ForegroundColor White
+$LogOut = "Completed NSG Configuration"
+Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 # End of Provision Network Security Groups Function
 
@@ -1243,24 +1270,6 @@ Get-AzureRmPublicIpAddress -ResourceGroupName $ResourceGroupName | select-object
 Write-Host "                                                               "
 }
 
-Function ProvisionRGs {
-	Param(
-		[string]$ResourceGroupName
-	)
-	$resourceGroup = Get-AzureRmResourceGroup -Name $ResourceGroupName -ErrorAction SilentlyContinue -WarningAction SilentlyContinue | Out-Null
-if(!$resourceGroup)
-{
-#	Write-Host "Resource group '$ResourceGroupName' does not exist. Creating...";
-	if(!$Location) {
-		$Location = Read-Host "resourceGroupLocation";
-	}
-New-AzureRmResourceGroup -Name $resourceGroupName -Location $Location –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
-}
-else{
-	Write-Host "Using existing resource group $ResourceGroupName";
-	Get-AzureRmResourceGroup -Name $ResourceGroupName -ErrorAction SilentlyContinue -WarningAction SilentlyContinue | Out-Null }
-}
-
 Function ProvisionResGrp
 {
 	Param(
@@ -1272,8 +1281,9 @@ New-AzureRmResourceGroup -Name $resourceGroupName -Location $Location –Confirm
 Function CreateStorage {
 Write-Host "Starting Storage Creation.."
 $Global:StorageAccount = New-AzureRmStorageAccount -ResourceGroupName $ResourceGroupName -Name $StorageName.ToLower() -Type $StorageType -Location $Location -ErrorAction Stop -WarningAction SilentlyContinue
-#Get-AzureRmStorageAccount -Name $StorageName.ToLower() -ResourceGroupName $ResourceGroupName -WarningAction SilentlyContinue | ft "StorageAccountName" -OutVariable $stracct
 Write-Host "Completed Storage Creation" -ForegroundColor White
+$LogOut = "Provisioned Storage"
+Log-Command -Description $LogOut -LogFile $LogOutFile
 } # Creates Storage
 
 Function ImageConfig {
@@ -1611,6 +1621,9 @@ else
 }
 
 ##--------------------------- Begin Script Execution -------------------------------------------------------##
+
+Write-Output "Steps will be tracked on the log file : [ $LogOutFile ]"
+
 chknull
 VerifyProfile
 
@@ -1626,6 +1639,9 @@ catch {
 	"User has not authenticated, use Add-AzureRmAccount or $($_.Exception.Message)"; `
 	continue
 }
+
+$LogOut = "User has authenticated"
+Log-Command -Description $LogOut -LogFile $LogOutFile
 
  $resourceProviders = @("microsoft.compute","microsoft.network","microsoft.storage");
  if($resourceProviders.length) {
@@ -1643,15 +1659,30 @@ if($resourcegroups.length) {
 	}
 	} # Create Resource Groups
 
+$LogOut = "Provisioned Resource Groups"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+
 AzureVersion # Display Azure Version
 
 CheckOrphns # Check if Orphans exist.
+
 WriteConfig
+
 if($NewVNET){ProvisionNet} # Creates VNET
+
 if($NSGEnabled){CreateNSG}
+
 CreateStorage # Creates Storage for VM
+
+$LogOut = "Completed NIC and Public IP Configuration"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+
 AvailSet # Handles Availability Set Creation
+
 ImageConfig # Configure Image
+
 if($NSGEnabled){NSGEnabled} #Adds NSG to NIC
+
 if($AzExtConfig) {InstallExt} #Installs Azure Extensions
+
 EndState
