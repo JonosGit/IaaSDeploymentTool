@@ -116,9 +116,9 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 			Barracuda NG Firewall (BYOL) - barrabyolngfw
 			Barracuda spam Firewall (hourly) - barrahourspam
 			Barracuda spam Firewall (byol) - barrabyolspam
-            SharePoint 2016 - Share2016
-            SharePoint 2013 - share2013
-            Server R - serverr
+			SharePoint 2016 - Share2016
+			SharePoint 2013 - share2013
+			Server R - serverr
 
 -AzExtConfig <Extension Type>
 			access – Adds Azure Access Extension – Added by default during VM creation
