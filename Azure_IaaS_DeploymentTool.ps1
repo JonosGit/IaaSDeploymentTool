@@ -2,17 +2,19 @@
 .SYNOPSIS
 Written By John N Lewis
 email: jonos@live.com
-Ver 4.5
+Ver 4.6
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNETs.
-The script supports dual homed servers (PFSense/Checkpoint/FreeBSD)
+The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
 The script allows select of subnet prior to VM Deployment
 The script supports deploying Availability Sets as well as adding new servers to existing Availability Sets through the -AvailabilitySet "True" and -AvailSetName switches.
 The script will generate a name for azure storage endpoint unless the -StorageName variable is updated or referenced at runtime.
 
+v4.6 Updates - Added Support for F5, Barracuda, SAP and Solar Winds
 v4.5 Updates - Fixes for Azure PowerShell 2.1
+
 .DESCRIPTION
-Deploys 26 Market Images on a new or existing VNET. Supports post deployment configuration through Azure Extensions.
-Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windows 2012 R2, Ubuntu 14.04, CentOs 7.2, SUSE, SQL 2016 (on W2K12R2), R Server on Windows, Windows 2016 (Preview), Checkpoint Firewall, FreeBsd, Oracle Linux, Puppet, Splunk, Oracle Web-Logic, Oracle DB, Bitnami Lamp, Bitnami PostGresSql, Bitnami nodejs, Bitnami Elastics, Bitnami MySql
+Deploys 30 different Market Images on a new or existing VNET. Supports post deployment configuration through Azure Extensions.
+Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windows 2012 R2, Ubuntu 14.04, CentOs 7.2, SUSE, SQL 2016 (on W2K12R2), R Server on Windows, Windows 2016 (Preview), Checkpoint Firewall, FreeBsd, Oracle Linux, Puppet, Splunk, Oracle Web-Logic, Oracle DB, Bitnami Lamp, Bitnami PostGresSql, Bitnami nodejs, Bitnami Elastics, Bitnami MySql, SharePoint 2013/2016, Barracuda NG, Barracuda SPAM, F5 BigIP, F5 App Firewall, SAP, Solar Winds
 .PARAMETER vmMarketImage
 
 .PARAMETER NewVnet
@@ -87,8 +89,8 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 			Free BSD – free
 			Suse – suse
 			CentOs 7.2 – cent
-			Ubuntu 14.04 – ubun
-			SQL Server 2016 (on Windows 2012 host) – sql
+			Ubuntu 14.04 – ubuntu
+			SQL Server 2016 (on Windows 2012 host) – sql2016
 			MySql – mysql
 			CheckPoint – check
 			Windows 2008 R2 – w2k8
@@ -99,13 +101,25 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 			Bitnami NodeJs - node
 			Bitnami Elastics Search - elastics
 			Bitnami Jenkins - jenkins
-			Bitnami PostGres - postgres
+			Bitnami PostGresSql - postgressql
 			Oracle Web Logic - weblogic
 			Oracle Linux - oracle-linux
 			Oracle Standard Edition DB - stddb-oracle
 			Oracle Enterprise Edition DB - entdb-oracle
 			Puppet Enterprise - puppet
 			Splunk Enterprise - splunk
+			SAP - sap
+			Solar Winds - solarwinds
+			F5 BIG IP - f5bigip
+			F5 Application Firewall - f5appfire
+			Barracuda NG Firewall (hourly) - barrahourngfw
+			Barracuda NG Firewall (BYOL) - barrabyolngfw
+			Barracuda spam Firewall (hourly) - barrahourspam
+			Barracuda spam Firewall (byol) - barrabyolspam
+            SharePoint 2016 - Share2016
+            SharePoint 2013 - share2013
+            Server R - serverr
+
 -AzExtConfig <Extension Type>
 			access – Adds Azure Access Extension – Added by default during VM creation
 			msav – Adds Azure Antivirus Extension
@@ -115,8 +129,6 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 			linuxbackup - Deploys Azure Linux bacup Extension
 			addDom – Adds Azure Domain Join Extension
 			chef – Adds Azure Chef Extension (Requires Chef Certificate and Settings info first)
-			winChef – Calls Knife command to install Chef Agent on Server
-			linChef – Calls Knife command to install Chef Agent on Server
 .LINK
 https://github.com/JonosGit/IaaSDeploymentTool
 #>
@@ -124,9 +136,9 @@ https://github.com/JonosGit/IaaSDeploymentTool
 [CmdletBinding()]
 Param(
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=1)]
+[ValidateSet("w2k12","w2k8","red67","red72","suse","free","ubuntu","centos","w2k16","sql2016","chef","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","oracle-linux","puppet","web-logic","stddb-oracle","entdb-oracle","serverr","sap","solarwinds","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016")]
 [string]
-$vmMarketImage = "w2k12",
-[ValidateSet("w2k12","red67","red72","suse","free","ubuntu","centos","w2k16","sql","chef","check","pfsense","lamp","jenkins","nodejs","elastics","postgres","splunk","oracle-linux","puppet","web-logic","stddb-oracle","entdb-oracle","serverr")]
+$vmMarketImage = "",
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [bool]
@@ -256,7 +268,7 @@ Try{
 $Output = $Description+'  ... '
 Write-Host $Output -ForegroundColor Yellow
 ((Get-Date -UFormat "[%d-%m-%Y %H:%M:%S] ") + $Output) | Out-File -FilePath $LogFile -Append -Force
-$Result = Invoke-Command -ScriptBlock $Command 
+$Result = Invoke-Command -ScriptBlock $Command
 }
 Catch {
 $ErrorMessage = $_.Exception.Message
@@ -268,7 +280,6 @@ Finally
 {
 if ($ErrorMessage -eq $null) {$Output = "[Completed]  $Description  ... "} else {$Output = "[Failed]  $Description  ... "}
 ((Get-Date -UFormat "[%d-%m-%Y %H:%M:%S] ") + $Output) | Out-File -FilePath $LogFile -Append -Force
-
 }
 Return $Result
 }
@@ -436,14 +447,14 @@ $nic1 = Get-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $Re
 $nic2 = Get-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
 if($nic1)
 {
-$nsg = Get-AzureRmNetworkSecurityGroup -ResourceGroupName $ResourceGroupName -Name $NSGName
+$nsg = Get-AzureRmNetworkSecurityGroup -ResourceGroupName $vNetResourceGroupName -Name $NSGName
 $nic = Get-AzureRmNetworkInterface -ResourceGroupName $ResourceGroupName -Name $InterfaceName1
 $nic.NetworkSecurityGroup = $nsg
 Set-AzureRmNetworkInterface -NetworkInterface $nic | Out-Null
 }
 if($nic2)
 {
-$nsg = Get-AzureRmNetworkSecurityGroup -ResourceGroupName $ResourceGroupName -Name $NSGName
+$nsg = Get-AzureRmNetworkSecurityGroup -ResourceGroupName $vNetResourceGroupName -Name $NSGName
 $nic = Get-AzureRmNetworkInterface -ResourceGroupName $ResourceGroupName -Name $InterfaceName2
 $nic.NetworkSecurityGroup = $nsg
 Set-AzureRmNetworkInterface -NetworkInterface $nic | Out-Null
@@ -703,14 +714,30 @@ $global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publi
 $global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
 $global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
 }
+Function MakeImagePlanInfo_SAP_ase {
+param(
+[string]$Publisher = 'sap',
+[string]$offer = 'ase',
+[string]$Skus = 'ase_hourly',
+[string]$version = 'latest',
+[string]$Product = 'ase_hourly',
+[string]$name = 'ase'
+)
+Write-Host "Image Creation in Process - Plan Info - SAP - ASE" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+}
+
 Function MakeImagePlanInfo_puppet_puppetent {
 param(
-[string]$Publisher = 'Puppet',
-[string]$offer = 'puppet-enterprise',
-[string]$Skus = '2016-1',
+[string]$Publisher = 'puppetLabs',
+[string]$offer = 'PuppetEnterprise',
+[string]$Skus = '3.7',
 [string]$version = 'latest',
-[string]$Product = '2016-1',
-[string]$name = 'puppet-enterprise'
+[string]$Product = '3.7',
+[string]$name = 'PuppetEnterprise'
 )
 Write-Host "Image Creation in Process - Plan Info - Puppet Enterprise" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -728,6 +755,117 @@ param(
 [string]$name = 'splunk-enterprise-base-image'
 )
 Write-Host "Image Creation in Process - Plan Info - Puppet Enterprise" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+}
+Function MakeImagePlanInfo_SolarWinds {
+param(
+[string]$Publisher = 'solarwinds',
+[string]$offer = 'solarwinds-database-performance-analyzer',
+[string]$Skus = 'dpa-byol',
+[string]$version = 'latest',
+[string]$Product = 'solarwinds-database-performance-analyzer',
+[string]$name = 'dpa-byol'
+)
+Write-Host "Image Creation in Process - Plan Info - SolarWinds" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+}
+
+Function MakeImagePlanInfo_Barracuda_ng_firewall_hourly {
+param(
+[string]$Publisher = 'Barracudanetworks',
+[string]$offer = 'barracuda-ng-firewall',
+[string]$Skus = 'hourly',
+[string]$version = 'latest',
+[string]$Product = 'barracuda-ng-firewall',
+[string]$name = 'hourly'
+)
+Write-Host "Image Creation in Process - Plan Info - Barracuda Firewall " -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+}
+
+Function MakeImagePlanInfo_Barracuda_ng_firewall_byol {
+param(
+[string]$Publisher = 'Barracudanetworks',
+[string]$offer = 'barracuda-ng-firewall',
+[string]$Skus = 'byol',
+[string]$version = 'latest',
+[string]$Product = 'barracuda-ng-firewall',
+[string]$name = 'byol'
+)
+Write-Host "Image Creation in Process - Plan Info - Barracuda NG Firewall " -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+}
+
+Function MakeImagePlanInfo_Barracuda_spam_firewall_byol {
+param(
+[string]$Publisher = 'Barracudanetworks',
+[string]$offer = 'barracuda-spam-firewall',
+[string]$Skus = 'byol',
+[string]$version = 'latest',
+[string]$Product = 'barracuda-spam-firewall',
+[string]$name = 'byol'
+)
+Write-Host "Image Creation in Process - Plan Info - Barracuda SPAM Firewall " -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+}
+
+Function MakeImagePlanInfo_Barracuda_spam_firewall_hours {
+param(
+[string]$Publisher = 'Barracudanetworks',
+[string]$offer = 'barracuda-spam-firewall',
+[string]$Skus = 'hourly',
+[string]$version = 'latest',
+[string]$Product = 'barracuda-spam-firewall',
+[string]$name = 'hourly'
+)
+Write-Host "Image Creation in Process - Plan Info - Barracuda SPAM Firewall " -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+}
+
+Function MakeImagePlanInfo_f5_bigip_good_byol {
+param(
+[string]$Publisher = 'F5-networks',
+[string]$offer = 'f5-big-ip',
+[string]$Skus = 'f5-bigip-virtual-edition-good-byol',
+[string]$version = 'latest',
+[string]$Product = 'f5-big-ip',
+[string]$name = 'f5-bigip-virtual-edition-good-byol'
+)
+Write-Host "Image Creation in Process - Plan Info - F5 BIG IP - BYOL" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+}
+
+Function MakeImagePlanInfo_f5_webappfire_byol {
+param(
+[string]$Publisher = 'F5-networks',
+[string]$offer = 'f5-web-application-firewall',
+[string]$Skus = 'f5-waf-solution-byol',
+[string]$version = 'latest',
+[string]$Product = 'f5-web-application-firewall',
+[string]$name = 'f5-waf-solution-byol'
+)
+Write-Host "Image Creation in Process - Plan Info - F5 WebApp Firewall- BYOL" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
 $global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
 $global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
@@ -765,7 +903,6 @@ $global:VirtualMachine = Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publ
 $global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
 $global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
 }
-
 
 Function MakeImageNoPlanInfo_RedHat67 {
 param(
@@ -1132,7 +1269,6 @@ Function ProvisionResGrp
 New-AzureRmResourceGroup -Name $resourceGroupName -Location $Location –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
 }
 
-
 Function CreateStorage {
 Write-Host "Starting Storage Creation.."
 $Global:StorageAccount = New-AzureRmStorageAccount -ResourceGroupName $ResourceGroupName -Name $StorageName.ToLower() -Type $StorageType -Location $Location -ErrorAction Stop -WarningAction SilentlyContinue
@@ -1143,7 +1279,7 @@ Write-Host "Completed Storage Creation" -ForegroundColor White
 Function ImageConfig {
 switch -Wildcard ($vmMarketImage)
 	{
-		"*pf*" {
+		"*pfsense*" {
 ConfigNet  #Sets network connection info
 MakeImagePlanInfo_Pfsense # Begins Image Creation
 ConfigSet # Adds Network Interfaces
@@ -1173,7 +1309,7 @@ MakeImageNoPlanInfo_w2k12  # Begins Image Creation
 ConfigSet # Adds Network Interfaces
 AddDiskImage # Completes Image Creation
 }
-		"*sql*" {
+		"*sql2016*" {
 ConfigNet  #Sets network connection info
 MakeImageNoPlanInfo_sql2k16  # Begins Image Creation
  ConfigSet # Adds Network Interfaces
@@ -1314,6 +1450,54 @@ AddDiskImage # Completes Image Creation
 		"*ubuntu*" {
 ConfigNet  #Sets network connection info
 MakeImageNoPlanInfo_Ubuntu # Begins Image Creation
+ConfigSet # Adds Network Interfaces
+AddDiskImage # Completes Image Creation
+}
+		"*f5bigip*" {
+ConfigNet  #Sets network connection info
+MakeImagePlanInfo_f5_bigip_good_byol # Begins Image Creation
+ConfigSet # Adds Network Interfaces
+AddDiskImage # Completes Image Creation
+}
+		"*f5appfire*" {
+ConfigNet  #Sets network connection info
+MakeImagePlanInfo_f5_webappfire_byol # Begins Image Creation
+ConfigSet # Adds Network Interfaces
+AddDiskImage # Completes Image Creation
+}
+		"*barrahourngfw*" {
+ConfigNet  #Sets network connection info
+MakeImagePlanInfo_Barracuda_ng_firewall_hourly # Begins Image Creation
+ConfigSet # Adds Network Interfaces
+AddDiskImage # Completes Image Creation
+}
+		"*barrabyolngfw*" {
+ConfigNet  #Sets network connection info
+MakeImagePlanInfo_Barracuda_ng_firewall_byol # Begins Image Creation
+ConfigSet # Adds Network Interfaces
+AddDiskImage # Completes Image Creation
+}
+		"*barrahourspam*" {
+ConfigNet  #Sets network connection info
+MakeImagePlanInfo_Barracuda_spam_firewall_hourly # Begins Image Creation
+ConfigSet # Adds Network Interfaces
+AddDiskImage # Completes Image Creation
+}
+		"*barrabyolspam*" {
+ConfigNet  #Sets network connection info
+MakeImagePlanInfo_Barracuda_spam_firewall_byol # Begins Image Creation
+ConfigSet # Adds Network Interfaces
+AddDiskImage # Completes Image Creation
+}
+		"*sap*" {
+ConfigNet  #Sets network connection info
+MakeImagePlanInfo_SAP_ase # Begins Image Creation
+ConfigSet # Adds Network Interfaces
+AddDiskImage # Completes Image Creation
+}
+		"*solarwinds*" {
+ConfigNet  #Sets network connection info
+MakeImagePlanInfo_SolarWinds # Begins Image Creation
 ConfigSet # Adds Network Interfaces
 AddDiskImage # Completes Image Creation
 }
