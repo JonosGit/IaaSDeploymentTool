@@ -137,13 +137,13 @@ https://github.com/JonosGit/IaaSDeploymentTool
 [CmdletBinding()]
 Param(
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=1)]
-[ValidateSet("w2k12","w2k8","red67","red72","suse","free","ubuntu","centos","w2k16","sql2016","chef","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","oracle-linux","puppet","web-logic","stddb-oracle","entdb-oracle","serverr","sap","solarwinds","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016")]
+[ValidateSet("w2k12","w2k8","red67","red72","suse","free","ubuntu","centos","w2k16","sql2016","chef","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","oracle-linux","puppet","web-logic","stddb-oracle","entdb-oracle","serverr","sap","solarwinds","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack")]
 [string]
 $vmMarketImage = "",
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [bool]
-$NewVnet = $True,
+$NewVnet = $False,
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
 [string]
@@ -222,12 +222,12 @@ $NSGName = "NSG",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateRange(0,7)]
 [Int]
-$DepSub1 = 0,
+$DepSub1 = 1,
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateRange(0,7)]
 [Int]
-$DepSub2 = 1,
+$DepSub2 = 2,
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [bool]
@@ -266,8 +266,8 @@ $Credential1 = New-Object System.Management.Automation.PSCredential ($locadmin,$
 $LogOutFile = $workfolder+'\'+$vmname+'-'+$date+'.log'
 
 Function Log-Command ([string]$Description, [string]$logFile, [string]$VMName){
-$Output = $LogOut+'... '
-Write-Host $Output -ForegroundColor cyan
+$Output = $LogOut+'. '
+Write-Host $Output -ForegroundColor white
 ((Get-Date -UFormat "[%d-%m-%Y %H:%M:%S] ") + $Output) | Out-File -FilePath $LogOutFile -Append -Force
 }
 
@@ -332,7 +332,7 @@ Function PubIPconfig {
 if($AddFQDN)
 {
 $global:PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic" -DomainNameLabel $DNLabel –Confirm:$false -WarningAction SilentlyContinue
-$LogOut = "Completed Public DNS record creation"
+$LogOut = "Completed Public DNS record creation $DNLabel.$Location.cloudapp.azure.com"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 else
@@ -465,6 +465,8 @@ $nsg = Get-AzureRmNetworkSecurityGroup -ResourceGroupName $vNetResourceGroupName
 $nic = Get-AzureRmNetworkInterface -ResourceGroupName $ResourceGroupName -Name $InterfaceName1
 $nic.NetworkSecurityGroup = $nsg
 Set-AzureRmNetworkInterface -NetworkInterface $nic | Out-Null
+$LogOut = "Completed Image NSG Post Configuration. Added $InterfaceName1 to $NSGName"
+Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 if($nic2)
 {
@@ -472,7 +474,7 @@ $nsg = Get-AzureRmNetworkSecurityGroup -ResourceGroupName $vNetResourceGroupName
 $nic = Get-AzureRmNetworkInterface -ResourceGroupName $ResourceGroupName -Name $InterfaceName2
 $nic.NetworkSecurityGroup = $nsg
 Set-AzureRmNetworkInterface -NetworkInterface $nic | Out-Null
-$LogOut = "Completed Image NSG Post Configuration"
+$LogOut = "Completed Image NSG Post Configuration. Added $InterfaceName2 to $NSGName"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 }
@@ -510,7 +512,7 @@ New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSet
 $AvailabilitySet = (Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName).Id
 $global:VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet -WarningAction SilentlyContinue
 Write-Host "Availability Set has been created" -ForegroundColor White
-$LogOut = "Completed Availability Set Creation"
+$LogOut = "Completed Availability Set Creation. Created $AvailSetName"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 else
@@ -536,7 +538,7 @@ $global:OSDiskName = $VMName + "OSDisk"
 $global:OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDiskName + ".vhd"
 $global:VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching -WarningAction SilentlyContinue
 New-AzureRmVM -ResourceGroupName $ResourceGroupName -Location $Location -VM $VirtualMachine –Confirm:$false -WarningAction SilentlyContinue | Out-Null
-$LogOut = "Completed Image Deployment"
+$LogOut = "Completed Image Deployment for $VMName"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
@@ -1104,19 +1106,19 @@ $global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -Publisher
 
 Function ProvisionNet {
 Write-Host "Network Preparation in Process.."
-$subnet1 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.0.0/24 -Name perimeter
-$subnet2 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.1.0/24 -Name web
-$subnet3 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.2.0/24 -Name intake
-$subnet4 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.3.0/24 -Name data
-$subnet5 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.4.0/24 -Name monitoring
-$subnet6 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.5.0/24 -Name analytics
-$subnet7 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.6.0/24 -Name backup
-$subnet8 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.7.0/24 -Name management
-$subnet9 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.8.0/24 -Name gatewaysubnet
-New-AzureRmVirtualNetwork -Location $Location -Name $VNetName -ResourceGroupName $vNetResourceGroupName -AddressPrefix '10.120.0.0/21' -Subnet $subnet1,$subnet2,$subnet3,$subnet4,$subnet5,$subnet6,$subnet7,$subnet8 –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
+$subnet1 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.0.0/25 -Name gatewaysubnet
+$subnet2 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.0.128/25 -Name perimeter
+$subnet3 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.1.0/24 -Name web
+$subnet4 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.2.0/24 -Name intake
+$subnet5 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.3.0/24 -Name data
+$subnet6 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.4.0/24 -Name monitoring
+$subnet7 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.5.0/24 -Name analytics
+$subnet8 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.6.0/24 -Name backup
+$subnet9 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.7.0/24 -Name management
+New-AzureRmVirtualNetwork -Location $Location -Name $VNetName -ResourceGroupName $vNetResourceGroupName -AddressPrefix '10.120.0.0/21' -Subnet $subnet1,$subnet2,$subnet3,$subnet4,$subnet5,$subnet6,$subnet7,$subnet8,$subnet9 –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
 Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Get-AzureRmVirtualNetworkSubnetConfig -WarningAction SilentlyContinue | Out-Null
 Write-Host "Network Preparation completed" -ForegroundColor White
-$LogOut = "Completed Network Configuration"
+$LogOut = "Completed Network Configuration. Created $VNetName"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
@@ -1129,7 +1131,7 @@ $sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_SSH" -Descriptio
 $nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vNetResourceGroupName -Location $Location -Name $NSGName -SecurityRules $httprule,$httpsrule, $sshrule –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
 Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vNetResourceGroupName -WarningAction SilentlyContinue | Out-Null
 Write-Host "Network Security Group creation completed" -ForegroundColor White
-$LogOut = "Completed NSG Configuration"
+$LogOut = "Completed NSG Configuration. Created $NSGName"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 # End of Provision Network Security Groups Function
@@ -1140,15 +1142,16 @@ Function SubnetMatch {
 	)
 switch ($Subnet)
 {
-0 {Write-Host "Deploying to Subnet 10.120.0.0/24"}
-1 {Write-Host "Deploying to Subnet 10.120.1.0/24"}
-2 {Write-Host "Deploying to Subnet 10.120.2.0/24"}
-3 {Write-Host "Deploying to Subnet 10.120.3.0/24"}
-4 {Write-Host "Deploying to Subnet 10.120.4.0/24"}
-5 {Write-Host "Deploying to Subnet 10.120.5.0/24"}
-6 {Write-Host "Deploying to Subnet 10.120.6.0/24"}
-7 {Write-Host "Deploying to Subnet 10.120.7.0/24"}
-8 {Write-Host "Deploying to Subnet 10.120.8.0/24"}
+0 {Write-Host "Deploying to Subnet 10.120.0.0/25"}
+1 {Write-Host "Deploying to Subnet 10.120.1.128/25"}
+2 {Write-Host "Deploying to Subnet 10.120.1.0/24"}
+3 {Write-Host "Deploying to Subnet 10.120.2.0/24"}
+4 {Write-Host "Deploying to Subnet 10.120.3.0/24"}
+5 {Write-Host "Deploying to Subnet 10.120.4.0/24"}
+6 {Write-Host "Deploying to Subnet 10.120.5.0/24"}
+7 {Write-Host "Deploying to Subnet 10.120.6.0/24"}
+8 {Write-Host "Deploying to Subnet 10.120.7.0/24"}
+9 {Write-Host "Deploying to Subnet 10.120.8.0/24"}
 default {No Subnet Found}
 }
 }
@@ -1282,7 +1285,7 @@ Function CreateStorage {
 Write-Host "Starting Storage Creation.."
 $Global:StorageAccount = New-AzureRmStorageAccount -ResourceGroupName $ResourceGroupName -Name $StorageName.ToLower() -Type $StorageType -Location $Location -ErrorAction Stop -WarningAction SilentlyContinue
 Write-Host "Completed Storage Creation" -ForegroundColor White
-$LogOut = "Provisioned Storage"
+$LogOut = "Storage Configuration completed: $StorageName"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 } # Creates Storage
 
@@ -1397,7 +1400,7 @@ MakeImagePlanInfo_Bitnami_nginxstack # Begins Image Creation
 ConfigSet # Adds Network Interfaces
 AddDiskImage # Completes Image Creation
 }
-		"*postgresql*" {
+		"*postgressql*" {
 ConfigNet  #Sets network connection info
 MakeImagePlanInfo_Bitnami_postgresql # Begins Image Creation
 ConfigSet # Adds Network Interfaces
@@ -1611,12 +1614,19 @@ $name='Azure'
 if(Get-Module -ListAvailable |
 	Where-Object { $_.name -eq $name })
 {
-	(Get-Module -ListAvailable | Where-Object{ $_.Name -eq $name }) |
-	Select Version, Name, Author, PowerShellVersion  | Format-List;
+$ver = (Get-Module -ListAvailable | Where-Object{ $_.Name -eq $name }) |
+	select version -ExpandProperty version
+	Write-Host "current Azure PowerShell Version:" $ver
+$currentver = $ver
+	if($currentver-le '2.0.0'){
+	Write-Host "expected version 2.0.0 found $ver" -ForegroundColor DarkRed
+	exit
+	}
 }
 else
 {
-	“The Azure PowerShell module is not installed.”
+	Write-Host “The Azure PowerShell module is not installed.”
+	exit
 }
 }
 
@@ -1643,6 +1653,10 @@ catch {
 $LogOut = "User has authenticated"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 
+AzureVersion # Display Azure Version
+
+CheckOrphns # Check if Orphans exist.
+
  $resourceProviders = @("microsoft.compute","microsoft.network","microsoft.storage");
  if($resourceProviders.length) {
 	Write-Host "Registering resource providers"
@@ -1652,19 +1666,14 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
  } # Get Resource Providers
 
 $resourcegroups = @($ResourceGroupName,$vNetResourceGroupName);
-# $resourcegroups = @($ResourceGroupName);
 if($resourcegroups.length) {
 	foreach($resourcegroup in $resourcegroups) {
 		ProvisionResGrp($resourcegroup);
 	}
 	} # Create Resource Groups
 
-$LogOut = "Provisioned Resource Groups"
+$LogOut = "Using Resource Groups $ResourceGroupName and $vNetResourceGroupName"
 Log-Command -Description $LogOut -LogFile $LogOutFile
-
-AzureVersion # Display Azure Version
-
-CheckOrphns # Check if Orphans exist.
 
 WriteConfig
 
