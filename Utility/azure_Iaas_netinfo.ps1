@@ -9,28 +9,22 @@ The script will retrive all network components in a Resource Group including VNE
 -ResourceGroupName
 -Location
 .EXAMPLE
-\azNetinfo.ps2 -ResourceGroupName "MyResGrp"
-\azNetinfo.ps2 -ResourceGroupName "MyResGrp" -Location "WestUs"
+\azNetinfo.ps1 -ResourceGroupName "MyResGrp"
+\azNetinfo.ps1 -ResourceGroupName "MyResGrp" -Location "WestUs"
 #>
 
 Param(
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
  [string]
- $ResourceGroupName = 'RGA',
- [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
+ $ResourceGroupName = 'xres',
+ [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
  $Location = "WestUs"
 )
-Function RegisterRP {
-	Param(
-		[string]$ResourceProviderNamespace
-	)
 
-	Write-Host "Registering resource provider '$ResourceProviderNamespace'";
-	Register-AzureRmResourceProvider -ProviderNamespace $ResourceProviderNamespace –Confirm:$false -Force -WarningAction SilentlyContinue;
-}
+
 Function VerifyProfile {
-$ProfileFile = "c:\Temp\jl.json"
+$ProfileFile = "c:\Temp\outlook.json"
 $fileexist = Test-Path $ProfileFile
   if($fileexist)
   {Write-Host "Profile Found"
@@ -43,15 +37,30 @@ $fileexist = Test-Path $ProfileFile
   }
 }
 
+Function AzureVersion {
+$name='Azure'
+if(Get-Module -ListAvailable |
+	Where-Object { $_.name -eq $name })
+{
+$ver = (Get-Module -ListAvailable | Where-Object{ $_.Name -eq $name }) |
+	select version -ExpandProperty version
+	Write-Host "current Azure PowerShell Version:" $ver
+$currentver = $ver
+	if($currentver-le '2.0.0'){
+	Write-Host "expected version 2.0.0 found $ver" -ForegroundColor DarkRed
+	exit
+	}
+}
+else
+{
+	Write-Host “The Azure PowerShell module is not installed.”
+	exit
+}
+}
+
+AzureVersion
 VerifyProfile
 
- $resourceProviders = @("microsoft.compute","microsoft.network","microsoft.storage");
- if($resourceProviders.length) {
-	Write-Host "Registering resource providers"
-	foreach($resourceProvider in $resourceProviders) {
-		RegisterRP($resourceProvider);
-	}
- }
 
  try {
 Get-AzureRmResourceGroup -Name $ResourceGroupName -Location $Location -ErrorAction Stop | OUt-Null
@@ -62,19 +71,27 @@ catch {
 	continue
 }
 
- Get-AzureRmVirtualNetwork -ResourceGroupName $ResourceGroupName | ft Name, ResourceGroupName
+Write-Host "VNETs in RG" $ResourceGroupName -NoNewline
+Get-AzureRmVirtualNetwork -ResourceGroupName $ResourceGroupName -WarningAction SilentlyContinue | ft Name, ResourceGroupName -Wrap -AutoSize
 
- Write-Host "Subnets located in RG" $ResourceGroupName -NoNewline
- Get-AzureRmVirtualNetwork -ResourceGroupName $ResourceGroupName | Get-AzureRmVirtualNetworkSubnetConfig | ft Name,AddressPrefix
+Write-Host "Subnets located in RG" $ResourceGroupName
+Get-AzureRmVirtualNetwork -ResourceGroupName $ResourceGroupName | Get-AzureRmVirtualNetworkSubnetConfig | ft Name,AddressPrefix
 
- Write-Host "Public Ips located in RG" $ResourceGroupName -NoNewline
- Get-AzureRmPublicIpAddress -ResourceGroupName $ResourceGroupName | ft "Name","IpAddress"
+Write-Host "Network Security Groups located in RG" $ResourceGroupName 
+Get-AzureRmNetworkSecurityGroup -ResourceGroupName $ResourceGroupName -WarningAction SilentlyContinue | ft "Name"
 
- Write-Host "NICs located in RG" $ResourceGroupName -NoNewline
- Get-AzureRmNetworkInterface -ResourceGroupName $ResourceGroupName | ft Name,Location,ResourceGroupName
+Write-Host "NICs located in RG" $ResourceGroupName
+Get-AzureRmNetworkInterface -ResourceGroupName $ResourceGroupName | ft Name,Location,ResourceGroupName
 
- Write-Host "VMs located in RG" $ResourceGroupName -NoNewline
- Get-AzureRmVM -ResourceGroupName $ResourceGroupName | ft "Name"
+Write-Host "VMs located in RG" $ResourceGroupName
+Get-AzureRmVM -ResourceGroupName $ResourceGroupName | ft "Name"
+
+Write-Host "Public Ips located in RG" $ResourceGroupName
+Get-AzureRmPublicIpAddress -ResourceGroupName $ResourceGroupName | ft "Name","IpAddress"
+
+Write-Host "Public DNS Records located in RG" $ResourceGroupName 
+Get-AzureRmPublicIpAddress -ResourceGroupName $ResourceGroupName | select-object -ExpandProperty DNSSettings | FT FQDN -Wrap
+
 
 Write-Host "Private Network Interfaces located in " $ResourceGroupName
 $vms = get-azurermvm -ResourceGroupName $ResourceGroupName
@@ -86,3 +103,4 @@ foreach($nic in $nics)
 	$alloc =  $nic.IpConfigurations | select-object -ExpandProperty PrivateIpAllocationMethod
 	Write-Output "$($vm.Name): $prv - $alloc" | Format-Table
 }
+
