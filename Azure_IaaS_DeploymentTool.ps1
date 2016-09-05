@@ -1,24 +1,26 @@
 ﻿<#
 .SYNOPSIS
 Written By John N Lewis
-email: jonos@live.com
-Ver 4.61
+email: jonos@outlook.com
+Ver 4.9
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
 The script allows select of subnet prior to VM Deployment
 The script supports deploying Availability Sets as well as adding new servers to existing Availability Sets through the -AvailabilitySet "True" and -AvailSetName switches.
 The script will generate a name for azure storage endpoint unless the -StorageName variable is updated or referenced at runtime.
 
-v4.61 updates - added step log
+v4.9 updates - additional validation functions, note changes to AddVNET and NSGEnabled field types (was string now bool)
+v4.8 updates - Added F5/Barracuda as well as Bitnami images
+v4.7 updates - Added Step Logging
 v4.6 Updates - Added Support for F5, Barracuda, SAP and Solar Winds
 v4.5 Updates - Fixes for Azure PowerShell 2.1
 
 .DESCRIPTION
 Deploys 30 different Market Images on a new or existing VNET. Supports post deployment configuration through Azure Extensions.
-Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windows 2012 R2, Ubuntu 14.04, CentOs 7.2, SUSE, SQL 2016 (on W2K12R2), R Server on Windows, Windows 2016 (Preview), Checkpoint Firewall, FreeBsd, Oracle Linux, Puppet, Splunk, Oracle Web-Logic, Oracle DB, Bitnami Lamp, Bitnami PostGresSql, Bitnami nodejs, Bitnami Elastics, Bitnami MySql, SharePoint 2013/2016, Barracuda NG, Barracuda SPAM, F5 BigIP, F5 App Firewall, SAP, Solar Winds
+Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windows 2012 R2, Ubuntu 14.04, CentOs 7.2, SUSE, SQL 2016 (on W2K12R2), R Server on Windows, Windows 2016 (Preview), Checkpoint Firewall, FreeBsd, Oracle Linux, Puppet, Splunk, Oracle Web-Logic, Oracle DB, Bitnami Lamp, Bitnami PostGresSql, Bitnami nodejs, Bitnami Elastics, Bitnami MySql, SharePoint 2013/2016, Barracuda NG, Barracuda SPAM, F5 BigIP, F5 App Firewall, SAP, Solar Winds, Bitnami JRuby, Bitnami Neos, Bitnami TomCat, Bitnami redis, Bitnami hadoop
 .PARAMETER vmMarketImage
 
-.PARAMETER NewVnet
+.PARAMETER AddVnet
 
 .PARAMETER VMName
 
@@ -56,11 +58,11 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 
 .PARAMETER NSGName
 
-.PARAMETER DepSub1
+.PARAMETER Subnet1
 
-.PARAMETER DepSub2
+.PARAMETER Subnet2
 
-.PARAMETER AvailabilitySet
+.PARAMETER AddAvailabilitySet
 
 .PARAMETER AvailSetName
 
@@ -71,11 +73,13 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 .PARAMETER AzExtConfig
 
 .EXAMPLE
-\.azdeploy.ps1 -VMName pf001 -VMMarketImage pfsense -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup1 -VNetName VNET -depsub1 0 -depsub2 1 -ConfigIPs DualPvtNoPub -PvtIPNic1 10.120.0.7 -PvtIPNic2 10.120.1.7
+\.azdeploy.ps1 -VMName pf001 -VMMarketImage pfsense -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup2 -VNetName VNET -subnet1 3 -subnet2 4 -ConfigIPs DualPvtNoPub -PvtIPNic1 10.120.2.7 -PvtIPNic2 10.120.3.7
 .EXAMPLE
-\.azdeploy.ps1 -VMName red76 -VMMarketImage red67 -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup2 -VNetName VNET -depsub1 6 -ConfigIPs SinglePvtNoPub -PvtIPNic1 10.120.6.124 -AzExtConfig linuxbackup
+\.azdeploy.ps1 -VMName red76 -VMMarketImage red67 -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup2 -VNetName VNET -subnet1 7 -ConfigIPs SinglePvtNoPub -PvtIPNic1 10.120.6.124 -AzExtConfig linuxbackup
 .EXAMPLE
-\.azdeploy.ps1 -VMName win006 -VMMarketImage w2k12 -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup1 -VNetName VNET -depsub1 6 -ConfigIPs SinglePvtNoPub -PvtIPNic1 10.120.6.120 -AvailabilitySet "True"
+\.azdeploy.ps1 -VMName win006 -VMMarketImage w2k12 -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup2 -VNetName VNET -subnet1 2 -ConfigIPs Single -AddAvailabilitySet $True
+.EXAMPLE
+\.azdeploy.ps1 -VMName win008 -VMMarketImage w2k16 -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup2 -VNetName VNET -subnet1 5 -ConfigIPs PvtSingleStat -PvtIPNic1 10.120.4.169 -AddFQDN $True -DNLabel mydns1
 .NOTES
 -ConfigIps  <Configuration>
 			PvtSingleStat & PvtDualStat – Deploys the server with a Public IP and the private IP(s) specified by the user.
@@ -103,6 +107,12 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 			Bitnami Elastics Search - elastics
 			Bitnami Jenkins - jenkins
 			Bitnami PostGresSql - postgressql
+			Bitnami Git Lab - gitlab
+			Bitnami Redis - redis
+			Bitnami Hadoop - hadoop
+			Bitnami Tom-Cat - tomcat
+			Bitnami jRubyStack - jruby
+			Bitnami neos - neos
 			Oracle Web Logic - weblogic
 			Oracle Linux - oracle-linux
 			Oracle Standard Edition DB - stddb-oracle
@@ -137,13 +147,13 @@ https://github.com/JonosGit/IaaSDeploymentTool
 [CmdletBinding()]
 Param(
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=1)]
-[ValidateSet("w2k12","w2k8","red67","red72","suse","free","ubuntu","centos","w2k16","sql2016","chef","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","oracle-linux","puppet","web-logic","stddb-oracle","entdb-oracle","serverr","sap","solarwinds","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack")]
+[ValidateSet("w2k12","w2k8","red67","red72","suse","free","ubuntu","centos","w2k16","sql2016","chef","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","oracle-linux","puppet","web-logic","stddb-oracle","entdb-oracle","serverr","sap","solarwinds","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack","hadoop","neos","tomcat","redis","gitlab","jruby")]
 [string]
 $vmMarketImage = "",
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [bool]
-$NewVnet = $False,
+$AddVnet = $True,
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
 [string]
@@ -201,7 +211,7 @@ $GenerateName = -join ((65..90) + (97..122) | Get-Random -Count 6 | % {[char]$_}
 
 [Parameter(Mandatory=$False)]
 [string]
-$StorageName = $GenerateName + "str",
+$StorageName = $VMName + "str",
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
@@ -220,18 +230,18 @@ $InterfaceName2 =$VMName + "_nic2",
 $NSGName = "NSG",
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[ValidateRange(0,7)]
+[ValidateRange(0,8)]
 [Int]
-$DepSub1 = 1,
+$Subnet1 = 1,
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[ValidateRange(0,7)]
+[ValidateRange(0,8)]
 [Int]
-$DepSub2 = 2,
+$Subnet2 = 2,
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [bool]
-$AvailabilitySet = $False,
+$AddAvailabilitySet = $False,
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
@@ -246,10 +256,10 @@ $DNLabel = 'mytesr1',
 $AddFQDN = $False,
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-$PvtIPNic1 = '10.120.3.145',
+$PvtIPNic1 = '',
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-$PvtIPNic2 = '10.120.1.145',
+$PvtIPNic2 = '',
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
@@ -283,6 +293,7 @@ $ErrorMessage = $_.Exception.Message
 $Output = 'Error '+$ErrorMessage
 ((Get-Date -UFormat "[%d-%m-%Y %H:%M:%S] ") + $Output) | Out-File -FilePath $LogFile -Append -Force
 $Result = ""
+continue
 }
 Finally
 {
@@ -306,6 +317,62 @@ $fileexist = Test-Path $ProfileFile
   }
 }
 
+Function VerifyPvtIps {
+if($PvtIPNic1)
+{
+$subnet = $Subnet1
+$ip = $PvtIPNic1
+$array = $ip.Split(".")
+[int]$subnetint = $array[2]
+$subnetcalc = ($subnetint + '1')
+Write-Host "Subnet Match $subnet $subnetcalc"
+if($subnetcalc -ne $subnet){
+Write-Host "Verify the IP Address for Subnet1 is in the correct subnet"
+break
+}
+
+}
+if($PvtIPNic2){
+$subnet = $Subnet2
+$ip = $PvtIPNic2
+$array = $ip.Split(".")
+[int]$subnetint = $array[2]
+$subnetcalc = ($subnetint + '1')
+Write-Host "Subnet Match $subnet $subnetcalc"
+if($subnetcalc -ne $subnet){
+Write-Host "Verify the IP Address for Subnet2 is in the correct subnet"
+break
+}
+
+}
+}
+
+Function VerifyNet {
+If ($ConfigIPs -eq "StatPvtNoPubSingle")
+{ Write-Host "Subnet IP Validation" -ForegroundColor White
+VerifyPvtIps
+}
+If ($ConfigIPs -eq "StatPvtNoPubDual")
+{ Write-Host "Subnet IP Validation" -ForegroundColor White
+VerifyPvtIps
+}
+If ($ConfigIPs -eq "Single")
+{ Write-Host "Skipping Subnet IP Validation"
+}
+
+If ($ConfigIPs -eq "Dual")
+{ Write-Host "Skipping Subnet IP Validation"
+}
+If ($ConfigIPs -eq "PvtSingleStat")
+{ Write-Host "Subnet IP Validation"
+VerifyPvtIps
+}
+If ($ConfigIPs -eq "PvtDualStat")
+{ Write-Host "Subnet IP Validation"
+VerifyPvtIps
+}
+}
+
 function chknull {
 if(!$vmMarketImage) {
 Write-Host "Please Enter vmMarketImage"
@@ -321,6 +388,9 @@ Write-Host "Please Enter vmMarketImage"
 			exit}
 				elseif(!$Location) {
 					Write-Host "Please Enter Location"
+						exit}
+				elseif(!$ConfigIPs) {
+					Write-Host "Please Enter IP Configuration"
 						exit}
 					elseif(!$VNETResourceGroupName) {
 					Write-Host "Please Enter VNET Resource Group Name"
@@ -359,49 +429,49 @@ switch ($ConfigIPs)
 Write-Host "Dual IP Configuration - Static"
 PubIPconfig
 $global:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
-$global:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue
-$global:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub2].Id -PrivateIpAddress $PvtIPNic2 –Confirm:$false -WarningAction SilentlyContinue
+$global:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue
+$global:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id -PrivateIpAddress $PvtIPNic2 –Confirm:$false -WarningAction SilentlyContinue
 }
 		"PvtSingleStat" {
 Write-Host "Single IP Configuration - Static"
 PubIPconfig
 $global:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
-$global:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue
+$global:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue
 }
 		"StatPvtNoPubDual" {
 Write-Host "Dual IP Configuration- Static - No Public"
 $global:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
-$global:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue
-$global:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub2].Id -PrivateIpAddress $PvtIPNic2 –Confirm:$false -WarningAction SilentlyContinue
+$global:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue
+$global:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id -PrivateIpAddress $PvtIPNic2 –Confirm:$false -WarningAction SilentlyContinue
 }
 		"StatPvtNoPubSingle" {
 Write-Host "Single IP Configuration - Static - No Public"
 $global:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
-$global:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue
+$global:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue
 }
 		"Single" {
 Write-Host "Default Single IP Configuration"
 PubIPconfig
 $global:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
-$global:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id –Confirm:$false -WarningAction SilentlyContinue
+$global:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id –Confirm:$false -WarningAction SilentlyContinue
 }
 		"Dual" {
 Write-Host "Default Dual IP Configuration"
 PubIPconfig
 $global:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
-$global:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id -PublicIpAddressId $PIp.Id –Confirm:$false -WarningAction SilentlyContinue
-$global:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub2].Id –Confirm:$false -WarningAction SilentlyContinue
+$global:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id –Confirm:$false -WarningAction SilentlyContinue
+$global:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id –Confirm:$false -WarningAction SilentlyContinue
 }
 		"NoPubSingle" {
 Write-Host "Single IP - No Public"
 $global:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
-$global:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id –Confirm:$false -WarningAction SilentlyContinue
+$global:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id –Confirm:$false -WarningAction SilentlyContinue
 }
 		"NoPubDual" {
 Write-Host "Dual IP - No Public"
 $global:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Set-AzureRmVirtualNetwork
-$global:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub1].Id –Confirm:$false -WarningAction SilentlyContinue
-$global:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$DepSub2].Id –Confirm:$false -WarningAction SilentlyContinue
+$global:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id –Confirm:$false -WarningAction SilentlyContinue
+$global:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $ResourceGroupName -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id –Confirm:$false -WarningAction SilentlyContinue
 }
 		default{"Nothing matched entry criteria"}
 }
@@ -474,6 +544,9 @@ $nsg = Get-AzureRmNetworkSecurityGroup -ResourceGroupName $vNetResourceGroupName
 $nic = Get-AzureRmNetworkInterface -ResourceGroupName $ResourceGroupName -Name $InterfaceName2
 $nic.NetworkSecurityGroup = $nsg
 Set-AzureRmNetworkInterface -NetworkInterface $nic | Out-Null
+
+$secrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $ResourceGroupName | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access | Format-Table | Out-Null
+$defsecrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $ResourceGroupName | Get-AzureRmNetworkSecurityRuleConfig -DefaultRules | Format-Table | Out-Null
 $LogOut = "Completed Image NSG Post Configuration. Added $InterfaceName2 to $NSGName"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
@@ -505,21 +578,21 @@ Function RegisterRP {
 
 Function AvailSet {
  try {
- If ($AvailabilitySet)
+ If ($AddAvailabilitySet)
  {
- Write-Host "Availability Set creation in process.." -ForegroundColor White
+ Write-Host "Availability Set configuration in process.." -ForegroundColor White
 New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location -WarningAction SilentlyContinue | Out-Null
-$AvailabilitySet = (Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName).Id
-$global:VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AvailabilitySet -WarningAction SilentlyContinue
-Write-Host "Availability Set has been created" -ForegroundColor White
-$LogOut = "Completed Availability Set Creation. Created $AvailSetName"
+$AddAvailabilitySet = (Get-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName).Id
+$global:VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AddAvailabilitySet -WarningAction SilentlyContinue
+Write-Host "Availability Set has been configured" -ForegroundColor White
+$LogOut = "Completed Availability Set configuration $AvailSetName"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 else
 {
-Write-Host "Skipping Availability Set creation" -ForegroundColor White
+Write-Host "Skipping Availability Set configuration" -ForegroundColor White
 $global:VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -WarningAction SilentlyContinue
-$LogOut = "Skipped Availability Set Creation"
+$LogOut = "Skipped Availability Set Configuration"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 	}
@@ -531,15 +604,42 @@ catch {
 }
  }
 
+ function Provvms {
+	$ProvisionVMs = @($VirtualMachine);
+try {
+   foreach($provisionvm in $ProvisionVMs) {
+New-AzureRmVM -ResourceGroupName $ResourceGroupName -Location $Location -VM $VirtualMachine –Confirm:$false -WarningAction SilentlyContinue | Out-Null
+Log-Command -Description $LogOut -LogFile $LogOutFile
+Write-Host "Completed creation of new VM" -ForegroundColor White
+						}
+	}
+
+catch {
+$ErrorMessage = $_.Exception.Message
+$Output = 'Error '+$ErrorMessage
+((Get-Date -UFormat "[%d-%m-%Y %H:%M:%S] ") + $Output) | Out-File -FilePath $LogOutFile -Append -Force
+$Result = ""
+}
+finally {
+if ($ErrorMessage -eq $null) {$Output = "[Completed]  $Description  ... "} else {$Output = "[Failed]  $Description  ... "}
+((Get-Date -UFormat "[%d-%m-%Y %H:%M:%S] ") + $Output) | Out-File -FilePath $LogOutFile -Append -Force
+}
+Return $Result
+}
+
+ function ProvvmsWrapper {
+	$ProvisionVMs = @($VirtualMachine);
+   foreach($provisionvm in $ProvisionVMs) {
+New-AzureRmVM -ResourceGroupName $ResourceGroupName -Location $Location -VM $VirtualMachine –Confirm:$false -WarningAction SilentlyContinue | Out-Null
+}
+}
 Function AddDiskImage {
 Write-Host "Completing image creation..." -ForegroundColor White
 $global:osDiskCaching = "ReadWrite"
 $global:OSDiskName = $VMName + "OSDisk"
 $global:OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDiskName + ".vhd"
 $global:VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching -WarningAction SilentlyContinue
-New-AzureRmVM -ResourceGroupName $ResourceGroupName -Location $Location -VM $VirtualMachine –Confirm:$false -WarningAction SilentlyContinue | Out-Null
-$LogOut = "Completed Image Deployment for $VMName"
-Log-Command -Description $LogOut -LogFile $LogOutFile
+# New-AzureRmVM -ResourceGroupName $ResourceGroupName -Location $Location -VM $VirtualMachine –Confirm:$false -WarningAction SilentlyContinue | Out-Null
 }
 
 Function MakeImagePlanInfo_Bitnami_Lamp {
@@ -601,6 +701,97 @@ Write-Host "Image Creation in Process - Plan Info - Microsoft R Server" -Foregro
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
 $global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
 $global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -Windows -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+}
+Function MakeImagePlanInfo_Bitnami_tomcat {
+param(
+[string]$Publisher = 'bitnami',
+[string]$offer = 'tom-cat',
+[string]$Skus = '7-0',
+[string]$version = 'latest',
+[string]$Product = 'tom-cat',
+[string]$name = '7-0'
+)
+Write-Host "Image Creation in Process - Plan Info - Tom-Cat" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+}
+
+Function MakeImagePlanInfo_Bitnami_redis {
+param(
+[string]$Publisher = 'bitnami',
+[string]$offer = 'redis',
+[string]$Skus = '3-2',
+[string]$version = 'latest',
+[string]$Product = 'redis',
+[string]$name = '3-2'
+)
+Write-Host "Image Creation in Process - Plan Info - Redis"
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+}
+Function MakeImagePlanInfo_Bitnami_neos {
+param(
+[string]$Publisher = 'bitnami',
+[string]$offer = 'neos',
+[string]$Skus = '2-0',
+[string]$version = 'latest',
+[string]$Product = 'neos',
+[string]$name = '2-0'
+)
+Write-Host "Image Creation in Process - Plan Info - neos"
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+}
+Function MakeImagePlanInfo_Bitnami_hadoop {
+param(
+[string]$Publisher = 'bitnami',
+[string]$offer = 'hadoop',
+[string]$Skus = '2-7',
+[string]$version = 'latest',
+[string]$Product = 'hadoop',
+[string]$name = '2-7'
+)
+Write-Host "Image Creation in Process - Plan Info - hadoop"
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+}
+Function MakeImagePlanInfo_Bitnami_gitlab {
+param(
+[string]$Publisher = 'bitnami',
+[string]$offer = 'gitlab',
+[string]$Skus = '8-5',
+[string]$version = 'latest',
+[string]$Product = 'gitlab',
+[string]$name = '8-5'
+)
+Write-Host "Image Creation in Process - Plan Info - gitlab"
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+}
+Function MakeImagePlanInfo_Bitnami_jrubystack {
+param(
+[string]$Publisher = 'bitnami',
+[string]$offer = 'jrubystack',
+[string]$Skus = '9-0',
+[string]$version = 'latest',
+[string]$Product = 'jrubystack',
+[string]$name = '9-0'
+)
+Write-Host "Image Creation in Process - Plan Info - jrubystack"
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
 $global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
 }
 
@@ -1118,7 +1309,7 @@ $subnet9 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.7.0/24 -N
 New-AzureRmVirtualNetwork -Location $Location -Name $VNetName -ResourceGroupName $vNetResourceGroupName -AddressPrefix '10.120.0.0/21' -Subnet $subnet1,$subnet2,$subnet3,$subnet4,$subnet5,$subnet6,$subnet7,$subnet8,$subnet9 –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
 Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Get-AzureRmVirtualNetworkSubnetConfig -WarningAction SilentlyContinue | Out-Null
 Write-Host "Network Preparation completed" -ForegroundColor White
-$LogOut = "Completed Network Configuration. Created $VNetName"
+$LogOut = "Completed Network Configuration of $VNetName"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
@@ -1130,8 +1321,12 @@ $httpsrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTPS" -Descri
 $sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_SSH" -Description "SSH Exception for Web frontends" -Protocol Tcp -SourcePortRange "22" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix "10.120.0.0/21" -Access Allow -Direction Inbound ` -Priority 203
 $nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vNetResourceGroupName -Location $Location -Name $NSGName -SecurityRules $httprule,$httpsrule, $sshrule –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
 Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vNetResourceGroupName -WarningAction SilentlyContinue | Out-Null
-Write-Host "Network Security Group creation completed" -ForegroundColor White
-$LogOut = "Completed NSG Configuration. Created $NSGName"
+Write-Host "Network Security Group configuration completed" -ForegroundColor White
+$LogOut = "Security Rules added for $NSGName"
+$secrules =Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vNetResourceGroupName -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access
+$defsecrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vNetResourceGroupName -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig -DefaultRules | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationAddressPrefix,SourceAddressPrefix,Access
+Log-Command -Description $LogOut -LogFile $LogOutFile
+$LogOut = "Completed NSG Configuration of $NSGName"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 # End of Provision Network Security Groups Function
@@ -1172,41 +1367,41 @@ SelectNicDescrtipt
 If ($ConfigIPs -eq "StatPvtNoPubSingle")
 { Write-Host "Public Ip Will not be created" -ForegroundColor White
 Write-Host "Nic1: $PvtIPNic1"
-SubnetMatch $DepSub1
+SubnetMatch $Subnet1
 }
 If ($ConfigIPs -eq "StatPvtNoPubDual")
 { Write-Host "Public Ip Will not be created" -ForegroundColor White
 Write-Host "Nic1: $PvtIPNic1"
 Write-Host "Nic2: $PvtIPNic2"
-SubnetMatch $DepSub1
-SubnetMatch $DepSub2
+SubnetMatch $Subnet1
+SubnetMatch $Subnet2
 }
 If ($ConfigIPs -eq "Single")
 { Write-Host "Public Ip Will be created"
-SubnetMatch $DepSub1
+SubnetMatch $Subnet1
 }
 
 If ($ConfigIPs -eq "Dual")
 { Write-Host "Public Ip Will be created"
-SubnetMatch $DepSub1
-SubnetMatch $DepSub2
+SubnetMatch $Subnet1
+SubnetMatch $Subnet2
 }
 If ($ConfigIPs -eq "PvtSingleStat")
 { Write-Host "Public Ip Will be created"
-SubnetMatch $DepSub1
+SubnetMatch $Subnet1
 Write-Host "Nic1: $PvtIPNic1"
 }
 If ($ConfigIPs -eq "PvtDualStat")
 { Write-Host "Public Ip Will be created"
-SubnetMatch $DepSub1
-SubnetMatch $DepSub2
+SubnetMatch $Subnet1
+SubnetMatch $Subnet2
 Write-Host "Nic1: $PvtIPNic1"
 Write-Host "Nic2: $PvtIPNic2"
 }
 if($AzExtConfig) {
 Write-Host "Extension selected for deployment: $AzExtConfig "
 }
-if($AvailabilitySet) {
+if($AddAvailabilitySet) {
 Write-Host "Availability Set to 'True'"
 Write-Host "Availability Set Name:  '$AvailSetName'"
 Write-Host "                                                               "
@@ -1232,10 +1427,41 @@ Write-Host "Server Type: $vmMarketImage"
 Write-Host "VNET Resource Group Name: $vNetResourceGroupName" -ForegroundColor White
 Write-Host "VNET Name: $VNetName" -ForegroundColor White
 Write-Host "Storage Account Name:  $StorageName"
+
+$vm = Get-AzureRmvm -ResourceGroupName $ResourceGroupName -Name $VMName
+$storage = $vm.StorageProfile
+$disk = $storage.OsDisk
+$Name = $disk.Name
+$uri = $disk.Vhd
+$avset = $vm.AvailabilitySetReference
+$extension = $vm.Extensions
+$extcount = $extension.Count
+$statuscode = $vm.StatusCode
+$availsetid = $avset.Id
+$name = $vm.Name
+$nicids = $vm.NetworkInterfaceIDs
+$nicprofile = $vm.NetworkProfile
+$nicprofiles = $nicprofile.NetworkInterfaces
+$niccount = $nicprofiles.Count
+$osprofile = $vm.OSProfile
+$localadmin = $osprofile.AdminUsername
+$provstate = $vm.ProvisioningState
+$datad = $vm.DataDiskNames
+$datadiskcount = $datad.Count
+
+Write-Host "Server Name:"$name
+Write-Host "Local admin:" $localadmin
+Write-Host "Installed Azure Extensions Count" $extcount
+Write-Host "Data Disk Count:" $datadiskcount
+Write-Host "Provisioning State:" $provstate
+Write-Host "Status Code:" $statuscode
+Write-Host "Network Adapter Count:" $niccount
+Write-Host "Availability Set:"$availsetid
+
 SelectNicDescrtipt
 
-if($AvailabilitySet) {
-Write-Host "Availability Set created"
+if($AddAvailabilitySet) {
+Write-Host "Availability Set Configured"
 Write-Host "Availability Set Name:  '$AvailSetName'"
 $time = " Completed Time " + (Get-Date -UFormat "%d-%m-%Y %H:%M:%S")
 Write-Host -------------- $time ------------- -ForegroundColor Cyan
@@ -1273,6 +1499,14 @@ Get-AzureRmPublicIpAddress -ResourceGroupName $ResourceGroupName | select-object
 Write-Host "                                                               "
 }
 
+Function ResultsRollup {
+# Write-Host "Storage Accounts for $ResourceGroupName" -NoNewLine
+# Get-AzurermStorageAccount -ResourceGroupName $ResourceGroupName -WarningAction SilentlyContinue | ft StorageAccountName,Location,ResourceGroupname -Wrap
+
+Write-Host "Availability Sets for $ResourceGroupName"
+Get-AzurermAvailabilitySet -ResourceGroupName $ResourceGroupName -WarningAction SilentlyContinue | ft Name,ResourceGroupName -Wrap
+}
+
 Function ProvisionResGrp
 {
 	Param(
@@ -1288,6 +1522,19 @@ Write-Host "Completed Storage Creation" -ForegroundColor White
 $LogOut = "Storage Configuration completed: $StorageName"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 } # Creates Storage
+
+Function StorageNameCheck
+{
+$checkname = Get-AzureRmStorageAccountNameAvailability -Name $StorageName | ft NameAvailable -HideTableHeaders
+if($checkname -eq "True") {
+CheckOrphns
+}
+else
+{Write-Host "Storage Account Name in use, please choose a different name for your storage account"
+Start-Sleep 5
+exit
+}
+}
 
 Function ImageConfig {
 switch -Wildcard ($vmMarketImage)
@@ -1514,6 +1761,42 @@ MakeImagePlanInfo_SolarWinds # Begins Image Creation
 ConfigSet # Adds Network Interfaces
 AddDiskImage # Completes Image Creation
 }
+		"*hadoop*" {
+ConfigNet  #Sets network connection info
+MakeImagePlanInfo_Bitnami_hadoop # Begins Image Creation
+ConfigSet # Adds Network Interfaces
+AddDiskImage # Completes Image Creation
+}
+		"*tomcat*" {
+ConfigNet  #Sets network connection info
+MakeImagePlanInfo_Bitnami_tomcat # Begins Image Creation
+ConfigSet # Adds Network Interfaces
+AddDiskImage # Completes Image Creation
+}
+		"*redis*" {
+ConfigNet  #Sets network connection info
+MakeImagePlanInfo_Bitnami_redis # Begins Image Creation
+ConfigSet # Adds Network Interfaces
+AddDiskImage # Completes Image Creation
+}
+		"*neos*" {
+ConfigNet  #Sets network connection info
+MakeImagePlanInfo_Bitnami_neos # Begins Image Creation
+ConfigSet # Adds Network Interfaces
+AddDiskImage # Completes Image Creation
+}
+		"*gitlab*" {
+ConfigNet  #Sets network connection info
+MakeImagePlanInfo_Bitnami_gitlab # Begins Image Creation
+ConfigSet # Adds Network Interfaces
+AddDiskImage # Completes Image Creation
+}
+		"*jruby*" {
+ConfigNet  #Sets network connection info
+MakeImagePlanInfo_Bitnami_jrubystack # Begins Image Creation
+ConfigSet # Adds Network Interfaces
+AddDiskImage # Completes Image Creation
+}
 		"*jenkins*" {
 ConfigNet  #Sets network connection info
 MakeImagePlanInfo_Bitnami_jenkins # Begins Image Creation
@@ -1581,7 +1864,7 @@ break
 	}
 } # Deploys Azure Extensions
 
-Function CheckOrphns {
+Function OrphanChk {
 $extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
 $nic1 = Get-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
 $nic2 = Get-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
@@ -1629,13 +1912,29 @@ else
 	exit
 }
 }
+Function StorageNameCheck
+{
+$checkname =  Get-AzureRmStorageAccountNameAvailability -Name $StorageName | Select-Object -ExpandProperty NameAvailable
+if($checkname -ne 'True') {
+Write-Host "Storage Account Name in use, please choose a different name for your storage account"
+Start-Sleep 5
+exit
+}
+}
 
 ##--------------------------- Begin Script Execution -------------------------------------------------------##
 
 Write-Output "Steps will be tracked on the log file : [ $LogOutFile ]"
 
-chknull
-VerifyProfile
+chknull # Verifies required fields have data
+OrphanChk # Verifies no left overs
+VerifyNet # Verifies Subnet and static IP Address will work as defined
+VerifyProfile # Attempts to use json file for auth, falls back on Add-AzureRmAccount
+StorageNameCheck # Verifies Storage Account Name does not exist
+AzureVersion # Verifies Azure client Powershell Version
+
+$LogOut = "Completed Pre Execution Verification Checks"
+Log-Command -Description $LogOut -LogFile $LogOutFile
 
 try {
 	[Microsoft.Azure.Common.Authentication.AzureSession]::ClientFactory.AddUserAgent("VSAzureTools-$UI$($host.name)".replace(" ","_"), "2.9")
@@ -1649,13 +1948,7 @@ catch {
 	"User has not authenticated, use Add-AzureRmAccount or $($_.Exception.Message)"; `
 	continue
 }
-
-$LogOut = "User has authenticated"
-Log-Command -Description $LogOut -LogFile $LogOutFile
-
-AzureVersion # Display Azure Version
-
-CheckOrphns # Check if Orphans exist.
+ # Check if Orphans exist.
 
  $resourceProviders = @("microsoft.compute","microsoft.network","microsoft.storage");
  if($resourceProviders.length) {
@@ -1677,21 +1970,23 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 
 WriteConfig
 
-if($NewVNET){ProvisionNet} # Creates VNET
+if($AddVnet){ProvisionNet} # Creates VNET
 
 if($NSGEnabled){CreateNSG}
 
 CreateStorage # Creates Storage for VM
 
-$LogOut = "Completed NIC and Public IP Configuration"
-Log-Command -Description $LogOut -LogFile $LogOutFile
-
 AvailSet # Handles Availability Set Creation
 
 ImageConfig # Configure Image
+# Provvms
+ProvvmsWrapper
+$Description = "Completed Image Creation"
+Log-Command -Description $Description -LogFile $LogOutFile
 
 if($NSGEnabled){NSGEnabled} #Adds NSG to NIC
 
 if($AzExtConfig) {InstallExt} #Installs Azure Extensions
 
+ResultsRollup
 EndState

@@ -104,3 +104,6 @@ foreach($nic in $nics)
 	Write-Output "$($vm.Name): $prv - $alloc" | Format-Table
 }
 
+Get-AzureRmNetworkSecurityGroup -Name nsg -ResourceGroupName xres -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access
+Get-AzureRmNetworkSecurityGroup -Name nsg -ResourceGroupName xres -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig -DefaultRules | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationAddressPrefix,SourceAddressPrefix,Access
+
