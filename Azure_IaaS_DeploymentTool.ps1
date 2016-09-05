@@ -1,14 +1,15 @@
 ﻿<#
 .SYNOPSIS
 Written By John N Lewis
-email: jonos@outlook.com
-Ver 4.9
+email: jonos@live.com
+Ver 5.0
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
 The script allows select of subnet prior to VM Deployment
 The script supports deploying Availability Sets as well as adding new servers to existing Availability Sets through the -AvailabilitySet "True" and -AvailSetName switches.
 The script will generate a name for azure storage endpoint unless the -StorageName variable is updated or referenced at runtime.
 
+v5.0 updates - Added Alias' to command parameters
 v4.9 updates - additional validation functions, note changes to AddVNET and NSGEnabled field types (was string now bool)
 v4.8 updates - Added F5/Barracuda as well as Bitnami images
 v4.7 updates - Added Step Logging
@@ -148,6 +149,7 @@ https://github.com/JonosGit/IaaSDeploymentTool
 Param(
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=1)]
 [ValidateSet("w2k12","w2k8","red67","red72","suse","free","ubuntu","centos","w2k16","sql2016","chef","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","oracle-linux","puppet","web-logic","stddb-oracle","entdb-oracle","serverr","sap","solarwinds","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack","hadoop","neos","tomcat","redis","gitlab","jruby")]
+[Alias("image")]
 [string]
 $vmMarketImage = "",
 
@@ -156,18 +158,22 @@ $vmMarketImage = "",
 $AddVnet = $True,
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
+[Alias("vm")]
 [string]
 $VMName = "",
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=2)]
+[Alias("rg")]
 [string]
 $ResourceGroupName = '',
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[Alias("vnetrg")]
 [string]
 $vNetResourceGroupName = '',
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[Alias("vnet")]
 [string]
 $VNetName = "vnet",
 
@@ -219,25 +225,28 @@ $StorageType = "Standard_GRS",
 
 [Parameter(Mandatory=$False)]
 [string]
-$InterfaceName1 =$VMName + "_nic1",
+$InterfaceName1 = $VMName + "_nic1",
 
 [Parameter(Mandatory=$False)]
 [string]
-$InterfaceName2 =$VMName + "_nic2",
+$InterfaceName2 = $VMName + "_nic2",
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[Alias("nsg")]
 [string]
 $NSGName = "NSG",
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateRange(0,8)]
+[Alias("sub1")]
 [Int]
-$Subnet1 = 1,
+$Subnet1 = 2,
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateRange(0,8)]
+[Alias("sub2")]
 [Int]
-$Subnet2 = 2,
+$Subnet2 = 3,
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [bool]
@@ -248,6 +257,7 @@ $AddAvailabilitySet = $False,
 $AvailSetName = $GenerateName,
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[Alias("fqdn")]
 [string]
 $DNLabel = 'mytesr1',
 
@@ -256,12 +266,15 @@ $DNLabel = 'mytesr1',
 $AddFQDN = $False,
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[Alias("nic1")]
 $PvtIPNic1 = '',
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[Alias("nic2")]
 $PvtIPNic2 = '',
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[Alias("ext")]
 [string]
 $AzExtConfig = ''
 
@@ -1500,11 +1513,11 @@ Write-Host "                                                               "
 }
 
 Function ResultsRollup {
-# Write-Host "Storage Accounts for $ResourceGroupName" -NoNewLine
-# Get-AzurermStorageAccount -ResourceGroupName $ResourceGroupName -WarningAction SilentlyContinue | ft StorageAccountName,Location,ResourceGroupname -Wrap
+Write-Host "Storage Accounts for $ResourceGroupName" -NoNewLine
+Get-AzurermStorageAccount -ResourceGroupName $ResourceGroupName -WarningAction SilentlyContinue | ft StorageAccountName,Location,ResourceGroupname -Wrap
 
-Write-Host "Availability Sets for $ResourceGroupName"
-Get-AzurermAvailabilitySet -ResourceGroupName $ResourceGroupName -WarningAction SilentlyContinue | ft Name,ResourceGroupName -Wrap
+# Write-Host "Availability Sets for $ResourceGroupName"
+# Get-AzurermAvailabilitySet -ResourceGroupName $ResourceGroupName -WarningAction SilentlyContinue | ft Name,ResourceGroupName -Wrap
 }
 
 Function ProvisionResGrp
