@@ -2,7 +2,7 @@
 .SYNOPSIS
 Written By John N Lewis
 email: jonos@live.com
-Ver 5.0
+Ver 5.1
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
 The script allows select of subnet prior to VM Deployment
@@ -81,6 +81,8 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 \.azdeploy.ps1 -VMName win006 -VMMarketImage w2k12 -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup2 -VNetName VNET -subnet1 2 -ConfigIPs Single -AddAvailabilitySet $True
 .EXAMPLE
 \.azdeploy.ps1 -VMName win008 -VMMarketImage w2k16 -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup2 -VNetName VNET -subnet1 5 -ConfigIPs PvtSingleStat -PvtIPNic1 10.120.4.169 -AddFQDN $True -DNLabel mydns1
+.EXAMPLE
+\.azdeploy.ps1 -VM ubu001 -Image ubuntu -RG ResGroup1 -vNetRG ResGroup2 -VNet VNET -subnet1 6 -ConfigIPs PvtSingleStat -Nic1 10.120.5.169 -AddFQDN $True -DNLabel mydns2
 .NOTES
 -ConfigIps  <Configuration>
 			PvtSingleStat & PvtDualStat – Deploys the server with a Public IP and the private IP(s) specified by the user.
@@ -196,6 +198,7 @@ $locadmin = 'localadmin',
 $locpassword = 'P@ssW0rd!',
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[Alias("nsg")]
 [bool]
 $NSGEnabled = $False,
 
@@ -224,15 +227,16 @@ $StorageName = $VMName + "str",
 $StorageType = "Standard_GRS",
 
 [Parameter(Mandatory=$False)]
+[Alias("int1")]
 [string]
 $InterfaceName1 = $VMName + "_nic1",
 
 [Parameter(Mandatory=$False)]
+[Alias("int2")]
 [string]
 $InterfaceName2 = $VMName + "_nic2",
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[Alias("nsg")]
 [string]
 $NSGName = "NSG",
 
@@ -249,6 +253,7 @@ $Subnet1 = 2,
 $Subnet2 = 3,
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[Alias("avset")]
 [bool]
 $AddAvailabilitySet = $False,
 
@@ -343,7 +348,6 @@ if($subnetcalc -ne $subnet){
 Write-Host "Verify the IP Address for Subnet1 is in the correct subnet"
 break
 }
-
 }
 if($PvtIPNic2){
 $subnet = $Subnet2
@@ -356,7 +360,6 @@ if($subnetcalc -ne $subnet){
 Write-Host "Verify the IP Address for Subnet2 is in the correct subnet"
 break
 }
-
 }
 }
 
@@ -389,7 +392,7 @@ VerifyPvtIps
 function chknull {
 if(!$vmMarketImage) {
 Write-Host "Please Enter vmMarketImage"
- exit }
+exit }
 	elseif(!$VMName) {
 	Write-Host "Please Enter vmName"
 	exit}
@@ -400,13 +403,13 @@ Write-Host "Please Enter vmMarketImage"
 			Write-Host "Please Enter Resource Group Name"
 			exit}
 				elseif(!$Location) {
-					Write-Host "Please Enter Location"
-						exit}
-				elseif(!$ConfigIPs) {
+				Write-Host "Please Enter Location"
+				exit}
+					elseif(!$ConfigIPs) {
 					Write-Host "Please Enter IP Configuration"
-						exit}
-					elseif(!$VNETResourceGroupName) {
-					Write-Host "Please Enter VNET Resource Group Name"
+					exit}
+						elseif(!$VNETResourceGroupName) {
+						Write-Host "Please Enter VNET Resource Group Name"
 						exit
 											}
 }
@@ -568,13 +571,12 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 Function SelectNicDescrtipt {
 if($ConfigIPs-EQ "Dual"){Write-Host "Dual Pvt IP & Public IP will be created" }
 	elseif($ConfigIPs-EQ "Single"){Write-Host "Single Pvt IP & Public IP will be created" }
-			elseif($ConfigIPs-EQ "PvtDualStat"){Write-Host "Dual Static Pvt IP & Public IP will be created" }
-				  elseif($ConfigIPs-EQ"PvtSingleStat"){Write-Host "Single Static Pvt IP & Public IP will be created" }
-						 elseif($ConfigIPs-EQ "SinglePvtNoPub"){Write-Host "Single Static Pvt IP & No Public IP" }
-							   elseif($ConfigIPs-EQ "StatPvtNoPubDual"){Write-Host "Dual Static Pvt IP & No Public IP"}
-										elseif($ConfigIPs-EQ "StatPvtNoPubSingle"){Write-Host "Single Static Pvt IP & No Public IP"}
-											   elseif($ConfigIPs-EQ "NoPubSingle"){Write-Host "Single Pvt IP & No Public IP"}
-													elseif($ConfigIPs-EQ "NoPubDual"){Write-Host "Dual Pvt IP & No Public IP"}
+		elseif($ConfigIPs-EQ "PvtDualStat"){Write-Host "Dual Static Pvt IP & Public IP will be created" }
+			elseif($ConfigIPs-EQ"PvtSingleStat"){Write-Host "Single Static Pvt IP & Public IP will be created" }
+				elseif($ConfigIPs-EQ "SinglePvtNoPub"){Write-Host "Single Static Pvt IP & No Public IP" }
+					elseif($ConfigIPs-EQ "StatPvtNoPubDual"){Write-Host "Dual Static Pvt IP & No Public IP"}
+						elseif($ConfigIPs-EQ "StatPvtNoPubSingle"){Write-Host "Single Static Pvt IP & No Public IP"}
+							elseif($ConfigIPs-EQ "NoPubDual"){Write-Host "Dual Pvt IP & No Public IP"}
 	else {
 	Write-Host "No Network Config Found - Warning" -ForegroundColor Red
 	}
@@ -613,7 +615,7 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 catch {
 	Write-Host -foregroundcolor Red `
 	"$($_.Exception.Message)"; `
-	continue
+	break
 }
  }
 
@@ -621,29 +623,22 @@ catch {
 	$ProvisionVMs = @($VirtualMachine);
 try {
    foreach($provisionvm in $ProvisionVMs) {
-New-AzureRmVM -ResourceGroupName $ResourceGroupName -Location $Location -VM $VirtualMachine –Confirm:$false -WarningAction SilentlyContinue | Out-Null
-Log-Command -Description $LogOut -LogFile $LogOutFile
-Write-Host "Completed creation of new VM" -ForegroundColor White
+		New-AzureRmVM -ResourceGroupName $ResourceGroupName -Location $Location -VM $VirtualMachine –Confirm:$false -WarningAction SilentlyContinue | Out-Null
+		Log-Command -Description $LogOut -LogFile $LogOutFile
+		Write-Host "Completed creation of new VM" -ForegroundColor White
 						}
 	}
-
 catch {
-$ErrorMessage = $_.Exception.Message
-$Output = 'Error '+$ErrorMessage
-((Get-Date -UFormat "[%d-%m-%Y %H:%M:%S] ") + $Output) | Out-File -FilePath $LogOutFile -Append -Force
-$Result = ""
+	Write-Host -foregroundcolor Red `
+	"$($_.Exception.Message)"; `
+	break
 }
-finally {
-if ($ErrorMessage -eq $null) {$Output = "[Completed]  $Description  ... "} else {$Output = "[Failed]  $Description  ... "}
-((Get-Date -UFormat "[%d-%m-%Y %H:%M:%S] ") + $Output) | Out-File -FilePath $LogOutFile -Append -Force
-}
-Return $Result
-}
+	 }
 
  function ProvvmsWrapper {
 	$ProvisionVMs = @($VirtualMachine);
    foreach($provisionvm in $ProvisionVMs) {
-New-AzureRmVM -ResourceGroupName $ResourceGroupName -Location $Location -VM $VirtualMachine –Confirm:$false -WarningAction SilentlyContinue | Out-Null
+		New-AzureRmVM -ResourceGroupName $ResourceGroupName -Location $Location -VM $VirtualMachine –Confirm:$false -WarningAction SilentlyContinue | Out-Null
 }
 }
 Function AddDiskImage {
@@ -652,7 +647,6 @@ $global:osDiskCaching = "ReadWrite"
 $global:OSDiskName = $VMName + "OSDisk"
 $global:OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDiskName + ".vhd"
 $global:VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching -WarningAction SilentlyContinue
-# New-AzureRmVM -ResourceGroupName $ResourceGroupName -Location $Location -VM $VirtualMachine –Confirm:$false -WarningAction SilentlyContinue | Out-Null
 }
 
 Function MakeImagePlanInfo_Bitnami_Lamp {
@@ -1509,6 +1503,7 @@ Write-Host "Public Network Interfaces for $ResourceGroupName"
 Get-AzureRmPublicIpAddress -ResourceGroupName $ResourceGroupName| ft "Name","IpAddress" -Wrap
 Get-AzureRmPublicIpAddress -ResourceGroupName $ResourceGroupName | select-object -ExpandProperty DNSSettings | FT FQDN -Wrap
 }
+ResultsRollup
 Write-Host "                                                               "
 }
 
@@ -1516,8 +1511,8 @@ Function ResultsRollup {
 Write-Host "Storage Accounts for $ResourceGroupName" -NoNewLine
 Get-AzurermStorageAccount -ResourceGroupName $ResourceGroupName -WarningAction SilentlyContinue | ft StorageAccountName,Location,ResourceGroupname -Wrap
 
-# Write-Host "Availability Sets for $ResourceGroupName"
-# Get-AzurermAvailabilitySet -ResourceGroupName $ResourceGroupName -WarningAction SilentlyContinue | ft Name,ResourceGroupName -Wrap
+Write-Host "Availability Sets for $ResourceGroupName"
+Get-AzurermAvailabilitySet -ResourceGroupName $ResourceGroupName -WarningAction SilentlyContinue | ft Name,ResourceGroupName -Wrap
 }
 
 Function ProvisionResGrp
@@ -1553,268 +1548,400 @@ Function ImageConfig {
 switch -Wildcard ($vmMarketImage)
 	{
 		"*pfsense*" {
-ConfigNet  #Sets network connection info
-MakeImagePlanInfo_Pfsense # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagePlanInfo_Pfsense # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*free*" {
-ConfigNet  #Sets network connection info
-MakeImageNoPlanInfo_FreeBsd  # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImageNoPlanInfo_FreeBsd  # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*red72*" {
-ConfigNet  #Sets network connection info
-MakeImageNoPlanInfo_RedHat72  # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImageNoPlanInfo_RedHat72  # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*red67*" {
-ConfigNet  #Sets network connection info
-MakeImageNoPlanInfo_RedHat67  # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImageNoPlanInfo_RedHat67  # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*w2k12*" {
-ConfigNet  #Sets network connection info
-MakeImageNoPlanInfo_w2k12  # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImageNoPlanInfo_w2k12  # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*sql2016*" {
-ConfigNet  #Sets network connection info
-MakeImageNoPlanInfo_sql2k16  # Begins Image Creation
- ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImageNoPlanInfo_sql2k16  # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*check*" {
-ConfigNet  #Sets network connection info
-MakeImagePlanInfo_Checkpoint  # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagePlanInfo_Checkpoint  # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*cent*" {
-ConfigNet  #Sets network connection info
-MakeImageNoPlanInfo_CentOs  # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImageNoPlanInfo_CentOs  # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*Suse*" {
-ConfigNet  #Sets network connection info
-MakeImageNoPlanInfo_Suse  # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImageNoPlanInfo_Suse  # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*w2k8*" {
-ConfigNet  #Sets network connection info
-MakeImageNoPlanInfo_w2k8  # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImageNoPlanInfo_w2k8  # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*w2k16*" {
-ConfigNet  #Sets network connection info
-MakeImageNoPlanInfo_w2k16  # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImageNoPlanInfo_w2k16  # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*chef*" {
-ConfigNet  #Sets network connection info
-MakeImagePlanInfo_Chef  # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagePlanInfo_Chef  # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*lamp*" {
-ConfigNet  #Sets network connection info
-MakeImagePlanInfo_Bitnami_Lamp # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagePlanInfo_Bitnami_Lamp # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*mongodb*" {
-ConfigNet  #Sets network connection info
-MakeImagePlanInfo_Bitnami_mongodb # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagePlanInfo_Bitnami_mongodb # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*mysql*" {
-ConfigNet  #Sets network connection info
-MakeImagePlanInfo_Bitnami_mysql # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagePlanInfo_Bitnami_mysql # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*elastics*" {
-ConfigNet  #Sets network connection info
-MakeImagePlanInfo_Bitnami_elastic # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagePlanInfo_Bitnami_elastic # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*nodejs*" {
-ConfigNet  #Sets network connection info
-MakeImagePlanInfo_Bitnami_nodejs # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagePlanInfo_Bitnami_nodejs # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*nginxstack*" {
-ConfigNet  #Sets network connection info
-MakeImagePlanInfo_Bitnami_nginxstack # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagePlanInfo_Bitnami_nginxstack # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*postgressql*" {
-ConfigNet  #Sets network connection info
-MakeImagePlanInfo_Bitnami_postgresql # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagePlanInfo_Bitnami_postgresql # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*oracle-linux*" {
-ConfigNet  #Sets network connection info
-MakeImagePlanInfo_Oracle_linux # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagePlanInfo_Oracle_linux # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*web-logic*" {
-ConfigNet  #Sets network connection info
-MakeImagePlanInfo_Oracle_weblogic # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagePlanInfo_Oracle_weblogic # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*entdb-oracle*" {
-ConfigNet  #Sets network connection info
-MakeImagePlanInfo_Oracle_EntDB  # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagePlanInfo_Oracle_EntDB  # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*stddb-oracle*" {
-ConfigNet  #Sets network connection info
-MakeImagePlanInfo_Oracle_StdDB # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagePlanInfo_Oracle_StdDB # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*puppet*" {
-ConfigNet  #Sets network connection info
-MakeImagePlanInfo_puppet_puppetent # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagePlanInfo_puppet_puppetent # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*splunk*" {
-ConfigNet  #Sets network connection info
-MakeImagePlanInfo_splunk # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagePlanInfo_splunk # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*share2013*" {
-ConfigNet  #Sets network connection info
-MakeImageNoPlanInfo_SharePoint2k13 # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImageNoPlanInfo_SharePoint2k13 # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*share2016*" {
-ConfigNet  #Sets network connection info
-MakeImageNoPlanInfo_SharePoint2k16 # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImageNoPlanInfo_SharePoint2k16 # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*serverr*" {
-ConfigNet  #Sets network connection info
-MakeImagePlanInfo_Microsoft_Serverr # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagePlanInfo_Microsoft_Serverr # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*ubuntu*" {
-ConfigNet  #Sets network connection info
-MakeImageNoPlanInfo_Ubuntu # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImageNoPlanInfo_Ubuntu # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*f5bigip*" {
-ConfigNet  #Sets network connection info
-MakeImagePlanInfo_f5_bigip_good_byol # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagePlanInfo_f5_bigip_good_byol # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*f5appfire*" {
-ConfigNet  #Sets network connection info
-MakeImagePlanInfo_f5_webappfire_byol # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagePlanInfo_f5_webappfire_byol # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*barrahourngfw*" {
-ConfigNet  #Sets network connection info
-MakeImagePlanInfo_Barracuda_ng_firewall_hourly # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagePlanInfo_Barracuda_ng_firewall_hourly # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*barrabyolngfw*" {
-ConfigNet  #Sets network connection info
-MakeImagePlanInfo_Barracuda_ng_firewall_byol # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagePlanInfo_Barracuda_ng_firewall_byol # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*barrahourspam*" {
-ConfigNet  #Sets network connection info
-MakeImagePlanInfo_Barracuda_spam_firewall_hourly # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagePlanInfo_Barracuda_spam_firewall_hourly # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*barrabyolspam*" {
-ConfigNet  #Sets network connection info
-MakeImagePlanInfo_Barracuda_spam_firewall_byol # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagePlanInfo_Barracuda_spam_firewall_byol # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*sap*" {
-ConfigNet  #Sets network connection info
-MakeImagePlanInfo_SAP_ase # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagePlanInfo_SAP_ase # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*solarwinds*" {
-ConfigNet  #Sets network connection info
-MakeImagePlanInfo_SolarWinds # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagePlanInfo_SolarWinds # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*hadoop*" {
-ConfigNet  #Sets network connection info
-MakeImagePlanInfo_Bitnami_hadoop # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagePlanInfo_Bitnami_hadoop # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*tomcat*" {
-ConfigNet  #Sets network connection info
-MakeImagePlanInfo_Bitnami_tomcat # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagePlanInfo_Bitnami_tomcat # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*redis*" {
-ConfigNet  #Sets network connection info
-MakeImagePlanInfo_Bitnami_redis # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagePlanInfo_Bitnami_redis # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*neos*" {
-ConfigNet  #Sets network connection info
-MakeImagePlanInfo_Bitnami_neos # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagePlanInfo_Bitnami_neos # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*gitlab*" {
-ConfigNet  #Sets network connection info
-MakeImagePlanInfo_Bitnami_gitlab # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagePlanInfo_Bitnami_gitlab # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*jruby*" {
-ConfigNet  #Sets network connection info
-MakeImagePlanInfo_Bitnami_jrubystack # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagePlanInfo_Bitnami_jrubystack # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		"*jenkins*" {
-ConfigNet  #Sets network connection info
-MakeImagePlanInfo_Bitnami_jenkins # Begins Image Creation
-ConfigSet # Adds Network Interfaces
-AddDiskImage # Completes Image Creation
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagePlanInfo_Bitnami_jenkins # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
 }
 		default{"An unsupported image was referenced"}
 	}
@@ -1987,13 +2114,13 @@ if($AddVnet){ProvisionNet} # Creates VNET
 
 if($NSGEnabled){CreateNSG}
 
-CreateStorage # Creates Storage for VM
+ # Creates Storage for VM
 
-AvailSet # Handles Availability Set Creation
+# Handles Availability Set Creation
 
 ImageConfig # Configure Image
-# Provvms
-ProvvmsWrapper
+#
+# ProvvmsWrapper
 $Description = "Completed Image Creation"
 Log-Command -Description $Description -LogFile $LogOutFile
 
@@ -2001,5 +2128,5 @@ if($NSGEnabled){NSGEnabled} #Adds NSG to NIC
 
 if($AzExtConfig) {InstallExt} #Installs Azure Extensions
 
-ResultsRollup
+
 EndState
