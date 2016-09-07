@@ -9,6 +9,7 @@ The script allows select of subnet prior to VM Deployment
 The script supports deploying Availability Sets as well as adding new servers to existing Availability Sets through the -AvailabilitySet "True" and -AvailSetName switches.
 The script will generate a name for azure storage endpoint unless the -StorageName variable is updated or referenced at runtime.
 
+v5.1 updates - Added VPN Creation Function
 v5.0 updates - Added Alias' to command parameters
 v4.9 updates - additional validation functions, note changes to AddVNET and NSGEnabled field types (was string now bool)
 v4.8 updates - Added F5/Barracuda as well as Bitnami images
@@ -71,18 +72,23 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 
 .PARAMETER PvtIPNic2
 
-.PARAMETER AzExtConfig
+.PARAMETER LocalNetPip
 
+.PARAMETER AddVPN
+
+.PARAMETER LocalAddPrefix
+
+.PARAMETER AzExtConfig
 .EXAMPLE
-\.azdeploy.ps1 -VMName pf001 -VMMarketImage pfsense -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup2 -VNetName VNET -subnet1 3 -subnet2 4 -ConfigIPs DualPvtNoPub -PvtIPNic1 10.120.2.7 -PvtIPNic2 10.120.3.7
+\.azdeploy.ps1 -VMName pf001 -image pfsense -rg ResGroup1 -vnetrg ResGroup2 -addvnet $True -vnet VNET -sub1 3 -sub2 4 -ConfigIPs DualPvtNoPub -Nic1 10.120.2.7 -Nic2 10.120.3.7
 .EXAMPLE
-\.azdeploy.ps1 -VMName red76 -VMMarketImage red67 -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup2 -VNetName VNET -subnet1 7 -ConfigIPs SinglePvtNoPub -PvtIPNic1 10.120.6.124 -AzExtConfig linuxbackup
+\.azdeploy.ps1 -VMName red76 -image red67 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -sub1 7 -ConfigIPs SinglePvtNoPub -Nic1 10.120.6.124 -Ext linuxbackup
 .EXAMPLE
-\.azdeploy.ps1 -VMName win006 -VMMarketImage w2k12 -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup2 -VNetName VNET -subnet1 2 -ConfigIPs Single -AddAvailabilitySet $True
+\.azdeploy.ps1 -VMName win006 -image w2k12 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNE T-sub1 2 -ConfigIPs Single -AvSet $True -NSGEnabled $True -NSGName NSG
 .EXAMPLE
-\.azdeploy.ps1 -VMName win008 -VMMarketImage w2k16 -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup2 -VNetName VNET -subnet1 5 -ConfigIPs PvtSingleStat -PvtIPNic1 10.120.4.169 -AddFQDN $True -DNLabel mydns1
+\.azdeploy.ps1 -VMName win008 -image w2k16 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -sub1 5 -ConfigIPs PvtSingleStat -Nic1 10.120.4.169 -AddFQDN $True -fqdn mydns1
 .EXAMPLE
-\.azdeploy.ps1 -VM ubu001 -Image ubuntu -RG ResGroup1 -vNetRG ResGroup2 -VNet VNET -subnet1 6 -ConfigIPs PvtSingleStat -Nic1 10.120.5.169 -AddFQDN $True -DNLabel mydns2
+\.azdeploy.ps1 -VM ubu001 -image ubuntu -RG ResGroup1 -vnetrg ResGroup2 -VNet VNET -sub1 6 -ConfigIPs PvtSingleStat -Nic1 10.120.5.169 -AddFQDN $True -fqdn mydns2
 .NOTES
 -ConfigIps  <Configuration>
 			PvtSingleStat & PvtDualStat – Deploys the server with a Public IP and the private IP(s) specified by the user.
@@ -279,6 +285,18 @@ $PvtIPNic1 = '',
 $PvtIPNic2 = '',
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[bool]
+$AddVPN = $False,
+
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ipaddress]
+$LocalNetPip = "207.21.2.1",
+
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$LocalAddPrefix = "10.10.0.0/24",
+
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("ext")]
 [string]
 $AzExtConfig = ''
@@ -322,7 +340,7 @@ Return $Result
 }
 
 Function VerifyProfile {
-$ProfileFile = "c:\Temp\outlook.json"
+$ProfileFile = ""
 $fileexist = Test-Path $ProfileFile
   if($fileexist)
   {Write-Host "Profile Found"
@@ -363,13 +381,28 @@ break
 }
 }
 
+Function VerifyNicValue1 {
+if($PvtIPNic1.Length -le 7) {Write-Host "Invalid IP"
+exit
+}
+}
+
+Function VerifyNicValue2 {
+if($PvtIPNic1.Length -le 7) {Write-Host "Invalid IP"
+exit
+}
+}
+
 Function VerifyNet {
 If ($ConfigIPs -eq "StatPvtNoPubSingle")
 { Write-Host "Subnet IP Validation" -ForegroundColor White
+VerifyNicValue1
 VerifyPvtIps
 }
 If ($ConfigIPs -eq "StatPvtNoPubDual")
 { Write-Host "Subnet IP Validation" -ForegroundColor White
+VerifyNicValue1
+VerifyNicValue2
 VerifyPvtIps
 }
 If ($ConfigIPs -eq "Single")
@@ -381,10 +414,13 @@ If ($ConfigIPs -eq "Dual")
 }
 If ($ConfigIPs -eq "PvtSingleStat")
 { Write-Host "Subnet IP Validation"
+VerifyNicValue1
 VerifyPvtIps
 }
 If ($ConfigIPs -eq "PvtDualStat")
 { Write-Host "Subnet IP Validation"
+VerifyNicValue1
+VerifyNicValue2
 VerifyPvtIps
 }
 }
@@ -560,13 +596,30 @@ $nsg = Get-AzureRmNetworkSecurityGroup -ResourceGroupName $vNetResourceGroupName
 $nic = Get-AzureRmNetworkInterface -ResourceGroupName $ResourceGroupName -Name $InterfaceName2
 $nic.NetworkSecurityGroup = $nsg
 Set-AzureRmNetworkInterface -NetworkInterface $nic | Out-Null
-
-$secrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $ResourceGroupName | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access | Format-Table | Out-Null
-$defsecrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $ResourceGroupName | Get-AzureRmNetworkSecurityRuleConfig -DefaultRules | Format-Table | Out-Null
+$secrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vNetResourceGroupName | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access | Format-Table | Out-Null
+$defsecrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vNetResourceGroupName | Get-AzureRmNetworkSecurityRuleConfig -DefaultRules | Format-Table | Out-Null
 $LogOut = "Completed Image NSG Post Configuration. Added $InterfaceName2 to $NSGName"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 }
+}
+Function CreateVPN {
+Write-Host "VPN Creation can take up to 45 minutes!"
+New-AzureRmLocalNetworkGateway -Name LocalSite -ResourceGroupName $vNetResourceGroupName -Location $Location -GatewayIpAddress $LocalNetPip -AddressPrefix $LocalAddPrefix -ErrorAction Stop -WarningAction SilentlyContinue | Out-Null
+Write-Host "Completed Local Network GW Creation"
+$vpnpip= New-AzureRmPublicIpAddress -Name vpnpip -ResourceGroupName $vNetResourceGroupName -Location $Location -AllocationMethod Dynamic -ErrorAction Stop -WarningAction SilentlyContinue
+$vnet = Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName -ErrorAction Stop -WarningAction SilentlyContinue
+$subnet = Get-AzureRmVirtualNetworkSubnetConfig -Name 'GatewaySubnet' -VirtualNetwork $vnet -WarningAction SilentlyContinue
+$vpnipconfig = New-AzureRmVirtualNetworkGatewayIpConfig -Name vpnipconfig1 -SubnetId $subnet.Id -PublicIpAddressId $vpnpip.Id -WarningAction SilentlyContinue
+New-AzureRmVirtualNetworkGateway -Name vnetvpn1 -ResourceGroupName $vNetResourceGroupName -Location $Location -IpConfigurations $vpnipconfig -GatewayType Vpn -VpnType RouteBased -GatewaySku Standard -ErrorAction Stop -WarningAction SilentlyContinue | Out-Null
+Write-Host "Completed VNET Network GW Creation"
+Get-AzureRmPublicIpAddress -Name vpnpip -ResourceGroupName $ResourceGroupName -WarningAction SilentlyContinue
+Write-Host "Configure Local Device with Azure VNET vpn Public IP"
+}
+Function ConnectVPN {
+[PSObject]$gateway1 = Get-AzureRmVirtualNetworkGateway -Name vnetvpn1 -ResourceGroupName $vNetResourceGroupName -WarningAction SilentlyContinue
+[PSObject]$local = Get-AzureRmLocalNetworkGateway -Name LocalSite -ResourceGroupName $vNetResourceGroupName -WarningAction SilentlyContinue
+New-AzureRmVirtualNetworkGatewayConnection -ConnectionType IPSEC  -Name sitetosite -ResourceGroupName $vNetResourceGroupName -Location $Location -VirtualNetworkGateway1 $gateway1 -LocalNetworkGateway2 $local -SharedKey '4321avfe' -Verbose -Force -RoutingWeight 10 -WarningAction SilentlyContinue| Out-Null
 }
 Function SelectNicDescrtipt {
 if($ConfigIPs-EQ "Dual"){Write-Host "Dual Pvt IP & Public IP will be created" }
@@ -635,12 +688,6 @@ catch {
 }
 	 }
 
- function ProvvmsWrapper {
-	$ProvisionVMs = @($VirtualMachine);
-   foreach($provisionvm in $ProvisionVMs) {
-		New-AzureRmVM -ResourceGroupName $ResourceGroupName -Location $Location -VM $VirtualMachine –Confirm:$false -WarningAction SilentlyContinue | Out-Null
-}
-}
 Function AddDiskImage {
 Write-Host "Completing image creation..." -ForegroundColor White
 $global:osDiskCaching = "ReadWrite"
@@ -2041,8 +2088,8 @@ $ver = (Get-Module -ListAvailable | Where-Object{ $_.Name -eq $name }) |
 	select version -ExpandProperty version
 	Write-Host "current Azure PowerShell Version:" $ver
 $currentver = $ver
-	if($currentver-le '2.0.0'){
-	Write-Host "expected version 2.0.0 found $ver" -ForegroundColor DarkRed
+	if($currentver-le '1.6.0'){
+	Write-Host "expected version 1.6.0 found $ver" -ForegroundColor DarkRed
 	exit
 	}
 }
@@ -2105,7 +2152,7 @@ if($resourcegroups.length) {
 	}
 	} # Create Resource Groups
 
-$LogOut = "Using Resource Groups $ResourceGroupName and $vNetResourceGroupName"
+$LogOut = "Resource Groups $ResourceGroupName and $vNetResourceGroupName"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 
 WriteConfig
@@ -2114,13 +2161,8 @@ if($AddVnet){ProvisionNet} # Creates VNET
 
 if($NSGEnabled){CreateNSG}
 
- # Creates Storage for VM
-
-# Handles Availability Set Creation
-
 ImageConfig # Configure Image
-#
-# ProvvmsWrapper
+
 $Description = "Completed Image Creation"
 Log-Command -Description $Description -LogFile $LogOutFile
 
@@ -2128,5 +2170,9 @@ if($NSGEnabled){NSGEnabled} #Adds NSG to NIC
 
 if($AzExtConfig) {InstallExt} #Installs Azure Extensions
 
-
 EndState
+
+if($AddVPN) {
+CreateVPN
+ConnectVPN
+} #Creates VPN
