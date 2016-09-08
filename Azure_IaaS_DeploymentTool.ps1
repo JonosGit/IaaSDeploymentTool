@@ -2,13 +2,14 @@
 .SYNOPSIS
 Written By John N Lewis
 email: jonos@live.com
-Ver 5.1
+Ver 5.2
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
 The script allows select of subnet prior to VM Deployment
 The script supports deploying Availability Sets as well as adding new servers to existing Availability Sets through the -AvailabilitySet "True" and -AvailSetName switches.
 The script will generate a name for azure storage endpoint unless the -StorageName variable is updated or referenced at runtime.
 
+v5.2 updates -Moved VNET configuration to global parameters
 v5.1 updates - Added VPN Creation Function
 v5.0 updates - Added Alias' to command parameters
 v4.9 updates - additional validation functions, note changes to AddVNET and NSGEnabled field types (was string now bool)
@@ -160,142 +161,162 @@ Param(
 [Alias("image")]
 [string]
 $vmMarketImage = "",
-
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [bool]
 $AddVnet = $True,
-
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
 [Alias("vm")]
 [string]
 $VMName = "",
-
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=2)]
 [Alias("rg")]
 [string]
 $ResourceGroupName = '',
-
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("vnetrg")]
 [string]
 $vNetResourceGroupName = '',
-
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("vnet")]
 [string]
 $VNetName = "vnet",
-
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateSet("Single","Dual","NoPubDual","PvtDualStat","StatPvtNoPubSingle","PvtSingleStat","StatPvtNoPubDual","NoPubSingle")]
 [string]
 $ConfigIPs = "Dual",
-
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateSet("Standard_A3","Standard_A4","Standard_A2")]
 [string]
 $VMSize = "Standard_A3",
-
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $locadmin = 'localadmin',
-
 [Parameter(Mandatory=$False)]
 [string]
 $locpassword = 'P@ssW0rd!',
-
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("nsg")]
 [bool]
 $NSGEnabled = $False,
-
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $Location = "WestUs",
-
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $SubscriptionID = '',
-
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $TenantID = '',
-
 [Parameter(Mandatory=$False)]
 [string]
 $GenerateName = -join ((65..90) + (97..122) | Get-Random -Count 6 | % {[char]$_}) + "aip",
-
 [Parameter(Mandatory=$False)]
 [string]
 $StorageName = $VMName + "str",
-
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $StorageType = "Standard_GRS",
-
 [Parameter(Mandatory=$False)]
 [Alias("int1")]
 [string]
 $InterfaceName1 = $VMName + "_nic1",
-
 [Parameter(Mandatory=$False)]
 [Alias("int2")]
 [string]
 $InterfaceName2 = $VMName + "_nic2",
-
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $NSGName = "NSG",
-
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateRange(0,8)]
 [Alias("sub1")]
 [Int]
 $Subnet1 = 2,
-
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateRange(0,8)]
 [Alias("sub2")]
 [Int]
 $Subnet2 = 3,
-
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("avset")]
 [bool]
 $AddAvailabilitySet = $False,
-
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $AvailSetName = $GenerateName,
-
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("fqdn")]
 [string]
 $DNLabel = 'mytesr1',
-
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [bool]
 $AddFQDN = $False,
-
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("nic1")]
 $PvtIPNic1 = '',
-
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("nic2")]
 $PvtIPNic2 = '',
-
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [bool]
 $AddVPN = $False,
-
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ipaddress]
 $LocalNetPip = "207.21.2.1",
-
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $LocalAddPrefix = "10.10.0.0/24",
-
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$AddRange = '10.120.0.0/21',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$SubnetAddPrefix1 = "10.120.0.0/25",
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$SubnetNameAddPrefix1 = "gatewaysubnet",
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$SubnetAddPrefix2 = "10.120.0.128/25",
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$SubnetNameAddPrefix2 = 'perimeter',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$SubnetAddPrefix3 = "10.120.1.0/24",
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$SubnetNameAddPrefix3 = "data",
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$SubnetAddPrefix4 = "10.120.2.0/24",
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$SubnetNameAddPrefix4 = "monitor",
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$SubnetAddPrefix5 = "10.120.3.0/24",
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$SubnetNameAddPrefix5 = "reporting",
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$SubnetAddPrefix6 = "10.120.4.0/24",
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$SubnetNameAddPrefix6 = "analytics",
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$SubnetAddPrefix7 = "10.120.5.0/24",
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$SubnetNameAddPrefix7 = "management",
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$SubnetAddPrefix8 = "10.120.6.0/24",
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$SubnetNameAddPrefix8 = "deployment",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("ext")]
 [string]
@@ -1351,16 +1372,15 @@ $global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -Publisher
 
 Function ProvisionNet {
 Write-Host "Network Preparation in Process.."
-$subnet1 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.0.0/25 -Name gatewaysubnet
-$subnet2 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.0.128/25 -Name perimeter
-$subnet3 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.1.0/24 -Name web
-$subnet4 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.2.0/24 -Name intake
-$subnet5 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.3.0/24 -Name data
-$subnet6 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.4.0/24 -Name monitoring
-$subnet7 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.5.0/24 -Name analytics
-$subnet8 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.6.0/24 -Name backup
-$subnet9 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix 10.120.7.0/24 -Name management
-New-AzureRmVirtualNetwork -Location $Location -Name $VNetName -ResourceGroupName $vNetResourceGroupName -AddressPrefix '10.120.0.0/21' -Subnet $subnet1,$subnet2,$subnet3,$subnet4,$subnet5,$subnet6,$subnet7,$subnet8,$subnet9 –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
+$subnet1 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix $SubnetAddPrefix1 -Name $SubnetNameAddPrefix1
+$subnet2 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix $SubnetAddPrefix2 -Name $SubnetNameAddPrefix2
+$subnet3 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix $SubnetAddPrefix3 -Name $SubnetNameAddPrefix3
+$subnet4 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix $SubnetAddPrefix4 -Name $SubnetNameAddPrefix4
+$subnet5 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix $SubnetAddPrefix5 -Name $SubnetNameAddPrefix5
+$subnet6 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix $SubnetAddPrefix6 -Name $SubnetNameAddPrefix6
+$subnet7 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix $SubnetAddPrefix7 -Name $SubnetNameAddPrefix7
+$subnet8 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix $SubnetAddPrefix8 -Name $SubnetNameAddPrefix8
+New-AzureRmVirtualNetwork -Location $Location -Name $VNetName -ResourceGroupName $vNetResourceGroupName -AddressPrefix $AddRange -Subnet $subnet1,$subnet2,$subnet3,$subnet4,$subnet5,$subnet6,$subnet7,$subnet8 –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
 Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vNetResourceGroupName | Get-AzureRmVirtualNetworkSubnetConfig -WarningAction SilentlyContinue | Out-Null
 Write-Host "Network Preparation completed" -ForegroundColor White
 $LogOut = "Completed Network Configuration of $VNetName"
@@ -1527,6 +1547,8 @@ $time = " Completed Time " + (Get-Date -UFormat "%d-%m-%Y %H:%M:%S")
 Write-Host -------------- $time ------------- -ForegroundColor Cyan
 Write-Host "                                                               "
 }
+
+EndState
 }
 
 Function EndState {
@@ -2170,7 +2192,7 @@ if($NSGEnabled){NSGEnabled} #Adds NSG to NIC
 
 if($AzExtConfig) {InstallExt} #Installs Azure Extensions
 
-EndState
+WriteResults
 
 if($AddVPN) {
 CreateVPN
