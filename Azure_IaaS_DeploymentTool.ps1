@@ -2,14 +2,15 @@
 .SYNOPSIS
 Written By John N Lewis
 email: jonos@live.com
-Ver 5.2
+Ver 5.3
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
 The script allows select of subnet prior to VM Deployment
 The script supports deploying Availability Sets as well as adding new servers to existing Availability Sets through the -AvailabilitySet "True" and -AvailSetName switches.
 The script will generate a name for azure storage endpoint unless the -StorageName variable is updated or referenced at runtime.
 
-v5.2 updates -Moved VNET configuration to global parameters
+v5.3 updates - Added Puppet Agent and OMS Agents to Extensions
+v5.2 updates - Moved VNET configuration to global parameters
 v5.1 updates - Added VPN Creation Function
 v5.0 updates - Added Alias' to command parameters
 v4.9 updates - additional validation functions, note changes to AddVNET and NSGEnabled field types (was string now bool)
@@ -21,6 +22,7 @@ v4.5 Updates - Fixes for Azure PowerShell 2.1
 .DESCRIPTION
 Deploys 30 different Market Images on a new or existing VNET. Supports post deployment configuration through Azure Extensions.
 Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windows 2012 R2, Ubuntu 14.04, CentOs 7.2, SUSE, SQL 2016 (on W2K12R2), R Server on Windows, Windows 2016 (Preview), Checkpoint Firewall, FreeBsd, Oracle Linux, Puppet, Splunk, Oracle Web-Logic, Oracle DB, Bitnami Lamp, Bitnami PostGresSql, Bitnami nodejs, Bitnami Elastics, Bitnami MySql, SharePoint 2013/2016, Barracuda NG, Barracuda SPAM, F5 BigIP, F5 App Firewall, SAP, Solar Winds, Bitnami JRuby, Bitnami Neos, Bitnami TomCat, Bitnami redis, Bitnami hadoop
+
 .PARAMETER vmMarketImage
 
 .PARAMETER AddVnet
@@ -69,17 +71,58 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 
 .PARAMETER AvailSetName
 
+.PARAMETER DNLabel
+
+.PARAMETER AddFQDN
+
 .PARAMETER PvtIPNic1
 
 .PARAMETER PvtIPNic2
 
-.PARAMETER LocalNetPip
-
 .PARAMETER AddVPN
+
+.PARAMETER LocalNetPip
 
 .PARAMETER LocalAddPrefix
 
+.PARAMETER AddRange
+
+.PARAMETER SubnetAddPrefix1
+
+.PARAMETER SubnetNameAddPrefix1
+
+.PARAMETER SubnetAddPrefix2
+
+.PARAMETER SubnetNameAddPrefix2
+
+.PARAMETER SubnetAddPrefix3
+
+.PARAMETER SubnetNameAddPrefix3
+
+.PARAMETER SubnetAddPrefix4
+
+.PARAMETER SubnetNameAddPrefix4
+
+.PARAMETER SubnetAddPrefix5
+
+.PARAMETER SubnetNameAddPrefix5
+
+.PARAMETER SubnetAddPrefix6
+
+.PARAMETER SubnetNameAddPrefix6
+
+.PARAMETER SubnetAddPrefix7
+
+.PARAMETER SubnetNameAddPrefix7
+
+.PARAMETER SubnetAddPrefix8
+
+.PARAMETER SubnetNameAddPrefix8
+
+.PARAMETER Azautoacct
+
 .PARAMETER AzExtConfig
+
 .EXAMPLE
 \.azdeploy.ps1 -vm pf001 -image pfsense -rg ResGroup1 -vnetrg ResGroup2 -addvnet $True -vnet VNET -sub1 3 -sub2 4 -ConfigIPs DualPvtNoPub -Nic1 10.120.2.7 -Nic2 10.120.3.7
 .EXAMPLE
@@ -150,6 +193,10 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 			linuxbackup - Deploys Azure Linux bacup Extension
 			addDom – Adds Azure Domain Join Extension
 			chef – Adds Azure Chef Extension (Requires Chef Certificate and Settings info first)
+            opsinsightLinux - OMS Agent
+            opsinsightWin - OMS Agent
+            eset - File Security Ext
+            WinPuppet - Puppet Agent Install for Windows
 .LINK
 https://github.com/JonosGit/IaaSDeploymentTool
 #>
@@ -253,10 +300,12 @@ $DNLabel = 'mytesr1',
 $AddFQDN = $False,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("nic1")]
-$PvtIPNic1 = '',
+[ipaddress]
+$PvtIPNic1 = '127.0.0.1',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("nic2")]
-$PvtIPNic2 = '',
+[ipaddress]
+$PvtIPNic2 = '127.0.0.1',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [bool]
 $AddVPN = $False,
@@ -318,6 +367,11 @@ $SubnetAddPrefix8 = "10.120.6.0/24",
 [string]
 $SubnetNameAddPrefix8 = "deployment",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$Azautoacct = "DSC-Auto",
+
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateSet("diag","msav","access","linuxbackup","linuxOsPatch","chefagent","eset","customscript","opsinsightLinux","opsinsightWin","WinPuppet")]
 [Alias("ext")]
 [string]
 $AzExtConfig = ''
@@ -382,7 +436,7 @@ $ip = $PvtIPNic1
 $array = $ip.Split(".")
 [int]$subnetint = $array[2]
 $subnetcalc = ($subnetint + '1')
-Write-Host "Subnet Match $subnet $subnetcalc"
+# Write-Host "Subnet Match $subnet $subnetcalc"
 if($subnetcalc -ne $subnet){
 Write-Host "Verify the IP Address for Subnet1 is in the correct subnet"
 break
@@ -394,7 +448,7 @@ $ip = $PvtIPNic2
 $array = $ip.Split(".")
 [int]$subnetint = $array[2]
 $subnetcalc = ($subnetint + '1')
-Write-Host "Subnet Match $subnet $subnetcalc"
+# Write-Host "Subnet Match $subnet $subnetcalc"
 if($subnetcalc -ne $subnet){
 Write-Host "Verify the IP Address for Subnet2 is in the correct subnet"
 break
@@ -1023,12 +1077,12 @@ $global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -Publisher
 
 Function MakeImagePlanInfo_puppet_puppetent {
 param(
-[string]$Publisher = 'puppetLabs',
-[string]$offer = 'PuppetEnterprise',
-[string]$Skus = '3.7',
+[string]$Publisher = 'Puppet',
+[string]$offer = 'Puppet-Enterprise',
+[string]$Skus = '2016-1',
 [string]$version = 'latest',
-[string]$Product = '3.7',
-[string]$name = 'PuppetEnterprise'
+[string]$Product = '2016-1',
+[string]$name = 'Puppet-Enterprise'
 )
 Write-Host "Image Creation in Process - Plan Info - Puppet Enterprise" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -1115,7 +1169,7 @@ $global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux
 $global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
 }
 
-Function MakeImagePlanInfo_Barracuda_spam_firewall_hours {
+Function MakeImagePlanInfo_Barracuda_spam_firewall_hourly {
 param(
 [string]$Publisher = 'Barracudanetworks',
 [string]$offer = 'barracuda-spam-firewall',
@@ -1533,7 +1587,9 @@ Write-Host "Network Adapter Count:" $niccount
 Write-Host "Availability Set:"$availsetid
 
 SelectNicDescrtipt
-
+if($AzExtConfig) {
+Write-Host "Extension deployed: $AzExtConfig "
+}
 if($AddAvailabilitySet) {
 Write-Host "Availability Set Configured"
 Write-Host "Availability Set Name:  '$AvailSetName'"
@@ -1577,11 +1633,14 @@ Write-Host "                                                               "
 }
 
 Function ResultsRollup {
+Write-Host "                                                               "
 Write-Host "Storage Accounts for $ResourceGroupName" -NoNewLine
 Get-AzurermStorageAccount -ResourceGroupName $ResourceGroupName -WarningAction SilentlyContinue | ft StorageAccountName,Location,ResourceGroupname -Wrap
 
+if($AddAvailabilitySet){
 Write-Host "Availability Sets for $ResourceGroupName"
 Get-AzurermAvailabilitySet -ResourceGroupName $ResourceGroupName -WarningAction SilentlyContinue | ft Name,ResourceGroupName -Wrap
+}
 }
 
 Function ProvisionResGrp
@@ -1599,19 +1658,6 @@ Write-Host "Completed Storage Creation" -ForegroundColor White
 $LogOut = "Storage Configuration completed: $StorageName"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 } # Creates Storage
-
-Function StorageNameCheck
-{
-$checkname = Get-AzureRmStorageAccountNameAvailability -Name $StorageName | ft NameAvailable -HideTableHeaders
-if($checkname -eq "True") {
-CheckOrphns
-}
-else
-{Write-Host "Storage Account Name in use, please choose a different name for your storage account"
-Start-Sleep 5
-exit
-}
-}
 
 Function ImageConfig {
 switch -Wildcard ($vmMarketImage)
@@ -2016,6 +2062,17 @@ switch -Wildcard ($vmMarketImage)
 	}
 }
 
+Function RegisterAutoDSC {
+$ActionAfterReboot = ContinueConfiguration
+$configmode = ApplyAndAutocorrect
+$AutoAcctName = $Azautoacct
+$NodeName = -join $VMNAME+".node"
+$ConfigurationName = -join $VMNAME+".node"
+
+Register-AzureRmAutomationDscNode -AutomationAccountName $AutoAcctName -AzureVMName $VMName -ActionAfterReboot $ActionAfterReboot -ConfigurationMode $configmode -RebootNodeIfNeeded $True -ResourceGroupName $ResourceGroupName -NodeConfigurationName $ConfigurationName -AzureVMLocation $Location -AzureVMResourceGroup $ResourceGroupName -Verbose
+}
+
+
 Function InstallExt {
 switch ($AzExtConfig)
 	{
@@ -2023,55 +2080,99 @@ switch ($AzExtConfig)
 Write-Host "VM Access Agent VM Image Preparation in Process"
 Set-AzureRmVMAccessExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "VMAccess" -ExtensionType "VMAccessAgent" -Publisher "Microsoft.Compute" -typeHandlerVersion "2.0" -Location $Location -Verbose
 Get-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "VMAccess"
+$Description = "Added VM Access Extension"
+Log-Command -Description $Description -LogFile $LogOutFile
 }
 		"msav" {
 Write-Host "MSAV Agent VM Image Preparation in Process"
 Set-AzureRmVMExtension  -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "MSAVExtension" -ExtensionType "IaaSAntimalware" -Publisher "Microsoft.Azure.Security" -typeHandlerVersion 1.4 -Location $Location
 Get-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "MSAVExtension" -Status
+$Description = "Added VM msav Extension"
+Log-Command -Description $Description -LogFile $LogOutFile
 }
 		"custScript" {
 Write-Host "Updating server with custom script"
 Set-AzureRmVMCustomScriptExtension -Name "CustScript" -ResourceGroupName $ResourceGroupName -Run "CustScript.ps1" -VMName $VMName -FileUri $StorageName -Location $Location -TypeHandlerVersion "1.1"
 Get-AzureRmVMCustomScriptExtension -ResourceGroupName $ResourceGroupName -Name "CustScript"
+$Description = "Added VM Custom Script Extension"
+Log-Command -Description $Description -LogFile $LogOutFile
 }
 		"diag" {
 Write-Host "Adding Azure Enhanced Diagnostics"
 Set-AzureRmVMAEMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -WADStorageAccountName $StorageName -InformationAction SilentlyContinue -WarningAction SilentlyContinue | Out-Null
 Get-AzureRmVMAEMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName | Out-Null
+$Description = "Added VM Enhanced Diag Extension"
+Log-Command -Description $Description -LogFile $LogOutFile
 }
 		"domjoin" {
 Write-Host "Domain Join active"
 Set-AzureRmVMADDomainExtension -DomainName $DomName -ResourceGroupName $ResourceGroupName -VMName $VMName -Location $Location -Name DomJoin -WarningAction SilentlyContinue
 Get-AzureRmVMADDomainExtension -ResourceGroupName $ResourceGroupName -VMName $VMName
-		}
+$Description = "Added VM Domain Join Extension"
+Log-Command -Description $Description -LogFile $LogOutFile		
+}
 		"linuxOsPatch" {
 Write-Host "Adding Azure OS Patching Linux"
-Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $ResourceGroupName -Location $Location -Name "OSPatch" -ExtensionType "OSPatchingForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.0" -InformationAction SilentlyContinue -ForceRerun -Verbose
+Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $ResourceGroupName -Location $Location -Name "OSPatch" -ExtensionType "OSPatchingForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.0" -InformationAction SilentlyContinue -Verbose
 Get-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "OSPatch"
+$Description = "Added VM OS Patch Extension"
+Log-Command -Description $Description -LogFile $LogOutFile
 		}
 		"linuxbackup" {
 Write-Host "Adding Linux VMBackup"
-Set-AzureRmVMBackupExtension -VMName $VMName -ResourceGroupName $ResourceGroupName -Location $Location -Name "VMBackup" -Tag "OSBackup" -WarningAction SilentlyContinue
+Set-AzureRmVMBackupExtension -VMName $VMName -ResourceGroupName $ResourceGroupName -Name "VMBackup" -Tag "OSBackup" -WarningAction SilentlyContinue
 Get-AzureRmVMBackupExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "VMBackup"
+$Description = "Added VM Backup Extension"
+Log-Command -Description $Description -LogFile $LogOutFile
 		}
 		"chefAgent" {
 Write-Host "Adding Chef Agent"
 Set-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "ChefStrap" -ExtensionType "ChefClient" -Publisher "Chef.Bootstrap.WindowsAzure" -typeHandlerVersion "1210.12" -Location $Location -Verbose -ProtectedSettingString -SettingString
 Get-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "ChefStrap"
-		}
-		"WinBootStChef" {
-Write-Host "Bootstrapping Chef Agent"
-knife bootstrap windows winrm $BootIp --winrm-user $localadmin --winrm-password $locpassword --node-name $VMName --Install-as-service
-		}
-		"linBootStChef" {
-Write-Host "Bootstrapping Chef Agent"
-knife bootstrap $BootIp --node-name $VMName --ssh-user localadmin --ssh-password $locpassword --sudo --use-sudo-password --verbose --yes
-		}
+$Description = "Added VM Chef Extension"
+Log-Command -Description $Description -LogFile $LogOutFile		
+}
+		"opsinsightLinux" {
+Write-Host "Adding Linux Insight Agent"
+Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $ResourceGroupName -Location $Location -Name "OperationalInsights" -ExtensionType "OmsAgentForLinux" -Publisher "Microsoft.EnterpriseCloud.Monitoring" -typeHandlerVersion "1.0" -InformationAction SilentlyContinue -Verbose
+Get-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "OperationalInsights"
+$Description = "Added OpsInsight Extension"
+Log-Command -Description $Description -LogFile $LogOutFile		
+}
+		"opsinsightWin" {
+Write-Host "Adding Windows Insight Agent"
+Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $ResourceGroupName -Location $Location -Name "OperationalInsights" -ExtensionType "MicrosoftMonitoringAgent" -Publisher "Microsoft.EnterpriseCloud.Monitoring" -typeHandlerVersion "1.0" -InformationAction SilentlyContinue -Verbose
+Get-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "OperationalInsights"
+$Description = "Added OpsInsight Extension"
+Log-Command -Description $Description -LogFile $LogOutFile		
+}
+		"ESET" {
+Write-Host "Setting File Security"
+Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $ResourceGroupName -Location $Location -Name "ESET" -ExtensionType "FileSecurity" -Publisher "ESET" -typeHandlerVersion "6.0" -InformationAction SilentlyContinue -Verbose
+Get-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "ESET"
+$Description = "Added ESET Extension"
+Log-Command -Description $Description -LogFile $LogOutFile		
+}
+	    "azdscregister" {
+Write-Host "Registering VM with Azure DSC"
+RegisterAutoDSC
+$Description = "Registering DSC Complete"
+Log-Command -Description $Description -LogFile $LogOutFile		
+}
+		"WinPuppet" {
+Write-Host "Deploying Puppet Extension"
+Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $ResourceGroupName -Location $Location -Name "PuppetEnterpriseAgent" -ExtensionType "PuppetEnterpriseAgent" -Publisher "PuppetLabs" -typeHandlerVersion "3.2" -InformationAction SilentlyContinue -Verbose
+Get-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "PuppetEnterpriseAgent"
+$Description = "Added Puppet Agent Extension"
+Log-Command -Description $Description -LogFile $LogOutFile		
+}
 		default{"An unsupported Extension command was used"
 break
 }
 	}
 } # Deploys Azure Extensions
+
+RegisterAutoDSC
 
 Function OrphanChk {
 $extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
@@ -2172,10 +2273,11 @@ if($resourcegroups.length) {
 	foreach($resourcegroup in $resourcegroups) {
 		ProvisionResGrp($resourcegroup);
 	}
-	} # Create Resource Groups
+# $LogOut = "Resource Groups $ResourceGroupName and $vNetResourceGroupName"
+# Log-Command -Description $LogOut -LogFile $LogOutFile
+} # Create Resource Groups
 
-$LogOut = "Resource Groups $ResourceGroupName and $vNetResourceGroupName"
-Log-Command -Description $LogOut -LogFile $LogOutFile
+
 
 WriteConfig
 
@@ -2185,12 +2287,12 @@ if($NSGEnabled){CreateNSG}
 
 ImageConfig # Configure Image
 
-$Description = "Completed Image Creation"
-Log-Command -Description $Description -LogFile $LogOutFile
+# $Description = "Completed Image Creation"
+# Log-Command -Description $Description -LogFile $LogOutFile
 
 if($NSGEnabled){NSGEnabled} #Adds NSG to NIC
 
-if($AzExtConfig) {InstallExt} #Installs Azure Extensions
+if($AzExtConfig){InstallExt} #Installs Azure Extensions
 
 WriteResults
 
