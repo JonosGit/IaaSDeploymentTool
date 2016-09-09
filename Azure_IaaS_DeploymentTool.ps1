@@ -414,7 +414,7 @@ Return $Result
 }
 
 Function VerifyProfile {
-$ProfileFile = "C:\Users\admin\OneDrive\Scripts\Powershell\Roaming\Azure\outlook.json"
+$ProfileFile = "C:\Temp\profile.json"
 $fileexist = Test-Path $ProfileFile
   if($fileexist)
   {Write-Host "Profile Found"
@@ -2230,7 +2230,7 @@ AzureVersion # Verifies Azure client Powershell Version
 VerifyProfile # Attempts to use json file for auth, falls back on Add-AzureRmAccount
 chknull # Verifies required fields have data
 OrphanChk # Verifies no left overs
-VerifyNet # Verifies Subnet and static IP Address will work as defined
+# VerifyNet # Verifies Subnet and static IP Address will work as defined
 StorageNameCheck # Verifies Storage Account Name does not exist
 
 
