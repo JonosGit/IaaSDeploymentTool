@@ -193,10 +193,10 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 			linuxbackup - Deploys Azure Linux bacup Extension
 			addDom – Adds Azure Domain Join Extension
 			chef – Adds Azure Chef Extension (Requires Chef Certificate and Settings info first)
-            opsinsightLinux - OMS Agent
-            opsinsightWin - OMS Agent
-            eset - File Security Ext
-            WinPuppet - Puppet Agent Install for Windows
+			opsinsightLinux - OMS Agent
+			opsinsightWin - OMS Agent
+			eset - File Security Ext
+			WinPuppet - Puppet Agent Install for Windows
 .LINK
 https://github.com/JonosGit/IaaSDeploymentTool
 #>
@@ -369,7 +369,6 @@ $SubnetNameAddPrefix8 = "deployment",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $Azautoacct = "DSC-Auto",
-
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateSet("diag","msav","access","linuxbackup","linuxOsPatch","chefagent","eset","customscript","opsinsightLinux","opsinsightWin","WinPuppet")]
 [Alias("ext")]
@@ -415,7 +414,7 @@ Return $Result
 }
 
 Function VerifyProfile {
-$ProfileFile = ""
+$ProfileFile = "C:\Users\admin\OneDrive\Scripts\Powershell\Roaming\Azure\outlook.json"
 $fileexist = Test-Path $ProfileFile
   if($fileexist)
   {Write-Host "Profile Found"
@@ -430,25 +429,24 @@ $fileexist = Test-Path $ProfileFile
 
 Function VerifyPvtIps {
 if($PvtIPNic1)
-{
-$subnet = $Subnet1
-$ip = $PvtIPNic1
-$array = $ip.Split(".")
-[int]$subnetint = $array[2]
-$subnetcalc = ($subnetint + '1')
-# Write-Host "Subnet Match $subnet $subnetcalc"
+	{
+	$subnet = $Subnet1
+	$ip = $PvtIPNic1
+	$array = $ip.Split(".")
+	[int]$subnetint = $array[2]
+	$subnetcalc = ($subnetint + '1')
 if($subnetcalc -ne $subnet){
 Write-Host "Verify the IP Address for Subnet1 is in the correct subnet"
 break
 }
 }
-if($PvtIPNic2){
-$subnet = $Subnet2
-$ip = $PvtIPNic2
-$array = $ip.Split(".")
-[int]$subnetint = $array[2]
-$subnetcalc = ($subnetint + '1')
-# Write-Host "Subnet Match $subnet $subnetcalc"
+if($PvtIPNic2)
+	{
+	$subnet = $Subnet2
+	$ip = $PvtIPNic2
+	$array = $ip.Split(".")
+	[int]$subnetint = $array[2]
+	$subnetcalc = ($subnetint + '1')
 if($subnetcalc -ne $subnet){
 Write-Host "Verify the IP Address for Subnet2 is in the correct subnet"
 break
@@ -2072,7 +2070,6 @@ $ConfigurationName = -join $VMNAME+".node"
 Register-AzureRmAutomationDscNode -AutomationAccountName $AutoAcctName -AzureVMName $VMName -ActionAfterReboot $ActionAfterReboot -ConfigurationMode $configmode -RebootNodeIfNeeded $True -ResourceGroupName $ResourceGroupName -NodeConfigurationName $ConfigurationName -AzureVMLocation $Location -AzureVMResourceGroup $ResourceGroupName -Verbose
 }
 
-
 Function InstallExt {
 switch ($AzExtConfig)
 	{
@@ -2109,7 +2106,7 @@ Write-Host "Domain Join active"
 Set-AzureRmVMADDomainExtension -DomainName $DomName -ResourceGroupName $ResourceGroupName -VMName $VMName -Location $Location -Name DomJoin -WarningAction SilentlyContinue
 Get-AzureRmVMADDomainExtension -ResourceGroupName $ResourceGroupName -VMName $VMName
 $Description = "Added VM Domain Join Extension"
-Log-Command -Description $Description -LogFile $LogOutFile		
+Log-Command -Description $Description -LogFile $LogOutFile
 }
 		"linuxOsPatch" {
 Write-Host "Adding Azure OS Patching Linux"
@@ -2130,41 +2127,41 @@ Write-Host "Adding Chef Agent"
 Set-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "ChefStrap" -ExtensionType "ChefClient" -Publisher "Chef.Bootstrap.WindowsAzure" -typeHandlerVersion "1210.12" -Location $Location -Verbose -ProtectedSettingString -SettingString
 Get-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "ChefStrap"
 $Description = "Added VM Chef Extension"
-Log-Command -Description $Description -LogFile $LogOutFile		
+Log-Command -Description $Description -LogFile $LogOutFile
 }
 		"opsinsightLinux" {
 Write-Host "Adding Linux Insight Agent"
 Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $ResourceGroupName -Location $Location -Name "OperationalInsights" -ExtensionType "OmsAgentForLinux" -Publisher "Microsoft.EnterpriseCloud.Monitoring" -typeHandlerVersion "1.0" -InformationAction SilentlyContinue -Verbose
 Get-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "OperationalInsights"
 $Description = "Added OpsInsight Extension"
-Log-Command -Description $Description -LogFile $LogOutFile		
+Log-Command -Description $Description -LogFile $LogOutFile
 }
 		"opsinsightWin" {
 Write-Host "Adding Windows Insight Agent"
 Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $ResourceGroupName -Location $Location -Name "OperationalInsights" -ExtensionType "MicrosoftMonitoringAgent" -Publisher "Microsoft.EnterpriseCloud.Monitoring" -typeHandlerVersion "1.0" -InformationAction SilentlyContinue -Verbose
 Get-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "OperationalInsights"
 $Description = "Added OpsInsight Extension"
-Log-Command -Description $Description -LogFile $LogOutFile		
+Log-Command -Description $Description -LogFile $LogOutFile
 }
 		"ESET" {
 Write-Host "Setting File Security"
 Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $ResourceGroupName -Location $Location -Name "ESET" -ExtensionType "FileSecurity" -Publisher "ESET" -typeHandlerVersion "6.0" -InformationAction SilentlyContinue -Verbose
 Get-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "ESET"
 $Description = "Added ESET Extension"
-Log-Command -Description $Description -LogFile $LogOutFile		
+Log-Command -Description $Description -LogFile $LogOutFile
 }
-	    "azdscregister" {
+		"azdscregister" {
 Write-Host "Registering VM with Azure DSC"
 RegisterAutoDSC
 $Description = "Registering DSC Complete"
-Log-Command -Description $Description -LogFile $LogOutFile		
+Log-Command -Description $Description -LogFile $LogOutFile
 }
 		"WinPuppet" {
 Write-Host "Deploying Puppet Extension"
 Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $ResourceGroupName -Location $Location -Name "PuppetEnterpriseAgent" -ExtensionType "PuppetEnterpriseAgent" -Publisher "PuppetLabs" -typeHandlerVersion "3.2" -InformationAction SilentlyContinue -Verbose
 Get-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "PuppetEnterpriseAgent"
 $Description = "Added Puppet Agent Extension"
-Log-Command -Description $Description -LogFile $LogOutFile		
+Log-Command -Description $Description -LogFile $LogOutFile
 }
 		default{"An unsupported Extension command was used"
 break
@@ -2236,12 +2233,13 @@ exit
 
 Write-Output "Steps will be tracked on the log file : [ $LogOutFile ]"
 
+AzureVersion # Verifies Azure client Powershell Version
+VerifyProfile # Attempts to use json file for auth, falls back on Add-AzureRmAccount
 chknull # Verifies required fields have data
 OrphanChk # Verifies no left overs
 VerifyNet # Verifies Subnet and static IP Address will work as defined
-VerifyProfile # Attempts to use json file for auth, falls back on Add-AzureRmAccount
 StorageNameCheck # Verifies Storage Account Name does not exist
-AzureVersion # Verifies Azure client Powershell Version
+
 
 $LogOut = "Completed Pre Execution Verification Checks"
 Log-Command -Description $LogOut -LogFile $LogOutFile
@@ -2273,11 +2271,7 @@ if($resourcegroups.length) {
 	foreach($resourcegroup in $resourcegroups) {
 		ProvisionResGrp($resourcegroup);
 	}
-# $LogOut = "Resource Groups $ResourceGroupName and $vNetResourceGroupName"
-# Log-Command -Description $LogOut -LogFile $LogOutFile
 } # Create Resource Groups
-
-
 
 WriteConfig
 
@@ -2287,16 +2281,13 @@ if($NSGEnabled){CreateNSG}
 
 ImageConfig # Configure Image
 
-# $Description = "Completed Image Creation"
-# Log-Command -Description $Description -LogFile $LogOutFile
-
 if($NSGEnabled){NSGEnabled} #Adds NSG to NIC
 
 if($AzExtConfig){InstallExt} #Installs Azure Extensions
 
 WriteResults
 
-if($AddVPN) {
+if($AddVPN){
 CreateVPN
 ConnectVPN
 } #Creates VPN
