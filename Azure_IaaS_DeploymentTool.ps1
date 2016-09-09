@@ -2061,8 +2061,8 @@ switch -Wildcard ($vmMarketImage)
 }
 
 Function RegisterAutoDSC {
-$ActionAfterReboot = ContinueConfiguration
-$configmode = ApplyAndAutocorrect
+$ActionAfterReboot = 'ContinueConfiguration'
+$configmode = 'ApplyAndAutocorrect'
 $AutoAcctName = $Azautoacct
 $NodeName = -join $VMNAME+".node"
 $ConfigurationName = -join $VMNAME+".node"
@@ -2150,12 +2150,6 @@ Get-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Na
 $Description = "Added ESET Extension"
 Log-Command -Description $Description -LogFile $LogOutFile
 }
-		"azdscregister" {
-Write-Host "Registering VM with Azure DSC"
-RegisterAutoDSC
-$Description = "Registering DSC Complete"
-Log-Command -Description $Description -LogFile $LogOutFile
-}
 		"WinPuppet" {
 Write-Host "Deploying Puppet Extension"
 Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $ResourceGroupName -Location $Location -Name "PuppetEnterpriseAgent" -ExtensionType "PuppetEnterpriseAgent" -Publisher "PuppetLabs" -typeHandlerVersion "3.2" -InformationAction SilentlyContinue -Verbose
@@ -2169,7 +2163,6 @@ break
 	}
 } # Deploys Azure Extensions
 
-RegisterAutoDSC
 
 Function OrphanChk {
 $extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
@@ -2208,8 +2201,8 @@ $ver = (Get-Module -ListAvailable | Where-Object{ $_.Name -eq $name }) |
 	select version -ExpandProperty version
 	Write-Host "current Azure PowerShell Version:" $ver
 $currentver = $ver
-	if($currentver-le '1.6.0'){
-	Write-Host "expected version 1.6.0 found $ver" -ForegroundColor DarkRed
+	if($currentver-le '2.0.0'){
+	Write-Host "expected version 2.0.1 found $ver" -ForegroundColor DarkRed
 	exit
 	}
 }
