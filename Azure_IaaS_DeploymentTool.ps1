@@ -2,13 +2,14 @@
 .SYNOPSIS
 Written By John N Lewis
 email: jonos@live.com
-Ver 5.31
+Ver 5.4
+
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
 The script allows select of subnet prior to VM Deployment
 The script supports deploying Availability Sets as well as adding new servers to existing Availability Sets through the -AvailabilitySet "True" and -AvailSetName switches.
 The script will generate a name for azure storage endpoint unless the -StorageName variable is updated or referenced at runtime.
-
+v5.4 updates - Aligned Syntax with User Guide
 v5.3 updates - Added Puppet Agent and OMS Agents to Extensions
 v5.2 updates - Moved VNET configuration to global parameters
 v5.1 updates - Added VPN Creation Function
@@ -199,6 +200,7 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 			WinPuppet - Puppet Agent Install for Windows
 .LINK
 https://github.com/JonosGit/IaaSDeploymentTool
+https://github.com/JonosGit/IaaSDeploymentTool/blob/master/The%20IaaS%20Deployment%20Tool%20User%20Guide.pdf
 #>
 
 [CmdletBinding()]
@@ -209,8 +211,8 @@ Param(
 [string]
 $vmMarketImage = "",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[bool]
-$AddVnet = $True,
+[string]
+$AddVnet = 'True',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
 [Alias("vm")]
 [string]
@@ -238,13 +240,13 @@ $VMSize = "Standard_A3",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $locadmin = 'localadmin',
-[Parameter(Mandatory=$False)]
+[Parameter(Mandatory=$false,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $locpassword = 'P@ssW0rd!',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("nsg")]
-[bool]
-$NSGEnabled = $False,
+[string]
+$NSGEnabled = 'False',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $Location = "WestUs",
@@ -286,8 +288,8 @@ $Subnet1 = 2,
 $Subnet2 = 3,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("avset")]
-[bool]
-$AddAvailabilitySet = $False,
+[string]
+$AddAvailabilitySet = 'False',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $AvailSetName = $GenerateName,
@@ -296,18 +298,18 @@ $AvailSetName = $GenerateName,
 [string]
 $DNLabel = 'mytesr1',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[bool]
-$AddFQDN = $False,
+[string]
+$AddFQDN = 'False',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("nic1")]
-[ipaddress]
+
 $PvtIPNic1 = '127.0.0.1',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("nic2")]
-[ipaddress]
+
 $PvtIPNic2 = '127.0.0.1',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[bool]
+[string]
 $AddVPN = $False,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ipaddress]
@@ -370,6 +372,9 @@ $SubnetNameAddPrefix8 = "deployment",
 [string]
 $Azautoacct = "DSC-Auto",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$Profile = "",
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateSet("diag","msav","access","linuxbackup","linuxOsPatch","chefagent","eset","customscript","opsinsightLinux","opsinsightWin","WinPuppet")]
 [Alias("ext")]
 [string]
@@ -378,43 +383,14 @@ $AzExtConfig = ''
 )
 
 # Global
-# $ErrorActionPreference = "SilentlyContinue"
 $date = Get-Date -UFormat "%Y-%m-%d-%H-%M"
 $workfolder = Split-Path $script:MyInvocation.MyCommand.Path
 $SecureLocPassword=Convertto-SecureString $locpassword –asplaintext -Force
 $Credential1 = New-Object System.Management.Automation.PSCredential ($locadmin,$SecureLocPassword)
 $LogOutFile = $workfolder+'\'+$vmname+'-'+$date+'.log'
 
-Function Log-Command ([string]$Description, [string]$logFile, [string]$VMName){
-$Output = $LogOut+'. '
-Write-Host $Output -ForegroundColor white
-((Get-Date -UFormat "[%d-%m-%Y %H:%M:%S] ") + $Output) | Out-File -FilePath $LogOutFile -Append -Force
-}
-
-Function WriteLog-Command([string]$Description, [ScriptBlock]$Command, [string]$LogFile, [string]$VMName){
-Try{
-$Output = $Description+'  ... '
-Write-Host $Output -ForegroundColor Yellow
-((Get-Date -UFormat "[%d-%m-%Y %H:%M:%S] ") + $Output) | Out-File -FilePath $LogFile -Append -Force
-$Result = Invoke-Command -ScriptBlock $Command
-}
-Catch {
-$ErrorMessage = $_.Exception.Message
-$Output = 'Error '+$ErrorMessage
-((Get-Date -UFormat "[%d-%m-%Y %H:%M:%S] ") + $Output) | Out-File -FilePath $LogFile -Append -Force
-$Result = ""
-continue
-}
-Finally
-{
-if ($ErrorMessage -eq $null) {$Output = "[Completed]  $Description  ... "} else {$Output = "[Failed]  $Description  ... "}
-((Get-Date -UFormat "[%d-%m-%Y %H:%M:%S] ") + $Output) | Out-File -FilePath $LogFile -Append -Force
-}
-Return $Result
-}
-
 Function VerifyProfile {
-$ProfileFile = "C:\temp\profile.json"
+$ProfileFile = $Profile
 $fileexist = Test-Path $ProfileFile
   if($fileexist)
   {Write-Host "Profile Found"
@@ -423,9 +399,17 @@ $fileexist = Test-Path $ProfileFile
   else
   {
   Write-Host "Please enter your credentials"
-  Add-AzureRmAccount
+  Add-AzureRmAccount -TenantId $TenantID -SubscriptionId $SubscriptionID
   }
 }
+
+Function Log-Command ([string]$Description, [string]$logFile, [string]$VMName){
+$Output = $LogOut+'. '
+Write-Host $Output -ForegroundColor white
+((Get-Date -UFormat "[%d-%m-%Y %H:%M:%S] ") + $Output) | Out-File -FilePath $LogOutFile -Append -Force
+}
+
+
 
 Function VerifyPvtIps {
 if($PvtIPNic1)
@@ -524,7 +508,7 @@ exit }
 }
 
 Function PubIPconfig {
-if($AddFQDN)
+if($AddFQDN -eq 'True')
 {
 $global:PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic" -DomainNameLabel $DNLabel –Confirm:$false -WarningAction SilentlyContinue
 $LogOut = "Completed Public DNS record creation $DNLabel.$Location.cloudapp.azure.com"
@@ -537,7 +521,7 @@ $global:PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupNam
 }
 
 Function PubDNSconfig {
-if($AddFQDN)
+if($AddFQDN -eq 'True')
 {
 Write-Host "Creating FQDN: " $DNLabel.$Location.cloudapp.azure.com
 }
@@ -719,7 +703,7 @@ Function RegisterRP {
 
 Function AvailSet {
  try {
- If ($AddAvailabilitySet)
+ If ($AddAvailabilitySet -eq 'True')
  {
  Write-Host "Availability Set configuration in process.." -ForegroundColor White
 New-AzureRmAvailabilitySet -ResourceGroupName $ResourceGroupName -Name $AvailSetName -Location $Location -WarningAction SilentlyContinue | Out-Null
@@ -751,7 +735,7 @@ try {
    foreach($provisionvm in $ProvisionVMs) {
 		New-AzureRmVM -ResourceGroupName $ResourceGroupName -Location $Location -VM $VirtualMachine –Confirm:$false -WarningAction SilentlyContinue | Out-Null
 		$LogOut = "Completed Creation of $VMName from $vmMarketImage"
-        Log-Command -Description $LogOut -LogFile $LogOutFile
+		Log-Command -Description $LogOut -LogFile $LogOutFile
 						}
 	}
 catch {
@@ -1593,7 +1577,7 @@ Write-Host "Nic2: $PvtIPNic2"
 if($AzExtConfig) {
 Write-Host "Extension selected for deployment: $AzExtConfig "
 }
-if($AddAvailabilitySet) {
+if($AddAvailabilitySet -eq 'True') {
 Write-Host "Availability Set to 'True'"
 Write-Host "Availability Set Name:  '$AvailSetName'"
 Write-Host "                                                               "
@@ -1654,7 +1638,7 @@ SelectNicDescrtipt
 if($AzExtConfig) {
 Write-Host "Extension deployed: $AzExtConfig "
 }
-if($AddAvailabilitySet) {
+if($AddAvailabilitySet -eq 'True') {
 Write-Host "Availability Set Configured"
 Write-Host "Availability Set Name:  '$AvailSetName'"
 $time = " Completed Time " + (Get-Date -UFormat "%d-%m-%Y %H:%M:%S")
@@ -1701,7 +1685,7 @@ Write-Host "                                                               "
 Write-Host "Storage Accounts for $ResourceGroupName" -NoNewLine
 Get-AzurermStorageAccount -ResourceGroupName $ResourceGroupName -WarningAction SilentlyContinue | ft StorageAccountName,Location,ResourceGroupname -Wrap
 
-if($AddAvailabilitySet){
+if($AddAvailabilitySet -eq 'True'){
 Write-Host "Availability Sets for $ResourceGroupName"
 Get-AzurermAvailabilitySet -ResourceGroupName $ResourceGroupName -WarningAction SilentlyContinue | ft Name,ResourceGroupName -Wrap
 }
@@ -2297,7 +2281,7 @@ AzureVersion # Verifies Azure client Powershell Version
 VerifyProfile # Attempts to use json file for auth, falls back on Add-AzureRmAccount
 chknull # Verifies required fields have data
 OrphanChk # Verifies no left overs
-# VerifyNet # Verifies Subnet and static IP Address will work as defined
+VerifyNet # Verifies Subnet and static IP Address will work as defined
 StorageNameCheck # Verifies Storage Account Name does not exist
 
 
@@ -2332,19 +2316,19 @@ if($resourcegroups.length) {
 
 WriteConfig
 
-if($AddVnet){ProvisionNet} # Creates VNET
+if($AddVnet -eq 'True'){ProvisionNet} # Creates VNET
 
-if($NSGEnabled){CreateNSG}
+if($NSGEnabled -eq 'True'){CreateNSG}
 
 ImageConfig # Configure Image
 
-if($NSGEnabled){NSGEnabled} #Adds NSG to NIC
+if($NSGEnabled -eq 'True'){NSGEnabled} #Adds NSG to NIC
 
 if($AzExtConfig){InstallExt} #Installs Azure Extensions
 
 WriteResults
 
-if($AddVPN){
+if($AddVPN -eq 'True'){
 CreateVPN
 ConnectVPN
 } #Creates VPN
