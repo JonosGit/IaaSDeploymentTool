@@ -3,6 +3,7 @@ The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
 The script allows select of subnet prior to VM Deployment
 The script supports deploying Availability Sets as well as adding new servers to existing Availability Sets through the -AvailabilitySet "True" and -AvailSetName switches.
 The script will generate a name for azure storage endpoint unless the -StorageName variable is updated or referenced at runtime.
+
 See the users guide at https://github.com/JonosGit/IaaSDeploymentTool/wiki/The-IaaS-Deployment-Tool-User-Guide
 
 
@@ -10,6 +11,6 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 
 Runtime named parameters examples:
 \.azdeploy.ps1 -VMName pf001 -VMMarketImage pfsense -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup2 -VNetName VNET -subnet1 3 -subnet2 4 -ConfigIPs DualPvtNoPub -PvtIPNic1 10.120.2.7 -PvtIPNic2 10.120.3.7
-\.azdeploy.ps1 -VMName win008 -VMMarketImage w2k16 -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup2 -VNetName VNET -subnet1 5 -ConfigIPs PvtSingleStat -PvtIPNic1 10.120.4.169 -AddFQDN $True -DNLabel mydns1
+\.azdeploy.ps1 -VMName win008 -VMMarketImage w2k16 -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup2 -VNetName VNET -subnet1 5 -ConfigIPs PvtSingleStat -PvtIPNic1 10.120.4.169 -AddFQDN True -DNLabel mydns1
 \.azdeploy.ps1 -VMName red76 -VMMarketImage red67 -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup2 -VNetName VNET -subnet1 7 -ConfigIPs SinglePvtNoPub -PvtIPNic1 10.120.6.124 -AzExtConfig linuxbackup
-\.azdeploy.ps1 -VMName win006 -VMMarketImage w2k12 -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup2 -VNetName VNET -subnet1 2 -ConfigIPs Single -AddAvailabilitySet $True
+\.azdeploy.ps1 -VMName win006 -VMMarketImage w2k12 -ResourceGroupName ResGroup1 -vNetResourceGroupName ResGroup2 -VNetName VNET -subnet1 2 -ConfigIPs Single -AddAvailabilitySet True
