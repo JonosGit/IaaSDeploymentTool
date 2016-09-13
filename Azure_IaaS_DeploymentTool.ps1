@@ -2,13 +2,14 @@
 .SYNOPSIS
 Written By John N Lewis
 email: jonos@live.com
-Ver 5.5
+Ver 5.6
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
 The script allows select of subnet prior to VM Deployment
 The script supports deploying Availability Sets as well as adding new servers to existing Availability Sets through the -AvailabilitySet "True" and -AvailSetName switches.
 The script will generate a name for azure storage endpoint unless the -StorageName variable is updated or referenced at runtime.
 
+v5.6 updates - Added Ability to upload custom scripts to blob for use by VM
 v5.5 updates - Logic Checking for Extensions
 v5.4 updates - Aligned Syntax with User Guide
 v5.3 updates - Added Puppet Agent and OMS Agents to Extensions
@@ -123,7 +124,23 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 
 .PARAMETER Azautoacct
 
+.PARAMETER Profile
+
 .PARAMETER AzExtConfig
+
+.PARAMETER AddExtension
+
+.PARAMETER CustomScriptUpload
+
+.PARAMETER scriptname
+
+.PARAMETER containername
+
+.PARAMETER customextname
+
+.PARAMETER scriptfolder
+
+.PARAMETER localfolder
 
 .EXAMPLE
 \.azdeploy.ps1 -vm pf001 -image pfsense -rg ResGroup1 -vnetrg ResGroup2 -addvnet $True -vnet VNET -sub1 3 -sub2 4 -ConfigIPs DualPvtNoPub -Nic1 10.120.2.7 -Nic2 10.120.3.7
@@ -195,6 +212,7 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 			WinPuppet - Puppet Agent Install for Windows
 .LINK
 https://github.com/JonosGit/IaaSDeploymentTool
+https://github.com/JonosGit/IaaSDeploymentTool/blob/master/The%20IaaS%20Deployment%20Tool%20User%20Guide.pdf
 #>
 
 [CmdletBinding()]
@@ -205,6 +223,7 @@ Param(
 [string]
 $vmMarketImage = "",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateSet("True","False")]
 [string]
 $AddVnet = 'True',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
@@ -238,6 +257,7 @@ $locadmin = 'localadmin',
 [string]
 $locpassword = 'P@ssW0rd!',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateSet("True","False")]
 [Alias("nsg")]
 [string]
 $NSGEnabled = 'False',
@@ -257,13 +277,14 @@ $GenerateName = -join ((65..90) + (97..122) | Get-Random -Count 6 | % {[char]$_}
 [string]
 $StorageName = $VMName + "str",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateSet("Standard_LRS","Standard_GRS")]
 [string]
 $StorageType = "Standard_GRS",
-[Parameter(Mandatory=$False)]
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("int1")]
 [string]
 $InterfaceName1 = $VMName + "_nic1",
-[Parameter(Mandatory=$False)]
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("int2")]
 [string]
 $InterfaceName2 = $VMName + "_nic2",
@@ -278,9 +299,10 @@ $Subnet1 = 2,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateRange(0,8)]
 [Alias("sub2")]
-[Int]
+[int]
 $Subnet2 = 3,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateSet("True","False")]
 [Alias("avset")]
 [string]
 $AddAvailabilitySet = 'False',
@@ -292,15 +314,16 @@ $AvailSetName = $GenerateName,
 [string]
 $DNLabel = 'mytesr1',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateSet("True","False")]
 [string]
 $AddFQDN = 'False',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("nic1")]
-
+[ipaddress]
 $PvtIPNic1 = '127.0.0.1',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("nic2")]
-
+[ipaddress]
 $PvtIPNic2 = '127.0.0.1',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
@@ -367,17 +390,38 @@ $SubnetNameAddPrefix8 = "deployment",
 $Azautoacct = "DSC-Auto",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$Profile = "C:\Users\admin\OneDrive\Scripts\Powershell\Roaming\Azure\outlook.json",
+$Profile = "",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[ValidateSet("diag","msav","access","linuxbackup","chefagent","eset","customscript","opsinsightLinux","opsinsightWin","WinPuppet")]
+[ValidateSet("diag","msav","access","linuxbackup","chefagent","eset","customscript","opsinsightLinux","opsinsightWin","WinPuppet","domjoin")]
 [Alias("ext")]
 [string]
 $AzExtConfig = 'diag',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateSet("True","False")]
 [Alias("addext")]
 [string]
-$AddExtension = 'False'
-
+$AddExtension = 'False',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateSet("True","False")]
+[Alias("upload")]
+[string]
+$CustomScriptUpload = 'False',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[Alias("customscriptname")]
+[string]
+$scriptname = 'WFirewall.ps1',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$containername = 'scripts',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$customextname = 'customscript',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$scriptfolder = "C:\Temp",
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$localfolder = "$scriptfolder\customscripts"
 )
 
 # Global
@@ -406,6 +450,8 @@ $Output = $LogOut+'. '
 Write-Host $Output -ForegroundColor white
 ((Get-Date -UFormat "[%d-%m-%Y %H:%M:%S] ") + $Output) | Out-File -FilePath $LogOutFile -Append -Force
 }
+
+
 
 Function VerifyPvtIps {
 if($PvtIPNic1)
@@ -1527,7 +1573,8 @@ Function WriteConfig {
 Write-Host "                                                               "
 $time = " Start Time " + (Get-Date -UFormat "%d-%m-%Y %H:%M:%S")
 Write-Host -------------- $time --------------- -ForegroundColor Cyan
-Write-Host "Using configuration:"
+Write-Host "                                                               "
+Write-Host "Current configuration"
 
 Write-Host "VM Name: $VMName " -ForegroundColor White
 Write-Host "Resource Group Name: $ResourceGroupName"
@@ -1630,7 +1677,6 @@ Write-Host "Status Code:" $statuscode
 Write-Host "Network Adapter Count:" $niccount
 Write-Host "Availability Set:"$availsetid
 
-SelectNicDescrtipt
 if($AzExtConfig) {
 Write-Host "Extension deployed: $AzExtConfig "
 }
@@ -1647,7 +1693,6 @@ $time = " Completed Time " + (Get-Date -UFormat "%d-%m-%Y %H:%M:%S")
 Write-Host -------------- $time ------------- -ForegroundColor Cyan
 Write-Host "                                                               "
 }
-
 EndState
 }
 
@@ -2116,29 +2161,46 @@ $ConfigurationName = -join $VMNAME+".node"
 Register-AzureRmAutomationDscNode -AutomationAccountName $AutoAcctName -AzureVMName $VMName -ActionAfterReboot $ActionAfterReboot -ConfigurationMode $configmode -RebootNodeIfNeeded $True -ResourceGroupName $ResourceGroupName -NodeConfigurationName $ConfigurationName -AzureVMLocation $Location -AzureVMResourceGroup $ResourceGroupName -Verbose
 }
 Function ExtCompatWin {
-if($vmMarketImage -eq 'w2k12') {Write-Host "Found Windows"}
-	elseif($vmMarketImage -eq 'w2k8') {Write-Host "Found Windows"}
-		elseif($vmMarketImage -eq 'w2k16') {Write-Host "Found Windows"}
-			elseif($vmMarketImage -eq 'share2013'){Write-Host "Found Windows"}
-				elseif($vmMarketImage -eq 'sql2016') {Write-Host "Found Windows"}
-					elseif($vmMarketImage -eq 'share2016') {Write-Host "Found Windows"}
+if($vmMarketImage -eq 'w2k12') {Write-Host "Found Windows $vmMarketImage"}
+	elseif($vmMarketImage -eq 'w2k8') {Write-Host "Found Windows $vmMarketImage"}
+		elseif($vmMarketImage -eq 'w2k16') {Write-Host "Found Windows $vmMarketImage"}
+			elseif($vmMarketImage -eq 'share2013'){Write-Host "Found Windows $vmMarketImage"}
+				elseif($vmMarketImage -eq 'sql2016') {Write-Host "Found Windows $vmMarketImage"}
+					elseif($vmMarketImage -eq 'share2016') {Write-Host "Found Windows $vmMarketImage"}
 else {
 Write-Host "No Compatble OS Found, please verify the extension is compatible with $vmMarketImage"
 exit
 }
 }
 Function ExtCompatLin {
-if($vmMarketImage -eq 'red67') {Write-Host "Found Linux"}
-	elseif($vmMarketImage -eq 'suse') {Write-Host "Found Linux"}
-		elseif($vmMarketImage -eq 'ubuntu') {Write-Host "Found Linux"}
-			elseif($vmMarketImage -eq 'free'){Write-Host "Found Linux"}
-				elseif($vmMarketImage -eq 'centos') {Write-Host "Found Linux"}
-					elseif($vmMarketImage -eq 'red72') {Write-Host "Found Linux"}
+if($vmMarketImage -eq 'red67') {Write-Host "Found Linux" $vmMarketImage}
+	elseif($vmMarketImage -eq 'suse') {Write-Host "Found Linux $vmMarketImage"}
+		elseif($vmMarketImage -eq 'ubuntu') {Write-Host "Found Linux $vmMarketImage"}
+			elseif($vmMarketImage -eq 'free'){Write-Host "Found Linux $vmMarketImage"}
+				elseif($vmMarketImage -eq 'centos') {Write-Host "Found Linux $vmMarketImage"}
+					elseif($vmMarketImage -eq 'red72') {Write-Host "Found Linux $vmMarketImage"}
 else {
 Write-Host "No Compatble OS Found, please verify the extension is compatible with $vmMarketImage"
 exit
 }
 }
+Function Upload {
+$Keys = Get-AzureRmStorageAccountKey -ResourceGroupName $ResourceGroupName -Name $StorageName;
+$StorageContext = New-AzureStorageContext -StorageAccountName $StorageName -StorageAccountKey $Keys[0].Value;
+New-AzureStorageContainer -Context $StorageContext -Name $containerName;
+$storageAccountKey = Get-AzureRmStorageAccountKey -ResourceGroupName $ResourceGroupName -Name $StorageName;
+$blobContext = New-AzureStorageContext -StorageAccountName $StorageName -StorageAccountKey $Keys[0].Value;
+$files = Get-ChildItem $localFolder 
+foreach($file in $files)
+{
+  $fileName = "$localFolder\$file"
+  $blobName = "$file"
+  write-host "copying $fileName to $blobName"
+  Set-AzureStorageBlobContent -File $filename -Container $containerName -Blob $blobName -Context $blobContext -Force -BlobType Append
+} 
+write-host "All files in $localFolder uploaded to $containerName!"
+}
+
 
 Function InstallExt {
 switch ($AzExtConfig)
@@ -2159,10 +2221,11 @@ Get-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Na
 $Description = "Added VM msav Extension"
 Log-Command -Description $Description -LogFile $LogOutFile
 }
-		"custScript" {
+		"customscript" {
 Write-Host "Updating server with custom script"
-Set-AzureRmVMCustomScriptExtension -Name "CustScript" -ResourceGroupName $ResourceGroupName -Run 'CustScript.ps1' -VMName $VMName -FileUri $StorageName -Location $Location -TypeHandlerVersion "1.1"
-Get-AzureRmVMCustomScriptExtension -ResourceGroupName $ResourceGroupName -Name "CustScript"
+if($CustomScriptUpload -eq 'True') {Upload}
+Set-AzureRmVMCustomScriptExtension -Name $customextname -ContainerName $containerName -ResourceGroupName $ResourceGroupName -VMName $VMName -StorageAccountName $StorageName -FileName $scriptname -Location $Location -TypeHandlerVersion "1.1"
+Get-AzureRmVMCustomScriptExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name $customextname
 $Description = "Added VM Custom Script Extension"
 Log-Command -Description $Description -LogFile $LogOutFile
 }
@@ -2175,9 +2238,10 @@ Log-Command -Description $Description -LogFile $LogOutFile
 }
 		"domjoin" {
 ExtCompatWin
+$DomName = 'aip.local'
 Write-Host "Domain Join active"
-Set-AzureRmVMADDomainExtension -DomainName $DomName -ResourceGroupName $ResourceGroupName -VMName $VMName -Location $Location -Name 'DomJoin' -WarningAction SilentlyContinue
-Get-AzureRmVMADDomainExtension -ResourceGroupName $ResourceGroupName -VMName $VMName
+Set-AzureRmVMADDomainExtension -DomainName $DomName -ResourceGroupName $ResourceGroupName -VMName $VMName -Location $Location -Name 'DomJoin' -WarningAction SilentlyContinue -Restart
+Get-AzureRmVMADDomainExtension -ResourceGroupName $ResourceGroupName  -VMName $VMName -Name 'DomJoin'
 $Description = "Added VM Domain Join Extension"
 Log-Command -Description $Description -LogFile $LogOutFile
 }
@@ -2198,7 +2262,9 @@ Log-Command -Description $Description -LogFile $LogOutFile
 		}
 		"chefAgent" {
 Write-Host "Adding Chef Agent"
-Set-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "ChefStrap" -ExtensionType "ChefClient" -Publisher "Chef.Bootstrap.WindowsAzure" -typeHandlerVersion "1210.12" -Location $Location -Verbose -ProtectedSettingString -SettingString
+$ProtectedSetting = ''
+$Setting = ''
+Set-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "ChefStrap" -ExtensionType "ChefClient" -Publisher "Chef.Bootstrap.WindowsAzure" -typeHandlerVersion "1210.12" -Location $Location -Verbose -ProtectedSettingString $ProtectedSetting -SettingString $Setting
 Get-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "ChefStrap"
 $Description = "Added VM Chef Extension"
 Log-Command -Description $Description -LogFile $LogOutFile
@@ -2250,7 +2316,7 @@ $pubip =  Get-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $R
 if($extvm)
 { Write-Host "Host VM Found, please use a different VMName for Provisioning or manually delete the existing VM" -ForegroundColor Red
  Start-sleep 10
- exit   }
+exit  }
 else {if($nic1)
 { Write-Host "Nic1 already Exists, removing orphan" -ForegroundColor DarkYellow
 Remove-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Force -Confirm:$False
@@ -2349,6 +2415,7 @@ if($NSGEnabled -eq 'True'){CreateNSG}
 ImageConfig # Configure Image
 
 if($NSGEnabled -eq 'True'){NSGEnabled} #Adds NSG to NIC
+
 
 if($AddExtension -eq 'True'){InstallExt} #Installs Azure Extensions
 
