@@ -124,23 +124,7 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 
 .PARAMETER Azautoacct
 
-.PARAMETER Profile
-
 .PARAMETER AzExtConfig
-
-.PARAMETER AddExtension
-
-.PARAMETER CustomScriptUpload
-
-.PARAMETER scriptname
-
-.PARAMETER containername
-
-.PARAMETER customextname
-
-.PARAMETER scriptfolder
-
-.PARAMETER localfolder
 
 .EXAMPLE
 \.azdeploy.ps1 -vm pf001 -image pfsense -rg ResGroup1 -vnetrg ResGroup2 -addvnet $True -vnet VNET -sub1 3 -sub2 4 -ConfigIPs DualPvtNoPub -Nic1 10.120.2.7 -Nic2 10.120.3.7
@@ -457,7 +441,7 @@ Function VerifyPvtIps {
 if($PvtIPNic1)
 	{
 	$subnet = $Subnet1
-	$ip = $PvtIPNic1
+	[int]$ip = $PvtIPNic1
 	$array = $ip.Split(".")
 	[int]$subnetint = $array[2]
 	$subnetcalc = ($subnetint + '1')
@@ -469,7 +453,7 @@ break
 if($PvtIPNic2)
 	{
 	$subnet = $Subnet2
-	$ip = $PvtIPNic2
+	[int]$ip = $PvtIPNic2
 	$array = $ip.Split(".")
 	[int]$subnetint = $array[2]
 	$subnetcalc = ($subnetint + '1')
@@ -495,13 +479,10 @@ exit
 Function VerifyNet {
 If ($ConfigIPs -eq "StatPvtNoPubSingle")
 { Write-Host "Subnet IP Validation" -ForegroundColor White
-VerifyNicValue1
 VerifyPvtIps
 }
 If ($ConfigIPs -eq "StatPvtNoPubDual")
 { Write-Host "Subnet IP Validation" -ForegroundColor White
-VerifyNicValue1
-VerifyNicValue2
 VerifyPvtIps
 }
 If ($ConfigIPs -eq "Single")
@@ -513,13 +494,10 @@ If ($ConfigIPs -eq "Dual")
 }
 If ($ConfigIPs -eq "PvtSingleStat")
 { Write-Host "Subnet IP Validation"
-VerifyNicValue1
 VerifyPvtIps
 }
 If ($ConfigIPs -eq "PvtDualStat")
 { Write-Host "Subnet IP Validation"
-VerifyNicValue1
-VerifyNicValue2
 VerifyPvtIps
 }
 }
@@ -2184,6 +2162,16 @@ Write-Host "No Compatble OS Found, please verify the extension is compatible wit
 exit
 }
 }
+Function TestUpload {
+$folderexist = Test-Path -Path $localFolder
+if(!$folderexist)
+{
+Write-Host "Folder Doesn't Exist"
+exit }
+else
+{ Upload }
+}
+
 Function Upload {
 $Keys = Get-AzureRmStorageAccountKey -ResourceGroupName $ResourceGroupName -Name $StorageName;
 $StorageContext = New-AzureStorageContext -StorageAccountName $StorageName -StorageAccountKey $Keys[0].Value;
@@ -2223,7 +2211,10 @@ Log-Command -Description $Description -LogFile $LogOutFile
 }
 		"customscript" {
 Write-Host "Updating server with custom script"
-if($CustomScriptUpload -eq 'True') {Upload}
+if($CustomScriptUpload -eq 'True') 
+{
+TestUpload
+}
 Set-AzureRmVMCustomScriptExtension -Name $customextname -ContainerName $containerName -ResourceGroupName $ResourceGroupName -VMName $VMName -StorageAccountName $StorageName -FileName $scriptname -Location $Location -TypeHandlerVersion "1.1"
 Get-AzureRmVMCustomScriptExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name $customextname
 $Description = "Added VM Custom Script Extension"
@@ -2316,7 +2307,7 @@ $pubip =  Get-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $R
 if($extvm)
 { Write-Host "Host VM Found, please use a different VMName for Provisioning or manually delete the existing VM" -ForegroundColor Red
  Start-sleep 10
-exit  }
+Exit }
 else {if($nic1)
 { Write-Host "Nic1 already Exists, removing orphan" -ForegroundColor DarkYellow
 Remove-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Force -Confirm:$False
@@ -2374,7 +2365,7 @@ AzureVersion # Verifies Azure client Powershell Version
 VerifyProfile # Attempts to use json file for auth, falls back on Add-AzureRmAccount
 chknull # Verifies required fields have data
 OrphanChk # Verifies no left overs
-VerifyNet # Verifies Subnet and static IP Address will work as defined
+# VerifyNet # Verifies Subnet and static IP Address will work as defined
 StorageNameCheck # Verifies Storage Account Name does not exist
 
 try {
