@@ -1,14 +1,15 @@
 ﻿<#
 .SYNOPSIS
-Written By John N Lewis
+Written By John Lewis
 email: jonos@live.com
-Ver 5.6
+Ver 5.7
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
 The script allows select of subnet prior to VM Deployment
 The script supports deploying Availability Sets as well as adding new servers to existing Availability Sets through the -AvailabilitySet "True" and -AvailSetName switches.
 The script will generate a name for azure storage endpoint unless the -StorageName variable is updated or referenced at runtime.
 
+v5.7 updates - .Sourcing Functions Now Supported
 v5.6 updates - Added Ability to upload custom scripts to blob for use by VM
 v5.5 updates - Logic Checking for Extensions
 v5.4 updates - Aligned Syntax with User Guide
@@ -376,7 +377,7 @@ $Azautoacct = "DSC-Auto",
 [string]
 $Profile = "",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[ValidateSet("diag","msav","access","linuxbackup","chefagent","eset","customscript","opsinsightLinux","opsinsightWin","WinPuppet","domjoin")]
+[ValidateSet("diag","msav","access","linuxbackup","chefagent","eset","customscript","opsinsightLinux","opsinsightWin","WinPuppet","domjoin","RegisterAzDSC")]
 [Alias("ext")]
 [string]
 $AzExtConfig = 'diag',
@@ -434,8 +435,6 @@ $Output = $LogOut+'. '
 Write-Host $Output -ForegroundColor white
 ((Get-Date -UFormat "[%d-%m-%Y %H:%M:%S] ") + $Output) | Out-File -FilePath $LogOutFile -Append -Force
 }
-
-
 
 Function VerifyPvtIps {
 if($PvtIPNic1)
@@ -528,6 +527,13 @@ exit }
 }
 
 Function PubIPconfig {
+	param(
+	[string]$vNetResourceGroupName = $vNetResourceGroupName,
+	[string]$Location = $Location,
+	[string]$ResourceGroupName = $ResourceGroupName,
+	[string]$InterfaceName1 = $InterfaceName1,
+	[string]$DNLabel = $DNLabel
+	)
 if($AddFQDN -eq 'True')
 {
 $global:PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -Location $Location -AllocationMethod "Dynamic" -DomainNameLabel $DNLabel –Confirm:$false -WarningAction SilentlyContinue
@@ -552,6 +558,18 @@ Write-Host "No DNS Name Specified"
 }
 
 Function ConfigNet {
+	param(
+	[string]$vNetResourceGroupName = $vNetResourceGroupName,
+	[string]$Location = $Location,
+	[string]$ResourceGroupName = $ResourceGroupName,
+	[string]$InterfaceName1 = $InterfaceName1,
+	[string]$InterfaceName2 = $InterfaceName2,
+	[int]$Subnet1 = $Subnet1,
+	[int]$Subnet2 = $Subnet2,
+	[ipaddress]$PvtIPNic1 = $PvtIPNic1,
+	[ipaddress]$PvtIPNic2 = $PvtIPNic2,
+	[string]$ConfigIps = $ConfigIps
+	)
 switch ($ConfigIPs)
 	{
 		"PvtDualStat" {
@@ -722,6 +740,11 @@ Function RegisterRP {
 }
 
 Function AvailSet {
+	param(
+		[string]$ResourceGroupName = $ResourceGroupName,
+		[string]$Location = $Location,
+		[string]$AvailSetName = $AvailSetName
+)
  try {
  If ($AddAvailabilitySet -eq 'True')
  {
@@ -750,12 +773,18 @@ catch {
  }
 
  function Provvms {
+	 param (
+	[string]$ResourceGroupName = $ResourceGroupName,
+	[string]$Location = $Location,
+	[string]$VirtualMachine = $VirtualMachine
+	 )
 	$ProvisionVMs = @($VirtualMachine);
 try {
    foreach($provisionvm in $ProvisionVMs) {
 		New-AzureRmVM -ResourceGroupName $ResourceGroupName -Location $Location -VM $VirtualMachine –Confirm:$false -WarningAction SilentlyContinue | Out-Null
 		$LogOut = "Completed Creation of $VMName from $vmMarketImage"
 		Log-Command -Description $LogOut -LogFile $LogOutFile
+		WriteResults # Provides Post-Deployment Description
 						}
 	}
 catch {
@@ -775,12 +804,13 @@ $global:VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskNa
 
 Function MakeImagePlanInfo_Bitnami_Lamp {
 param(
-[string]$Publisher = 'bitnami',
-[string]$offer = 'lampstack',
-[string]$Skus = '5-6',
-[string]$version = 'latest',
-[string]$Product = 'lampstack',
-[string]$name = '5-6'
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'bitnami',
+	[string]$offer = 'lampstack',
+	[string]$Skus = '5-6',
+	[string]$version = 'latest',
+	[string]$Product = 'lampstack',
+	[string]$name = '5-6'
 )
 Write-Host "Image Creation in Process - Plan Info - LampStack" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -792,12 +822,13 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 Function MakeImagePlanInfo_Bitnami_elastic {
 param(
-[string]$Publisher = 'bitnami',
-[string]$offer = 'elastic-search',
-[string]$Skus = '2-2',
-[string]$version = 'latest',
-[string]$Product = 'elastic-search',
-[string]$name = '2-2'
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'bitnami',
+	[string]$offer = 'elastic-search',
+	[string]$Skus = '2-2',
+	[string]$version = 'latest',
+	[string]$Product = 'elastic-search',
+	[string]$name = '2-2'
 )
 Write-Host "Image Creation in Process - Plan Info - Elastic Search" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -807,12 +838,13 @@ $global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -Publisher
 }
 Function MakeImagePlanInfo_Bitnami_jenkins {
 param(
-[string]$Publisher = 'bitnami',
-[string]$offer = 'jenkins',
-[string]$Skus = '1-650',
-[string]$version = 'latest',
-[string]$Product = 'jenkins',
-[string]$name = '1-650'
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'bitnami',
+	[string]$offer = 'jenkins',
+	[string]$Skus = '1-650',
+	[string]$version = 'latest',
+	[string]$Product = 'jenkins',
+	[string]$name = '1-650'
 )
 Write-Host "Image Creation in Process - Plan Info - Jenkins" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -823,12 +855,13 @@ $global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -Publisher
 
 Function MakeImagePlanInfo_Microsoft_ServerR {
 param(
-[string]$Publisher = 'microsoft-r-products',
-[string]$offer = 'microsoft-r-server',
-[string]$Skus = 'msr80-win2012r2',
-[string]$version = 'latest',
-[string]$Product = 'microsoft-r-server',
-[string]$name = 'msr80-win2012r2'
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'microsoft-r-products',
+	[string]$offer = 'microsoft-r-server',
+	[string]$Skus = 'msr80-win2012r2',
+	[string]$version = 'latest',
+	[string]$Product = 'microsoft-r-server',
+	[string]$name = 'msr80-win2012r2'
 )
 Write-Host "Image Creation in Process - Plan Info - Microsoft R Server" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -838,12 +871,13 @@ $global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -Publisher
 }
 Function MakeImagePlanInfo_Bitnami_tomcat {
 param(
-[string]$Publisher = 'bitnami',
-[string]$offer = 'tom-cat',
-[string]$Skus = '7-0',
-[string]$version = 'latest',
-[string]$Product = 'tom-cat',
-[string]$name = '7-0'
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'bitnami',
+	[string]$offer = 'tom-cat',
+	[string]$Skus = '7-0',
+	[string]$version = 'latest',
+	[string]$Product = 'tom-cat',
+	[string]$name = '7-0'
 )
 Write-Host "Image Creation in Process - Plan Info - Tom-Cat" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -854,12 +888,13 @@ $global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -Publisher
 
 Function MakeImagePlanInfo_Bitnami_redis {
 param(
-[string]$Publisher = 'bitnami',
-[string]$offer = 'redis',
-[string]$Skus = '3-2',
-[string]$version = 'latest',
-[string]$Product = 'redis',
-[string]$name = '3-2'
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'bitnami',
+	[string]$offer = 'redis',
+	[string]$Skus = '3-2',
+	[string]$version = 'latest',
+	[string]$Product = 'redis',
+	[string]$name = '3-2'
 )
 Write-Host "Image Creation in Process - Plan Info - Redis"
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -869,12 +904,13 @@ $global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -Publisher
 }
 Function MakeImagePlanInfo_Bitnami_neos {
 param(
-[string]$Publisher = 'bitnami',
-[string]$offer = 'neos',
-[string]$Skus = '2-0',
-[string]$version = 'latest',
-[string]$Product = 'neos',
-[string]$name = '2-0'
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'bitnami',
+	[string]$offer = 'neos',
+	[string]$Skus = '2-0',
+	[string]$version = 'latest',
+	[string]$Product = 'neos',
+	[string]$name = '2-0'
 )
 Write-Host "Image Creation in Process - Plan Info - neos"
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -884,12 +920,13 @@ $global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -Publisher
 }
 Function MakeImagePlanInfo_Bitnami_hadoop {
 param(
-[string]$Publisher = 'bitnami',
-[string]$offer = 'hadoop',
-[string]$Skus = '2-7',
-[string]$version = 'latest',
-[string]$Product = 'hadoop',
-[string]$name = '2-7'
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'bitnami',
+	[string]$offer = 'hadoop',
+	[string]$Skus = '2-7',
+	[string]$version = 'latest',
+	[string]$Product = 'hadoop',
+	[string]$name = '2-7'
 )
 Write-Host "Image Creation in Process - Plan Info - hadoop"
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -899,12 +936,13 @@ $global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -Publisher
 }
 Function MakeImagePlanInfo_Bitnami_gitlab {
 param(
-[string]$Publisher = 'bitnami',
-[string]$offer = 'gitlab',
-[string]$Skus = '8-5',
-[string]$version = 'latest',
-[string]$Product = 'gitlab',
-[string]$name = '8-5'
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'bitnami',
+	[string]$offer = 'gitlab',
+	[string]$Skus = '8-5',
+	[string]$version = 'latest',
+	[string]$Product = 'gitlab',
+	[string]$name = '8-5'
 )
 Write-Host "Image Creation in Process - Plan Info - gitlab"
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -914,12 +952,13 @@ $global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -Publisher
 }
 Function MakeImagePlanInfo_Bitnami_jrubystack {
 param(
-[string]$Publisher = 'bitnami',
-[string]$offer = 'jrubystack',
-[string]$Skus = '9-0',
-[string]$version = 'latest',
-[string]$Product = 'jrubystack',
-[string]$name = '9-0'
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'bitnami',
+	[string]$offer = 'jrubystack',
+	[string]$Skus = '9-0',
+	[string]$version = 'latest',
+	[string]$Product = 'jrubystack',
+	[string]$name = '9-0'
 )
 Write-Host "Image Creation in Process - Plan Info - jrubystack"
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -930,12 +969,13 @@ $global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -Publisher
 
 Function MakeImagePlanInfo_Bitnami_mongodb {
 param(
-[string]$Publisher = 'bitnami',
-[string]$offer = 'mongodb',
-[string]$Skus = '3-2',
-[string]$version = 'latest',
-[string]$Product = 'mongodb',
-[string]$name = '3-2'
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'bitnami',
+	[string]$offer = 'mongodb',
+	[string]$Skus = '3-2',
+	[string]$version = 'latest',
+	[string]$Product = 'mongodb',
+	[string]$name = '3-2'
 )
 Write-Host "Image Creation in Process - Plan Info - MongoDb" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -945,12 +985,13 @@ $global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -Publisher
 }
 Function MakeImagePlanInfo_Bitnami_mysql {
 param(
-[string]$Publisher = 'bitnami',
-[string]$offer = 'mysql',
-[string]$Skus = '5-6',
-[string]$version = 'latest',
-[string]$Product = 'mysql',
-[string]$name = '5-6'
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'bitnami',
+	[string]$offer = 'mysql',
+	[string]$Skus = '5-6',
+	[string]$version = 'latest',
+	[string]$Product = 'mysql',
+	[string]$name = '5-6'
 )
 Write-Host "Image Creation in Process - Plan Info - MySql" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -962,12 +1003,13 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 Function MakeImagePlanInfo_Bitnami_nginxstack {
 param(
-[string]$Publisher = 'bitnami',
-[string]$offer = 'nginxstack',
-[string]$Skus = '1-9',
-[string]$version = 'latest',
-[string]$Product = 'nginxstack',
-[string]$name = '1-9'
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'bitnami',
+	[string]$offer = 'nginxstack',
+	[string]$Skus = '1-9',
+	[string]$version = 'latest',
+	[string]$Product = 'nginxstack',
+	[string]$name = '1-9'
 )
 Write-Host "Image Creation in Process - Plan Info - Nginxstack" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -979,12 +1021,13 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 Function MakeImagePlanInfo_Bitnami_nodejs {
 param(
-[string]$Publisher = 'bitnami',
-[string]$offer = 'nodejs',
-[string]$Skus = '4-3',
-[string]$version = 'latest',
-[string]$Product = 'nodejs',
-[string]$name = '4-3'
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'bitnami',
+	[string]$offer = 'nodejs',
+	[string]$Skus = '4-3',
+	[string]$version = 'latest',
+	[string]$Product = 'nodejs',
+	[string]$name = '4-3'
 )
 Write-Host "Image Creation in Process - Plan Info - Nodejs" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -996,12 +1039,13 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 Function MakeImagePlanInfo_Bitnami_postgresql {
 param(
-[string]$Publisher = 'bitnami',
-[string]$offer = 'postgresql',
-[string]$Skus = '9-5',
-[string]$version = 'latest',
-[string]$Product = 'postgresql',
-[string]$name = '9-5'
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'bitnami',
+	[string]$offer = 'postgresql',
+	[string]$Skus = '9-5',
+	[string]$version = 'latest',
+	[string]$Product = 'postgresql',
+	[string]$name = '9-5'
 )
 Write-Host "Image Creation in Process - Plan Info - postgresql" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -1013,12 +1057,13 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 Function MakeImagePlanInfo_Oracle_linux {
 param(
-[string]$Publisher = 'Oracle',
-[string]$offer = 'Oracle-Linux',
-[string]$Skus = '7.2',
-[string]$version = 'latest',
-[string]$Product = 'Oracle-Linux',
-[string]$name = '7.2'
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'Oracle',
+	[string]$offer = 'Oracle-Linux',
+	[string]$Skus = '7.2',
+	[string]$version = 'latest',
+	[string]$Product = 'Oracle-Linux',
+	[string]$name = '7.2'
 )
 Write-Host "Image Creation in Process - Plan Info - Oracle Linux" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -1030,12 +1075,13 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 Function MakeImagePlanInfo_Oracle_weblogic {
 param(
-[string]$Publisher = 'Oracle',
-[string]$offer = 'Oracle-WebLogic-server',
-[string]$Skus = 'Oracle-WebLogic-Server',
-[string]$version = 'latest',
-[string]$Product = 'Oracle-WebLogic-Server',
-[string]$name = 'Oracle-WebLogic-Server'
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'Oracle',
+	[string]$offer = 'Oracle-WebLogic-server',
+	[string]$Skus = 'Oracle-WebLogic-Server',
+	[string]$version = 'latest',
+	[string]$Product = 'Oracle-WebLogic-Server',
+	[string]$name = 'Oracle-WebLogic-Server'
 )
 Write-Host "Image Creation in Process - Plan Info - Oracle WebLogic" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -1047,12 +1093,13 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 Function MakeImagePlanInfo_Oracle_EntDB {
 param(
-[string]$Publisher = 'Oracle',
-[string]$offer = 'Oracle-database-Ee',
-[string]$Skus = '12.1.0.2',
-[string]$version = 'latest',
-[string]$Product = '12.1.0.2',
-[string]$name = 'Oracle-database-Ee'
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'Oracle',
+	[string]$offer = 'Oracle-database-Ee',
+	[string]$Skus = '12.1.0.2',
+	[string]$version = 'latest',
+	[string]$Product = '12.1.0.2',
+	[string]$name = 'Oracle-database-Ee'
 )
 Write-Host "Image Creation in Process - Plan Info - Oracle Enterprise Edition" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -1064,12 +1111,13 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 Function MakeImagePlanInfo_Oracle_StdDB {
 param(
-[string]$Publisher = 'Oracle',
-[string]$offer = 'Oracle-database-Se',
-[string]$Skus = '12.1.0.2',
-[string]$version = 'latest',
-[string]$Product = '12.1.0.2',
-[string]$name = 'Oracle-database-Se'
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'Oracle',
+	[string]$offer = 'Oracle-database-Se',
+	[string]$Skus = '12.1.0.2',
+	[string]$version = 'latest',
+	[string]$Product = '12.1.0.2',
+	[string]$name = 'Oracle-database-Se'
 )
 Write-Host "Image Creation in Process - Plan Info - Oracle Standard Edition" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -1081,12 +1129,13 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 Function MakeImagePlanInfo_SAP_ase {
 param(
-[string]$Publisher = 'sap',
-[string]$offer = 'ase',
-[string]$Skus = 'ase_hourly',
-[string]$version = 'latest',
-[string]$Product = 'ase_hourly',
-[string]$name = 'ase'
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'sap',
+	[string]$offer = 'ase',
+	[string]$Skus = 'ase_hourly',
+	[string]$version = 'latest',
+	[string]$Product = 'ase_hourly',
+	[string]$name = 'ase'
 )
 Write-Host "Image Creation in Process - Plan Info - SAP - ASE" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -1099,12 +1148,13 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 
 Function MakeImagePlanInfo_puppet_puppetent {
 param(
-[string]$Publisher = 'Puppet',
-[string]$offer = 'Puppet-Enterprise',
-[string]$Skus = '2016-1',
-[string]$version = 'latest',
-[string]$Product = '2016-1',
-[string]$name = 'Puppet-Enterprise'
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'Puppet',
+	[string]$offer = 'Puppet-Enterprise',
+	[string]$Skus = '2016-1',
+	[string]$version = 'latest',
+	[string]$Product = '2016-1',
+	[string]$name = 'Puppet-Enterprise'
 )
 Write-Host "Image Creation in Process - Plan Info - Puppet Enterprise" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -1116,12 +1166,13 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 Function MakeImagePlanInfo_splunk {
 param(
-[string]$Publisher = 'Splunk',
-[string]$offer = 'splunk-enterprise-base-image',
-[string]$Skus = 'splunk-on-ubuntu-14-04-lts',
-[string]$version = 'latest',
-[string]$Product = 'splunk-on-ubuntu-14-04-lts',
-[string]$name = 'splunk-enterprise-base-image'
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'Splunk',
+	[string]$offer = 'splunk-enterprise-base-image',
+	[string]$Skus = 'splunk-on-ubuntu-14-04-lts',
+	[string]$version = 'latest',
+	[string]$Product = 'splunk-on-ubuntu-14-04-lts',
+	[string]$name = 'splunk-enterprise-base-image'
 )
 Write-Host "Image Creation in Process - Plan Info - Puppet Enterprise" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -1133,12 +1184,13 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 Function MakeImagePlanInfo_SolarWinds {
 param(
-[string]$Publisher = 'solarwinds',
-[string]$offer = 'solarwinds-database-performance-analyzer',
-[string]$Skus = 'dpa-byol',
-[string]$version = 'latest',
-[string]$Product = 'solarwinds-database-performance-analyzer',
-[string]$name = 'dpa-byol'
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'solarwinds',
+	[string]$offer = 'solarwinds-database-performance-analyzer',
+	[string]$Skus = 'dpa-byol',
+	[string]$version = 'latest',
+	[string]$Product = 'solarwinds-database-performance-analyzer',
+	[string]$name = 'dpa-byol'
 )
 Write-Host "Image Creation in Process - Plan Info - SolarWinds" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -1151,12 +1203,13 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 
 Function MakeImagePlanInfo_Barracuda_ng_firewall_hourly {
 param(
-[string]$Publisher = 'Barracudanetworks',
-[string]$offer = 'barracuda-ng-firewall',
-[string]$Skus = 'hourly',
-[string]$version = 'latest',
-[string]$Product = 'barracuda-ng-firewall',
-[string]$name = 'hourly'
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'Barracudanetworks',
+	[string]$offer = 'barracuda-ng-firewall',
+	[string]$Skus = 'hourly',
+	[string]$version = 'latest',
+	[string]$Product = 'barracuda-ng-firewall',
+	[string]$name = 'hourly'
 )
 Write-Host "Image Creation in Process - Plan Info - Barracuda Firewall " -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -1169,12 +1222,13 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 
 Function MakeImagePlanInfo_Barracuda_ng_firewall_byol {
 param(
-[string]$Publisher = 'Barracudanetworks',
-[string]$offer = 'barracuda-ng-firewall',
-[string]$Skus = 'byol',
-[string]$version = 'latest',
-[string]$Product = 'barracuda-ng-firewall',
-[string]$name = 'byol'
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'Barracudanetworks',
+	[string]$offer = 'barracuda-ng-firewall',
+	[string]$Skus = 'byol',
+	[string]$version = 'latest',
+	[string]$Product = 'barracuda-ng-firewall',
+	[string]$name = 'byol'
 )
 Write-Host "Image Creation in Process - Plan Info - Barracuda NG Firewall " -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -1187,12 +1241,13 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 
 Function MakeImagePlanInfo_Barracuda_spam_firewall_byol {
 param(
-[string]$Publisher = 'Barracudanetworks',
-[string]$offer = 'barracuda-spam-firewall',
-[string]$Skus = 'byol',
-[string]$version = 'latest',
-[string]$Product = 'barracuda-spam-firewall',
-[string]$name = 'byol'
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'Barracudanetworks',
+	[string]$offer = 'barracuda-spam-firewall',
+	[string]$Skus = 'byol',
+	[string]$version = 'latest',
+	[string]$Product = 'barracuda-spam-firewall',
+	[string]$name = 'byol'
 )
 Write-Host "Image Creation in Process - Plan Info - Barracuda SPAM Firewall " -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -1205,12 +1260,13 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 
 Function MakeImagePlanInfo_Barracuda_spam_firewall_hourly {
 param(
-[string]$Publisher = 'Barracudanetworks',
-[string]$offer = 'barracuda-spam-firewall',
-[string]$Skus = 'hourly',
-[string]$version = 'latest',
-[string]$Product = 'barracuda-spam-firewall',
-[string]$name = 'hourly'
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'Barracudanetworks',
+	[string]$offer = 'barracuda-spam-firewall',
+	[string]$Skus = 'hourly',
+	[string]$version = 'latest',
+	[string]$Product = 'barracuda-spam-firewall',
+	[string]$name = 'hourly'
 )
 Write-Host "Image Creation in Process - Plan Info - Barracuda SPAM Firewall " -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -1223,12 +1279,13 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 
 Function MakeImagePlanInfo_f5_bigip_good_byol {
 param(
-[string]$Publisher = 'F5-networks',
-[string]$offer = 'f5-big-ip',
-[string]$Skus = 'f5-bigip-virtual-edition-good-byol',
-[string]$version = 'latest',
-[string]$Product = 'f5-big-ip',
-[string]$name = 'f5-bigip-virtual-edition-good-byol'
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'F5-networks',
+	[string]$offer = 'f5-big-ip',
+	[string]$Skus = 'f5-bigip-virtual-edition-good-byol',
+	[string]$version = 'latest',
+	[string]$Product = 'f5-big-ip',
+	[string]$name = 'f5-bigip-virtual-edition-good-byol'
 )
 Write-Host "Image Creation in Process - Plan Info - F5 BIG IP - BYOL" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -1241,12 +1298,13 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 
 Function MakeImagePlanInfo_f5_webappfire_byol {
 param(
-[string]$Publisher = 'F5-networks',
-[string]$offer = 'f5-web-application-firewall',
-[string]$Skus = 'f5-waf-solution-byol',
-[string]$version = 'latest',
-[string]$Product = 'f5-web-application-firewall',
-[string]$name = 'f5-waf-solution-byol'
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'F5-networks',
+	[string]$offer = 'f5-web-application-firewall',
+	[string]$Skus = 'f5-waf-solution-byol',
+	[string]$version = 'latest',
+	[string]$Product = 'f5-web-application-firewall',
+	[string]$name = 'f5-waf-solution-byol'
 )
 Write-Host "Image Creation in Process - Plan Info - F5 WebApp Firewall- BYOL" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -1259,12 +1317,13 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 
 Function MakeImagePlanInfo_Pfsense {
 param(
-[string]$Publisher = 'netgate',
-[string]$offer = 'netgate-pfsense-appliance',
-[string]$Skus = 'pfsense-router-fw-vpn-225',
-[string]$version = 'latest',
-[string]$Product = 'netgate-pfsense-appliance',
-[string]$name = 'pfsense-router-fw-vpn-225'
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'netgate',
+	[string]$offer = 'netgate-pfsense-appliance',
+	[string]$Skus = 'pfsense-router-fw-vpn-225',
+	[string]$version = 'latest',
+	[string]$Product = 'netgate-pfsense-appliance',
+	[string]$name = 'pfsense-router-fw-vpn-225'
 )
 Write-Host "Image Creation in Process - Plan Info - Pfsense" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -1277,12 +1336,13 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 
 Function MakeImagePlanInfo_Checkpoint {
 param(
-[string]$Publisher = 'checkpoint',
-[string]$offer = 'check-point-r77-10',
-[string]$Skus = 'sg-ngtp',
-[string]$version = 'latest',
-[string]$Product = 'check-point-r77-10',
-[string]$name = 'sg-ngtp'
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'checkpoint',
+	[string]$offer = 'check-point-r77-10',
+	[string]$Skus = 'sg-ngtp',
+	[string]$version = 'latest',
+	[string]$Product = 'check-point-r77-10',
+	[string]$name = 'sg-ngtp'
 )
 Write-Host "Image Creation in Process - Plan Info - Checkpoint" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -1295,10 +1355,11 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 
 Function MakeImageNoPlanInfo_RedHat67 {
 param(
-[string]$Publisher = "Redhat",
-[string]$offer = "rhel",
-[string]$Skus = "6.7",
-[string]$version = "latest"
+	[string]$VMName = $VMName,
+	[string]$Publisher = "Redhat",
+	[string]$offer = "rhel",
+	[string]$Skus = "6.7",
+	[string]$version = "latest"
 )
 Write-Host "Image Creation in Process - No Plan Info - RedHat 6.7" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -1310,10 +1371,11 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 
 Function MakeImageNoPlanInfo_RedHat72 {
 param(
-[string]$Publisher = "Redhat",
-[string]$offer = "rhel",
-[string]$Skus = "7.2",
-[string]$version = "latest"
+	[string]$VMName = $VMName,
+	[string]$Publisher = "Redhat",
+	[string]$offer = "rhel",
+	[string]$Skus = "7.2",
+	[string]$version = "latest"
 )
 Write-Host "Image Creation in Process - No Plan Info - Redhat 7.2" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -1325,10 +1387,11 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 
 Function MakeImageNoPlanInfo_FreeBsd {
 param(
-[string]$Publisher = "MicrosoftOSTC",
-[string]$offer = "FreeBSD",
-[string]$Skus = "10.3",
-[string]$version = "latest"
+	[string]$VMName = $VMName,
+	[string]$Publisher = "MicrosoftOSTC",
+	[string]$offer = "FreeBSD",
+	[string]$Skus = "10.3",
+	[string]$version = "latest"
 )
 Write-Host "Image Creation in Process - No Plan Info - FreeBsd" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -1340,10 +1403,11 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 
 Function MakeImageNoPlanInfo_CentOs {
 param(
-[string]$Publisher = "OpenLogic",
-[string]$offer = "Centos",
-[string]$Skus = "7.2",
-[string]$version = "latest"
+	[string]$VMName = $VMName,
+	[string]$Publisher = "OpenLogic",
+	[string]$offer = "Centos",
+	[string]$Skus = "7.2",
+	[string]$version = "latest"
 
 )
 Write-Host "Image Creation in Process - No Plan Info - CentOs" -ForegroundColor White
@@ -1356,10 +1420,11 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 
 Function MakeImageNoPlanInfo_Suse {
 param(
-[string]$Publisher = "Suse",
-[string]$offer = "openSUSE",
-[string]$Skus = "13.2",
-[string]$version = "latest"
+	[string]$VMName = $VMName,
+	[string]$Publisher = "Suse",
+	[string]$offer = "openSUSE",
+	[string]$Skus = "13.2",
+	[string]$version = "latest"
 )
 Write-Host "Image Creation in Process - No Plan Info - SUSE" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -1371,10 +1436,11 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 
 Function MakeImageNoPlanInfo_Ubuntu {
 param(
-[string]$Publisher = "Canonical",
-[string]$offer = "UbuntuServer",
-[string]$Skus = "14.04.4-LTS",
-[string]$version = "latest"
+	[string]$VMName = $VMName,
+	[string]$Publisher = "Canonical",
+	[string]$offer = "UbuntuServer",
+	[string]$Skus = "14.04.4-LTS",
+	[string]$version = "latest"
 )
 Write-Host "Image Creation in Process - No Plan Info - Ubuntu" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -1386,12 +1452,13 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 
 Function MakeImagePlanInfo_Chef {
 param(
-[string]$Publisher = 'chef-software',
-[string]$offer = 'chef-server',
-[string]$Skus = 'azure_marketplace_100',
-[string]$version = 'latest',
-[string]$Product = 'chef-server',
-[string]$name = 'azure_marketplace_100'
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'chef-software',
+	[string]$offer = 'chef-server',
+	[string]$Skus = 'azure_marketplace_100',
+	[string]$version = 'latest',
+	[string]$Product = 'chef-server',
+	[string]$name = 'azure_marketplace_100'
 )
 Write-Host "Image Creation in Process - Plan Info - Chef" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -1404,10 +1471,11 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 
 Function MakeImageNoPlanInfo_w2k12 {
 param(
-[string]$Publisher = "MicrosoftWindowsServer",
-[string]$offer = "WindowsServer",
-[string]$Skus = "2012-R2-Datacenter",
-[string]$version = "latest"
+	[string]$VMName = $VMName,
+	[string]$Publisher = "MicrosoftWindowsServer",
+	[string]$offer = "WindowsServer",
+	[string]$Skus = "2012-R2-Datacenter",
+	[string]$version = "latest"
 )
 Write-Host "Image Creation in Process - No Plan Info - W2k12 server" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -1419,10 +1487,11 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 
 Function MakeImageNoPlanInfo_w2k8 {
 param(
-[string]$Publisher = "MicrosoftWindowsServer",
-[string]$offer = "WindowsServer",
-[string]$Skus = "2008-R2-SP1",
-[string]$version = "latest"
+	[string]$VMName = $VMName,
+	[string]$Publisher = "MicrosoftWindowsServer",
+	[string]$offer = "WindowsServer",
+	[string]$Skus = "2008-R2-SP1",
+	[string]$version = "latest"
 )
 Write-Host "Image Creation in Process - No Plan Info - W2k8 server" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -1434,10 +1503,11 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 
 Function MakeImageNoPlanInfo_SharePoint2k13 {
 param(
-[string]$Publisher = "MicrosoftSharePoint",
-[string]$offer = "MicrosoftSharePointServer",
-[string]$Skus = "2013",
-[string]$version = "latest"
+	[string]$VMName = $VMName,
+	[string]$Publisher = "MicrosoftSharePoint",
+	[string]$offer = "MicrosoftSharePointServer",
+	[string]$Skus = "2013",
+	[string]$version = "latest"
 )
 Write-Host "Image Creation in Process - No Plan Info - SharePoint 2013 server" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -1449,10 +1519,11 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 
 Function MakeImageNoPlanInfo_SharePoint2k16 {
 param(
-[string]$Publisher = "MicrosoftSharePoint",
-[string]$offer = "MicrosoftSharePointServer",
-[string]$Skus = "2016",
-[string]$version = "latest"
+	[string]$VMName = $VMName,
+	[string]$Publisher = "MicrosoftSharePoint",
+	[string]$offer = "MicrosoftSharePointServer",
+	[string]$Skus = "2016",
+	[string]$version = "latest"
 )
 Write-Host "Image Creation in Process - No Plan Info - SharePoint 2016 server" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -1464,10 +1535,11 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 
 Function MakeImageNoPlanInfo_w2k16 {
 param(
-[string]$Publisher = "MicrosoftWindowsServer",
-[string]$offer = "WindowsServer",
-[string]$Skus = "Windows-Server-Technical-Preview",
-[string]$version = "latest"
+	[string]$VMName = $VMName,
+	[string]$Publisher = "MicrosoftWindowsServer",
+	[string]$offer = "WindowsServer",
+	[string]$Skus = "Windows-Server-Technical-Preview",
+	[string]$version = "latest"
 )
 Write-Host "Image Creation in Process - No Plan Info - W2k16 server" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -1479,10 +1551,11 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 
 Function MakeImageNoPlanInfo_sql2k16 {
 param(
-[string]$Publisher = "MicrosoftSQLServer",
-[string]$offer = "SQL2016-WS2012R2",
-[string]$Skus = "Enterprise",
-[string]$version = "latest"
+	[string]$VMName = $VMName,
+	[string]$Publisher = "MicrosoftSQLServer",
+	[string]$offer = "SQL2016-WS2012R2",
+	[string]$Skus = "Enterprise",
+	[string]$version = "latest"
 )
 Write-Host "Image Creation in Process - No Plan Info - SQL 2016" -ForegroundColor White
 Write-Host $Publisher $offer $Skus $version
@@ -1492,7 +1565,29 @@ $LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Sku
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
-Function ProvisionNet {
+Function CreateVnet {
+param(
+[string]$VNETName = $VNetName,
+[string]$VNETResourceGroupName = $vNetResourceGroupName,
+[string]$AddRange = $AddRange,
+[string]$Location = $Location,
+[string]$SubnetAddPrefix1 = $SubnetAddPrefix1,
+[string]$SubnetNameAddPrefix1 = $SubnetNameAddPrefix1,
+[string]$SubnetAddPrefix2 = $SubnetAddPrefix2,
+[string]$SubnetNameAddPrefix2 = $SubnetNameAddPrefix2,
+[string]$SubnetAddPrefix3 = $SubnetAddPrefix3,
+[string]$SubnetNameAddPrefix3 = $SubnetNameAddPrefix3,
+[string]$SubnetAddPrefix4 = $SubnetAddPrefix4,
+[string]$SubnetNameAddPrefix4 = $SubnetNameAddPrefix4,
+[string]$SubnetAddPrefix5 = $SubnetAddPrefix5,
+[string]$SubnetNameAddPrefix5 = $SubnetNameAddPrefix5,
+[string]$SubnetAddPrefix6 = $SubnetAddPrefix6,
+[string]$SubnetNameAddPrefix6 = $SubnetNameAddPrefix6,
+[string]$SubnetAddPrefix7 = $SubnetAddPrefix7,
+[string]$SubnetNameAddPrefix7 = $SubnetNameAddPrefix7,
+[string]$SubnetAddPrefix8 = $SubnetAddPrefix8,
+[string]$SubnetNameAddPrefix8 = $SubnetNameAddPrefix8
+)
 Write-Host "Network Preparation in Process.."
 $subnet1 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix $SubnetAddPrefix1 -Name $SubnetNameAddPrefix1
 $subnet2 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix $SubnetAddPrefix2 -Name $SubnetNameAddPrefix2
@@ -1511,6 +1606,11 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 
 # End of Provision VNET Function
 Function CreateNSG {
+param(
+[string]$NSGName = $NSGName,
+[string]$Location = $Location,
+[string]$VNETResourceGroupName = $vNetResourceGroupName
+)
 Write-Host "Network Security Group Preparation in Process.."
 $httprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTP" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "80" -DestinationPortRange "80" -SourceAddressPrefix "*" -DestinationAddressPrefix "10.120.0.0/21" -Access Allow -Direction Inbound -Priority 200
 $httpsrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTPS" -Description "HTTPS Exception for Web frontends" -Protocol Tcp -SourcePortRange "443" -DestinationPortRange "443" -SourceAddressPrefix "*" -DestinationAddressPrefix "10.120.0.0/21" -Access Allow -Direction Inbound -Priority 201
@@ -1719,6 +1819,12 @@ New-AzureRmResourceGroup -Name $resourceGroupName -Location $Location –Confirm
 }
 
 Function CreateStorage {
+		param(
+		[string]$StorageName = $StorageName,
+		[string]$ResourceGroupName = $ResourceGroupName,
+		[string]$StorageType = $StorageType,
+		[string]$Location = $Location
+	)
 Write-Host "Starting Storage Creation.."
 $Global:StorageAccount = New-AzureRmStorageAccount -ResourceGroupName $ResourceGroupName -Name $StorageName.ToLower() -Type $StorageType -Location $Location -ErrorAction Stop -WarningAction SilentlyContinue
 Write-Host "Completed Storage Creation" -ForegroundColor White
@@ -1726,7 +1832,53 @@ $LogOut = "Storage Configuration completed: $StorageName"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 } # Creates Storage
 
-Function ImageConfig {
+Function CreateVM {
+	param(
+	[string]$VMName = $VMName,
+	[ValidateSet("w2k12","w2k8","red67","red72","suse","free","ubuntu","centos","w2k16","sql2016","chef","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","puppet","serverr","solarwinds","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack","hadoop","neos","tomcat","redis","gitlab","jruby")]
+	[string]
+	$vmMarketImage = $vmMarketImage,
+	[string]
+	[ValidateSet("Single","Dual","NoPubDual","PvtDualStat","StatPvtNoPubSingle","PvtSingleStat","StatPvtNoPubDual","NoPubSingle")]
+	$ConfigIps = $ConfigIps,
+	[string]
+	$StorageName = -join ((65..90) + (97..122) | Get-Random -Count 6 | % {[char]$_}) + "str",
+	[string]
+	$ResourceGroupName = $ResourceGroupName,
+	[ValidateSet("True","False")]
+	[string]
+	$NSGEnabled = $NSGEnabled,
+	[string]
+	$NSGName = $NSGName,
+	[string]
+	$VNETResourceGroupName = $vNetResourceGroupName,
+	[string]
+	$StorageType = $StorageType,
+	[string]
+	$Location = $Location,
+	[ValidateSet("True","False")]
+	[string]
+	$AddAvailabilitySet = $AddAvailabilitySet,
+	[string]
+	$VNETName = $VNetName,
+	[string]
+	$InterfaceName1 = $VMName + "_nic1",
+	[string]
+	$InterfaceName2 = $VMName + "_nic2",
+	[int]
+	$Subnet1 = $Subnet1,
+	[int]
+	$Subnet2 = $Subnet2,
+	[ipaddress]
+	$PvtIPNic1 = $PvtIPNic1,
+	[ipaddress]
+	$PvtIPNic2 = $PvtIPNic2,
+	[string]
+	$DNLabel = $DNLabel,
+	[ValidateSet("True","False")]
+	[string]
+	$AddFQDN = $AddFQDN
+	)
 switch -Wildcard ($vmMarketImage)
 	{
 		"*pfsense*" {
@@ -2129,15 +2281,6 @@ switch -Wildcard ($vmMarketImage)
 	}
 }
 
-Function RegisterAutoDSC {
-$ActionAfterReboot = 'ContinueConfiguration'
-$configmode = 'ApplyAndAutocorrect'
-$AutoAcctName = $Azautoacct
-$NodeName = -join $VMNAME+".node"
-$ConfigurationName = -join $VMNAME+".node"
-
-Register-AzureRmAutomationDscNode -AutomationAccountName $AutoAcctName -AzureVMName $VMName -ActionAfterReboot $ActionAfterReboot -ConfigurationMode $configmode -RebootNodeIfNeeded $True -ResourceGroupName $ResourceGroupName -NodeConfigurationName $ConfigurationName -AzureVMLocation $Location -AzureVMResourceGroup $ResourceGroupName -Verbose
-}
 Function ExtCompatWin {
 if($vmMarketImage -eq 'w2k12') {Write-Host "Found Windows $vmMarketImage"}
 	elseif($vmMarketImage -eq 'w2k8') {Write-Host "Found Windows $vmMarketImage"}
@@ -2178,25 +2321,37 @@ $StorageContext = New-AzureStorageContext -StorageAccountName $StorageName -Stor
 New-AzureStorageContainer -Context $StorageContext -Name $containerName;
 $storageAccountKey = Get-AzureRmStorageAccountKey -ResourceGroupName $ResourceGroupName -Name $StorageName;
 $blobContext = New-AzureStorageContext -StorageAccountName $StorageName -StorageAccountKey $Keys[0].Value;
-$files = Get-ChildItem $localFolder 
+$files = Get-ChildItem $localFolder
 foreach($file in $files)
 {
   $fileName = "$localFolder\$file"
   $blobName = "$file"
   write-host "copying $fileName to $blobName"
   Set-AzureStorageBlobContent -File $filename -Container $containerName -Blob $blobName -Context $blobContext -Force -BlobType Append
-} 
+  Get-AzureStorageBlob -Container $containerName -Context $blobContext -Blob $blobName
+}
 write-host "All files in $localFolder uploaded to $containerName!"
 }
 
-
 Function InstallExt {
+	param(
+		[string]$AzExtConfig = $AzExtConfig,
+		[string]$NSGName = $NSGName,
+		[string]$Location = $Location,
+		[string]$ResourceGroupName = $ResourceGroupName,
+		[string]$StorageName = $StorageName,
+		[string]$VMName = $VMName,
+		[string]$containerName = $containerName,
+		[string]$DomName = $DomName,
+		[string]$customextname = $customextname
+
+	)
 switch ($AzExtConfig)
 	{
 		"access" {
 ExtCompatWin
 Write-Host "VM Access Agent VM Image Preparation in Process"
-Set-AzureRmVMAccessExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "VMAccess" -typeHandlerVersion "2.0" -Location $Location -Verbose -username $locadmin -password $locpassword
+Set-AzureRmVMAccessExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "VMAccess" -typeHandlerVersion "2.0" -Location $Location -Verbose -username $locadmin -password $locpassword | ft ProvisioningState
 Get-AzureRmVMAccessExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name "VMAccess" -Status
 $Description = "Added VM Access Extension"
 Log-Command -Description $Description -LogFile $LogOutFile
@@ -2211,12 +2366,12 @@ Log-Command -Description $Description -LogFile $LogOutFile
 }
 		"customscript" {
 Write-Host "Updating server with custom script"
-if($CustomScriptUpload -eq 'True') 
+if($CustomScriptUpload -eq 'True')
 {
 TestUpload
 }
-Set-AzureRmVMCustomScriptExtension -Name $customextname -ContainerName $containerName -ResourceGroupName $ResourceGroupName -VMName $VMName -StorageAccountName $StorageName -FileName $scriptname -Location $Location -TypeHandlerVersion "1.1"
-Get-AzureRmVMCustomScriptExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name $customextname
+Set-AzureRmVMCustomScriptExtension -Name $customextname -ContainerName $containerName -ResourceGroupName $ResourceGroupName -VMName $VMName -StorageAccountName $StorageName -FileName $scriptname -Location $Location -TypeHandlerVersion "1.1" | Out-Null
+Get-AzureRmVMCustomScriptExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Name $customextname -Status | Out-Null
 $Description = "Added VM Custom Script Extension"
 Log-Command -Description $Description -LogFile $LogOutFile
 }
@@ -2231,7 +2386,7 @@ Log-Command -Description $Description -LogFile $LogOutFile
 ExtCompatWin
 $DomName = 'aip.local'
 Write-Host "Domain Join active"
-Set-AzureRmVMADDomainExtension -DomainName $DomName -ResourceGroupName $ResourceGroupName -VMName $VMName -Location $Location -Name 'DomJoin' -WarningAction SilentlyContinue -Restart
+Set-AzureRmVMADDomainExtension -DomainName $DomName -ResourceGroupName $ResourceGroupName -VMName $VMName -Location $Location -Name 'DomJoin' -WarningAction SilentlyContinue -Restart | ft ProvisioningState
 Get-AzureRmVMADDomainExtension -ResourceGroupName $ResourceGroupName  -VMName $VMName -Name 'DomJoin'
 $Description = "Added VM Domain Join Extension"
 Log-Command -Description $Description -LogFile $LogOutFile
@@ -2284,6 +2439,17 @@ Get-AzureRmVMExtension -ResourceGroupName $ResourceGroupName -VMName $VMName -Na
 $Description = "Added ESET Extension"
 Log-Command -Description $Description -LogFile $LogOutFile
 }
+		"RegisterAzDSC" {
+Write-Host "Registering with Azure Automation DSC"
+$ActionAfterReboot = 'ContinueConfiguration'
+$configmode = 'ApplyAndAutocorrect'
+$AutoAcctName = $Azautoacct
+$NodeName = -join $VMNAME+".node"
+$ConfigurationName = -join $VMNAME+".node"
+Register-AzureRmAutomationDscNode -AutomationAccountName $AutoAcctName -AzureVMName $VMName -ActionAfterReboot $ActionAfterReboot -ConfigurationMode $configmode -RebootNodeIfNeeded $True -ResourceGroupName $ResourceGroupName -NodeConfigurationName $ConfigurationName -AzureVMLocation $Location -AzureVMResourceGroup $ResourceGroupName -Verbose
+$Description = "Registered with Azure Automation DSC"
+Log-Command -Description $Description -LogFile $LogOutFile
+}
 		"WinPuppet" {
 ExtCompatWin
 Write-Host "Deploying Puppet Extension"
@@ -2299,6 +2465,13 @@ break
 } # Deploys Azure Extensions
 
 Function OrphanChk {
+	param(
+		[string]$InterfaceName1  = $InterfaceName1,
+		[string]$InterfaceName2  = $InterfaceName2,
+		[string]$Location = $Location,
+		[string]$ResourceGroupName = $ResourceGroupName,
+		[string]$VMName = $VMName
+	)
 $extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
 $nic1 = Get-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
 $nic2 = Get-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
@@ -2349,6 +2522,9 @@ else
 }
 Function StorageNameCheck
 {
+	param(
+		[string]$StorageName  = $StorageName
+	)
 $checkname =  Get-AzureRmStorageAccountNameAvailability -Name $StorageName | Select-Object -ExpandProperty NameAvailable
 if($checkname -ne 'True') {
 Write-Host "Storage Account Name in use, please choose a different name for your storage account"
@@ -2365,12 +2541,7 @@ AzureVersion # Verifies Azure client Powershell Version
 VerifyProfile # Attempts to use json file for auth, falls back on Add-AzureRmAccount
 chknull # Verifies required fields have data
 OrphanChk # Verifies no left overs
-# VerifyNet # Verifies Subnet and static IP Address will work as defined
 StorageNameCheck # Verifies Storage Account Name does not exist
-
-try {
-	[Microsoft.Azure.Common.Authentication.AzureSession]::ClientFactory.AddUserAgent("VSAzureTools-$UI$($host.name)".replace(" ","_"), "2.9")
-} catch { }
 
 try {
 Get-AzureRmResourceGroup -Location $Location -ErrorAction Stop | Out-Null
@@ -2380,7 +2551,6 @@ catch {
 	"User has not authenticated, use Add-AzureRmAccount or $($_.Exception.Message)"; `
 	continue
 }
- # Check if Orphans exist.
 
  $resourceProviders = @("microsoft.compute","microsoft.network","microsoft.storage");
  if($resourceProviders.length) {
@@ -2397,20 +2567,17 @@ if($resourcegroups.length) {
 	}
 } # Create Resource Groups
 
-WriteConfig
+WriteConfig # Provides Pre-Deployment Description
 
-if($AddVnet -eq 'True'){ProvisionNet} # Creates VNET
+if($AddVnet -eq 'True'){CreateVnet} # Creates VNET
 
-if($NSGEnabled -eq 'True'){CreateNSG}
+if($NSGEnabled -eq 'True'){CreateNSG} # Creates NSG and Security Groups
 
-ImageConfig # Configure Image
+CreateVM # Configure Image
 
 if($NSGEnabled -eq 'True'){NSGEnabled} #Adds NSG to NIC
 
-
 if($AddExtension -eq 'True'){InstallExt} #Installs Azure Extensions
-
-WriteResults
 
 if($AddVPN -eq 'True'){
 CreateVPN
