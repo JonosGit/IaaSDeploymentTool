@@ -2,13 +2,14 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 5.71
+Ver 5.8
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
 The script allows select of subnet prior to VM Deployment
 The script supports deploying Availability Sets as well as adding new servers to existing Availability Sets through the -AvailabilitySet "True" and -AvailSetName switches.
 The script will generate a name for azure storage endpoint unless the -StorageName variable is updated or referenced at runtime.
 
+v5.8 updates - Updated UI to align with .Sourcing
 v5.71 updates - HF Provisioning Function
 v5.7 updates - .Sourcing Functions Now Supported
 v5.6 updates - Added Ability to upload custom scripts to blob for use by VM
@@ -207,7 +208,7 @@ Param(
 [ValidateSet("w2k12","w2k8","red67","red72","suse","free","ubuntu","centos","w2k16","sql2016","chef","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","puppet","serverr","solarwinds","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack","hadoop","neos","tomcat","redis","gitlab","jruby")]
 [Alias("image")]
 [string]
-$vmMarketImage = "",
+$vmMarketImage = 'w2k12',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateSet("True","False")]
 [string]
@@ -215,7 +216,7 @@ $AddVnet = 'True',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
 [Alias("vm")]
 [string]
-$VMName = "",
+$VMName = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=2)]
 [Alias("rg")]
 [string]
@@ -227,15 +228,15 @@ $vNetResourceGroupName = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("vnet")]
 [string]
-$VNetName = "vnet",
+$VNetName = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateSet("Single","Dual","NoPubDual","PvtDualStat","StatPvtNoPubSingle","PvtSingleStat","StatPvtNoPubDual","NoPubSingle")]
 [string]
-$ConfigIPs = "Dual",
+$ConfigIPs = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateSet("Standard_A3","Standard_A4","Standard_A2")]
 [string]
-$VMSize = "Standard_A3",
+$VMSize = 'Standard_A3',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $locadmin = 'localadmin',
@@ -249,7 +250,7 @@ $locpassword = 'P@ssW0rd!',
 $NSGEnabled = 'False',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$Location = "WestUs",
+$Location = 'WestUs',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $SubscriptionID = '',
@@ -261,22 +262,22 @@ $TenantID = '',
 $GenerateName = -join ((65..90) + (97..122) | Get-Random -Count 6 | % {[char]$_}) + "aip",
 [Parameter(Mandatory=$False)]
 [string]
-$StorageName = $VMName + "str",
+$StorageName = $VMName + 'str',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateSet("Standard_LRS","Standard_GRS")]
 [string]
-$StorageType = "Standard_GRS",
+$StorageType = 'Standard_GRS',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("int1")]
 [string]
-$InterfaceName1 = $VMName + "_nic1",
+$InterfaceName1 = $VMName + '_nic1',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("int2")]
 [string]
 $InterfaceName2 = $VMName + "_nic2",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$NSGName = "NSG",
+$NSGName = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateRange(0,8)]
 [Alias("sub1")]
@@ -1713,6 +1714,89 @@ Write-Host "                                                               "
 }
 }
 
+Function WriteConfigVM {
+Write-Host "                                                               "
+$time = " Start Time " + (Get-Date -UFormat "%d-%m-%Y %H:%M:%S")
+Write-Host VM CONFIGURATION - $time --------------- -ForegroundColor Cyan
+Write-Host "                                                               "
+Write-Host "VM Name: $VMName " -ForegroundColor White
+Write-Host "Resource Group Name: $ResourceGroupName"
+Write-Host "Server Type: $vmMarketImage"
+Write-Host "Geo Location: $Location"
+Write-Host "VNET Name: $vNetName"
+Write-Host "Storage Account Name:  $StorageName"
+Write-Host "Storage Account Type:  $StorageType"
+SelectNicDescrtipt
+If ($ConfigIPs -eq "StatPvtNoPubSingle")
+{ Write-Host "Public Ip Will not be created" -ForegroundColor White
+Write-Host "Nic1: $PvtIPNic1"
+SubnetMatch $Subnet1
+}
+If ($ConfigIPs -eq "StatPvtNoPubDual")
+{ Write-Host "Public Ip Will not be created" -ForegroundColor White
+Write-Host "Nic1: $PvtIPNic1"
+Write-Host "Nic2: $PvtIPNic2"
+SubnetMatch $Subnet1
+SubnetMatch $Subnet2
+}
+If ($ConfigIPs -eq "Single")
+{ Write-Host "Public Ip Will be created"
+SubnetMatch $Subnet1
+}
+If ($ConfigIPs -eq "Dual")
+{ Write-Host "Public Ip Will be created"
+SubnetMatch $Subnet1
+SubnetMatch $Subnet2
+}
+If ($ConfigIPs -eq "PvtSingleStat")
+{ Write-Host "Public Ip Will be created"
+SubnetMatch $Subnet1
+Write-Host "Nic1: $PvtIPNic1"
+}
+If ($ConfigIPs -eq "PvtDualStat")
+{ Write-Host "Public Ip Will be created"
+SubnetMatch $Subnet1
+SubnetMatch $Subnet2
+Write-Host "Nic1: $PvtIPNic1"
+Write-Host "Nic2: $PvtIPNic2"
+}
+if($AddExtension -eq 'True') {
+Write-Host "Extension selected for deployment: $AzExtConfig "
+}
+if($AddAvailabilitySet -eq 'True') {
+Write-Host "Availability Set to 'True'"
+Write-Host "Availability Set Name:  '$AvailSetName'"
+Write-Host "                                                               "
+Write-Host "--------------------------------------------------------------" -ForegroundColor Cyan
+Write-Host "                                                               "
+}
+else
+{
+Write-Host "Availability Set to 'False'" -ForegroundColor White
+Write-Host "                                                               "
+Write-Host "--------------------------------------------------------------" -ForegroundColor Cyan
+Write-Host "                                                               "
+}
+}
+
+Function WriteConfigVnet {
+Write-Host "                                                               "
+$time = " Start Time " + (Get-Date -UFormat "%d-%m-%Y %H:%M:%S")
+Write-Host VNET CONFIGURATION - $time --------------- -ForegroundColor Cyan
+Write-Host "                                                               "
+Write-Host "Geo Location: $Location"
+Write-Host "VNET Name: $vNetName"
+Write-Host "VNET Resource Group Name: $vNetResourceGroupName"
+Write-Host "Address Range:  $AddRange"
+if($NSGEnabled -eq 'True')
+{
+Write-Host "NSG Name: $NSGName"
+}
+Write-Host "                                                               "
+Write-Host "--------------------------------------------------------------" -ForegroundColor Cyan
+Write-Host "                                                               "
+}
+
 Function WriteResults {
 Write-Host "                                                               "
 Write-Host "--------------------------------------------------------------" -ForegroundColor Cyan
@@ -1842,7 +1926,7 @@ Function CreateVM {
 	[ValidateSet("Single","Dual","NoPubDual","PvtDualStat","StatPvtNoPubSingle","PvtSingleStat","StatPvtNoPubDual","NoPubSingle")]
 	$ConfigIps = $ConfigIps,
 	[string]
-	$StorageName = -join ((65..90) + (97..122) | Get-Random -Count 6 | % {[char]$_}) + "str",
+	$StorageName = 	$StorageName,
 	[string]
 	$ResourceGroupName = $ResourceGroupName,
 	[ValidateSet("True","False")]
@@ -1882,6 +1966,7 @@ Function CreateVM {
 switch -Wildcard ($vmMarketImage)
 	{
 		"*pfsense*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -1891,6 +1976,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*free*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -1900,6 +1986,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*red72*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -1909,6 +1996,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*red67*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -1918,6 +2006,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*w2k12*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -1927,6 +2016,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*sql2016*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -1936,6 +2026,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*check*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -1945,6 +2036,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*cent*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -1954,6 +2046,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*Suse*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -1963,6 +2056,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*w2k8*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -1972,6 +2066,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*w2k16*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -1981,6 +2076,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*chef*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -1990,6 +2086,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*lamp*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -1999,6 +2096,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*mongodb*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -2008,6 +2106,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*mysql*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -2017,6 +2116,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*elastics*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -2026,6 +2126,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*nodejs*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -2035,6 +2136,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*nginxstack*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -2044,6 +2146,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*postgressql*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -2053,6 +2156,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*oracle-linux*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -2062,6 +2166,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*web-logic*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -2071,6 +2176,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*entdb-oracle*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -2080,6 +2186,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*stddb-oracle*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -2089,6 +2196,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*puppet*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -2098,6 +2206,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*splunk*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -2107,6 +2216,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*share2013*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -2116,6 +2226,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*share2016*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -2125,6 +2236,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*serverr*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -2134,6 +2246,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*ubuntu*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -2143,6 +2256,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*f5bigip*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -2152,6 +2266,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*f5appfire*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -2161,6 +2276,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*barrahourngfw*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -2170,6 +2286,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*barrabyolngfw*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -2179,6 +2296,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*barrahourspam*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -2188,6 +2306,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*barrabyolspam*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -2197,6 +2316,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*sap*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -2206,6 +2326,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*solarwinds*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -2215,6 +2336,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*hadoop*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -2224,6 +2346,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*tomcat*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -2233,6 +2356,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*redis*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -2242,6 +2366,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*neos*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -2251,6 +2376,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*gitlab*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -2260,6 +2386,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*jruby*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -2269,6 +2396,7 @@ switch -Wildcard ($vmMarketImage)
 			Provvms
 }
 		"*jenkins*" {
+			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
@@ -2386,8 +2514,8 @@ Log-Command -Description $Description -LogFile $LogOutFile
 ExtCompatWin
 $DomName = 'aip.local'
 Write-Host "Domain Join active"
-Set-AzureRmVMADDomainExtension -DomainName $DomName -ResourceGroupName $ResourceGroupName -VMName $VMName -Location $Location -Name 'DomJoin' -WarningAction SilentlyContinue -Restart | ft ProvisioningState
-Get-AzureRmVMADDomainExtension -ResourceGroupName $ResourceGroupName  -VMName $VMName -Name 'DomJoin'
+Set-AzureRmVMADDomainExtension -DomainName $DomName -ResourceGroupName $ResourceGroupName -VMName $VMName -Location $Location -Name 'DomJoin' -WarningAction SilentlyContinue -Restart | Out-Null
+Get-AzureRmVMADDomainExtension -ResourceGroupName $ResourceGroupName  -VMName $VMName -Name 'DomJoin' | Out-Null
 $Description = "Added VM Domain Join Extension"
 Log-Command -Description $Description -LogFile $LogOutFile
 }
@@ -2567,8 +2695,8 @@ if($resourcegroups.length) {
 	}
 } # Create Resource Groups
 
-WriteConfig # Provides Pre-Deployment Description
-
+# WriteConfig # Provides Pre-Deployment Description
+WriteConfigVNet
 if($AddVnet -eq 'True'){CreateVnet} # Creates VNET
 
 if($NSGEnabled -eq 'True'){CreateNSG} # Creates NSG and Security Groups
