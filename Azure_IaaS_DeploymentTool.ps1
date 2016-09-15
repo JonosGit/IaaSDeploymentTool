@@ -2,13 +2,14 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 5.7
+Ver 5.71
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
 The script allows select of subnet prior to VM Deployment
 The script supports deploying Availability Sets as well as adding new servers to existing Availability Sets through the -AvailabilitySet "True" and -AvailSetName switches.
 The script will generate a name for azure storage endpoint unless the -StorageName variable is updated or referenced at runtime.
 
+v5.71 updates - HF Provisioning Function
 v5.7 updates - .Sourcing Functions Now Supported
 v5.6 updates - Added Ability to upload custom scripts to blob for use by VM
 v5.5 updates - Logic Checking for Extensions
@@ -775,8 +776,7 @@ catch {
  function Provvms {
 	 param (
 	[string]$ResourceGroupName = $ResourceGroupName,
-	[string]$Location = $Location,
-	[string]$VirtualMachine = $VirtualMachine
+	[string]$Location = $Location
 	 )
 	$ProvisionVMs = @($VirtualMachine);
 try {
