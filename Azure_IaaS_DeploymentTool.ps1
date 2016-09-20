@@ -2,14 +2,15 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 5.9
+Ver 6.0
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
 The script allows select of subnet prior to VM Deployment
 The script supports deploying Availability Sets as well as adding new servers to existing Availability Sets through the -AvailabilitySet "True" and -AvailSetName switches.
 The script will generate a name for azure storage endpoint unless the -StorageName variable is updated or referenced at runtime.
 
-v5.9 updates - Moved -add parameters to [switch] added Remove object functionality
+v6.0 updates - Added Remove Functions to script, added subnet correction validation for static IPs and Storage
+v5.9 updates - Moved -add parameters to [switch]
 v5.8 updates - Updated UI to align with .Sourcing
 v5.71 updates - HF Provisioning Function
 v5.7 updates - .Sourcing Functions Now Supported
@@ -130,6 +131,8 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 
 .PARAMETER AzExtConfig
 
+.PARAMETER RemoveObject
+
 .EXAMPLE
 \.azdeploy.ps1 -vm pf001 -image pfsense -rg ResGroup1 -vnetrg ResGroup2 -addvnet -vnet VNET -sub1 3 -sub2 4 -ConfigIPs DualPvtNoPub -Nic1 10.120.2.7 -Nic2 10.120.3.7
 .EXAMPLE
@@ -140,6 +143,10 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 \.azdeploy.ps1 -vm win008 -image w2k16 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -sub1 5 -ConfigIPs PvtSingleStat -Nic1 10.120.4.169 -AddFQDN -fqdn mydns1
 .EXAMPLE
 \.azdeploy.ps1 -vm ubu001 -image ubuntu -RG ResGroup1 -vnetrg ResGroup2 -VNet VNET -sub1 6 -ConfigIPs PvtSingleStat -Nic1 10.120.5.169 -AddFQDN fqdn mydns2
+.EXAMPLE
+\.azdeploy.ps1 -vm ubu001 -RG ResGroup1 -RemoveObject VM
+.EXAMPLE
+\.azdeploy.ps1 -RG ResGroup1 -RemoveObject rg
 .NOTES
 -ConfigIps  <Configuration>
 			PvtSingleStat & PvtDualStat – Deploys the server with a Public IP and the private IP(s) specified by the user.
@@ -236,6 +243,10 @@ $ConfigIPs = '',
 [switch]
 $NSGEnabled,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateSet("vm","vnet","rg","nsg","extension","storage","availabilityset")]
+[string]
+$RemoveObject = '',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateSet("Standard_A3","Standard_A4","Standard_A2")]
 [string]
 $VMSize = 'Standard_A3',
@@ -279,12 +290,12 @@ $NSGName = 'nsg',
 [ValidateRange(0,8)]
 [Alias("sub1")]
 [Int]
-$Subnet1 = '',
+$Subnet1 = $global:Subnet1,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateRange(0,8)]
 [Alias("sub2")]
 [int]
-$Subnet2 = '',
+$Subnet2 = $global:Subnet2,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateSet("True","False")]
 [Alias("avset")]
@@ -401,14 +412,7 @@ $customextname = 'customscript',
 $scriptfolder = "C:\Temp",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$localfolder = "$scriptfolder\customscripts",
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[ValidateSet("vm","vnet","rg","nsg","extension","storage","availabilityset")]
-[string]
-$RemoveObject = 'vm',
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[switch]
-$RemoveResource
+$localfolder = "$scriptfolder\customscripts"
 )
 
 # Global
@@ -453,23 +457,15 @@ $global:Subnet1 = $subnetcalc
 Write-Host "Updating Subnet1 to correct subnet"
 Write-Host "Subnet1: $global:Subnet1"
 }
+else
+{
+Write-Host "correct subnet"
+$global:Subnet1 = $Subnet1
+}
 }
 }
 
-Function VerifyPvtIps {
-if($PvtIPNic1)
-	{
-	[int]$subnet = $Subnet1
-	$ip = $PvtIPNic1
-	$array = $ip.Split(".")
-	[int]$subnetint = $array[2]
-	[int]$subnetcalc = ($subnetint + 1)
-if($subnetcalc -ne $subnet){
-$global:Subnet1 = $subnetcalc
-Write-Host "Updating Subnet1 to correct subnet"
-Write-Host "Subnet1: $global:Subnet1"
-}
-}
+Function VerifyPvtIp2 {
 if($PvtIPNic2)
 	{
 	[int]$subnet = $Subnet2
@@ -480,7 +476,12 @@ if($PvtIPNic2)
 if($subnetcalc -ne $subnet){
 $global:Subnet2 = $subnetcalc
 Write-Host "Updating Subnet2 to correct subnet"
-Write-Host "Subnet2: $global:Subnet2"
+Write-Host "Subnet1: $global:Subnet2"
+}
+else
+{
+Write-Host "correct subnet"
+$global:Subnet2 = $Subnet2
 }
 }
 }
@@ -504,14 +505,18 @@ VerifyPvtIp
 }
 If ($ConfigIPs -eq "StatPvtNoPubDual")
 { Write-Host "Subnet IP Validation" -ForegroundColor White
-VerifyPvtIps
+VerifyPvtIp
+VerifyPvtIp2
 }
 If ($ConfigIPs -eq "Single")
 { Write-Host "Skipping Subnet IP Validation"
+$global:Subnet1 = $Subnet1
 }
 
 If ($ConfigIPs -eq "Dual")
 { Write-Host "Skipping Subnet IP Validation"
+$global:Subnet1 = $Subnet1
+$global:Subnet2 = $Subnet2
 }
 If ($ConfigIPs -eq "PvtSingleStat")
 { Write-Host "Subnet IP Validation"
@@ -519,7 +524,8 @@ VerifyPvtIp
 }
 If ($ConfigIPs -eq "PvtDualStat")
 { Write-Host "Subnet IP Validation"
-VerifyPvtIps
+VerifyPvtIp
+VerifyPvtIp2
 }
 }
 
@@ -1921,6 +1927,7 @@ Get-AzureRmPublicIpAddress -ResourceGroupName $rg | select-object -ExpandPropert
 }
 ResultsRollup
 Write-Host "                                                               "
+break
 }
 
 Function ResultsRollup {
@@ -2751,7 +2758,6 @@ Param(
 )
 Write-Host "Removing VM"
 Remove-AzureRmVm -Name $VMName -ResourceGroupName $rg -ErrorAction Stop -Confirm:$False -Force
-OrphanChk
  $LogOut = "Removed $VMName"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
@@ -2832,23 +2838,24 @@ Remove-azRg
 }
 		"vm" {
 Remove-azVM
-EndState
+OrphanChk
+break
 }
 		"nsg" {
 Remove-azNSG
-EndState
+break
 }
 		"vnet" {
 Remove-azVNET
-EndState
+break
 }
 		"storage" {
 Remove-AzStorage
-EndState
+break
 }
 		"availabilityset" {
 Remove-AzAvailabilitySet
-EndState
+break
 }
 		default{"An unsupported uninstall Extension command was used"
 break
@@ -2900,7 +2907,7 @@ catch {
 	}
  } # Get Resource Providers
 
-if($RemoveResource){RemoveComponent} #Adds NSG to NIC
+if($RemoveObject){ RemoveComponent } #Adds NSG to NIC
 OrphanChk # Verifies no left overs
 VerifyNet
 chknull # Verifies required fields have data
