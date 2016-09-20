@@ -16,7 +16,7 @@ The script will retrive all network components in a Resource Group including VNE
 Param(
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
  [string]
- $ResourceGroupName = 'xres',
+ $ResourceGroupName = 'resx',
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
  $Location = "WestUs"
@@ -24,7 +24,7 @@ Param(
 
 
 Function VerifyProfile {
-$ProfileFile = "c:\Temp\outlook.json"
+$ProfileFile = "C:\Users\admin\OneDrive\Scripts\Powershell\Roaming\Azure\outlook.json"
 $fileexist = Test-Path $ProfileFile
   if($fileexist)
   {Write-Host "Profile Found"
