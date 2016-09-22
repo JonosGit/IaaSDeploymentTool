@@ -2,13 +2,14 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 6.0
+Ver 6.1
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
 The script allows select of subnet prior to VM Deployment
 The script supports deploying Availability Sets as well as adding new servers to existing Availability Sets through the -AvailabilitySet "True" and -AvailSetName switches.
 The script will generate a name for azure storage endpoint unless the -StorageName variable is updated or referenced at runtime.
 
+v6.1 updates - Modified Prodile to save to script execution directory, added -help switch.
 v6.0 updates - Added Remove Functions to script, added subnet correction validation for static IPs and Storage
 v5.9 updates - Moved -add parameters to [switch]
 v5.8 updates - Updated UI to align with .Sourcing
@@ -133,6 +134,8 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 
 .PARAMETER RemoveObject
 
+.PARAMETER Help
+
 .EXAMPLE
 \.azdeploy.ps1 -vm pf001 -image pfsense -rg ResGroup1 -vnetrg ResGroup2 -addvnet -vnet VNET -sub1 3 -sub2 4 -ConfigIPs DualPvtNoPub -Nic1 10.120.2.7 -Nic2 10.120.3.7
 .EXAMPLE
@@ -213,18 +216,22 @@ https://github.com/JonosGit/IaaSDeploymentTool/blob/master/The%20IaaS%20Deployme
 [CmdletBinding()]
 Param(
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=1)]
+[ValidateNotNullorEmpty()]
 [ValidateSet("w2k12","w2k8","red67","red72","suse","free","ubuntu","centos","w2k16","sql2016","chef","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","puppet","serverr","solarwinds","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack","hadoop","neos","tomcat","redis","gitlab","jruby")]
 [Alias("image")]
 [string]
 $vmMarketImage = 'w2k12',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
+[ValidateNotNullorEmpty()]
 [Alias("vm")]
 [string]
 $VMName = '',
+[ValidateNotNullorEmpty()]
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=2)]
 [string]
 $rg = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateNotNullorEmpty()]
 [string]
 $vnetrg = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
@@ -236,6 +243,7 @@ $AddVnet,
 $VNetName = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateSet("Single","Dual","NoPubDual","PvtDualStat","StatPvtNoPubSingle","PvtSingleStat","StatPvtNoPubDual","NoPubSingle")]
+[ValidateNotNullorEmpty()]
 [string]
 $ConfigIPs = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
@@ -247,16 +255,20 @@ $NSGEnabled,
 [string]
 $RemoveObject = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateNotNullorEmpty()]
 [ValidateSet("Standard_A3","Standard_A4","Standard_A2")]
 [string]
 $VMSize = 'Standard_A3',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateNotNullorEmpty()]
 [string]
 $locadmin = 'localadmin',
 [Parameter(Mandatory=$false,ValueFromPipelinebyPropertyName=$true)]
+[ValidateNotNullorEmpty()]
 [string]
 $locpassword = 'P@ssW0rd!',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateNotNullorEmpty()]
 [string]
 $Location = 'WestUs',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
@@ -276,6 +288,7 @@ $StorageName = $VMName + 'str',
 [string]
 $StorageType = 'Standard_GRS',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateNotNullorEmpty()]
 [Alias("int1")]
 [string]
 $InterfaceName1 = $VMName + '_nic1',
@@ -284,15 +297,17 @@ $InterfaceName1 = $VMName + '_nic1',
 [string]
 $InterfaceName2 = $VMName + "_nic2",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateNotNullorEmpty()]
 [string]
-$NSGName = 'nsg',
+$NSGName = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[ValidateRange(0,8)]
+[ValidateRange(1,8)]
 [Alias("sub1")]
 [Int]
 $Subnet1 = $global:Subnet1,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[ValidateRange(0,8)]
+[ValidateRange(1,8)]
+[ValidateNotNullorEmpty()]
 [Alias("sub2")]
 [int]
 $Subnet2 = $global:Subnet2,
@@ -312,9 +327,11 @@ $DNLabel = 'mytesr1',
 [switch]
 $AddFQDN,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateNotNullorEmpty()]
 [Alias("nic1")]
 $PvtIPNic1 = '10.10.0.0',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateNotNullorEmpty()]
 [Alias("nic2")]
 $PvtIPNic2 = '10.10.0.0',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
@@ -382,7 +399,7 @@ $SubnetNameAddPrefix8 = "deployment",
 $Azautoacct = "DSC-Auto",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$Profile = "C:\temp\profile.json",
+$Profile = "profile",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateSet("diag","msav","access","linuxbackup","chefagent","eset","customscript","opsinsightLinux","opsinsightWin","WinPuppet","domjoin","RegisterAzDSC")]
 [Alias("ext")]
@@ -412,30 +429,44 @@ $customextname = 'customscript',
 $scriptfolder = "C:\Temp",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$localfolder = "$scriptfolder\customscripts"
+$localfolder = "$scriptfolder\customscripts",
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateSet("network","vm","summary","extension")]
+[string]
+$infoset = 'network',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[switch]
+$getinfo,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[switch]
+$help
 )
 
-# Global
-$date = Get-Date -UFormat "%Y-%m-%d-%H-%M"
-$workfolder = Split-Path $script:MyInvocation.MyCommand.Path
-$LogOutFile = $workfolder+'\'+$vmname+'-'+$date+'.log'
 $SecureLocPassword=Convertto-SecureString $locpassword –asplaintext -Force
 $Credential1 = New-Object System.Management.Automation.PSCredential ($locadmin,$SecureLocPassword)
 
-Function Verifyprofile {
+Function validate-profile {
 $comparedate = (Get-Date).AddDays(-14)
-$fileexist = Test-Path $Profile -NewerThan $comparedate
+$fileexist = Test-Path $ProfileFile -NewerThan $comparedate
   if($fileexist)
   {
-  Select-AzureRmProfile -Path $Profile | Out-Null
+  Select-AzureRmProfile -Path $ProfileFile | Out-Null
   }
   else
   {
   Write-Host "Please enter your credentials"
   Add-AzureRmAccount
-  Save-AzureRmProfile -Path $Profile -Force
-  Write-Host "Saved Profile to $Profile"
+  Save-AzureRmProfile -Path $ProfileFile -Force
+  Write-Host "Saved Profile to $ProfileFile"
+  exit
   }
+}
+
+Function Help-User {
+Write-Host "Don't know where to start? Here are some examples:"
+Write-Host "azure_iaas_deployment_tool.ps1 -vm myvm01 -rg myresgrp -vnetrg myresgrp -configips single -vnetname vnet -addvnet"
+Write-Host "azure_iaas_deployment_tool.ps1 -getinfo -infoset network -rg myresgrp"
+Write-Host "There are more examples at the top of the script that might be helpful"
 }
 
 Function Log-Command ([string]$Description, [string]$logFile, [string]$VMName){
@@ -510,11 +541,15 @@ VerifyPvtIp2
 }
 If ($ConfigIPs -eq "Single")
 { Write-Host "Skipping Subnet IP Validation"
+if($Subnet1 -le 2)
+{$subnet1 = 2}
 $global:Subnet1 = $Subnet1
 }
 
 If ($ConfigIPs -eq "Dual")
 { Write-Host "Skipping Subnet IP Validation"
+if($Subnet1 -le 2){$subnet1 = 2}
+if($Subnet2 -le 2){$subnet2 = 2}
 $global:Subnet1 = $Subnet1
 $global:Subnet2 = $Subnet2
 }
@@ -558,7 +593,7 @@ Function PubIPconfig {
 	[string]$InterfaceName1 = $InterfaceName1,
 	[string]$DNLabel = $DNLabel
 	)
-if($AddFQDN -eq 'True')
+if($AddFQDN)
 {
 $global:PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -AllocationMethod "Dynamic" -DomainNameLabel $DNLabel –Confirm:$false -WarningAction SilentlyContinue
 $LogOut = "Completed Public DNS record creation $DNLabel.$Location.cloudapp.azure.com"
@@ -571,7 +606,7 @@ $global:PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupNam
 }
 
 Function PubDNSconfig {
-if($AddFQDN -eq 'True')
+if($AddFQDN)
 {
 Write-Host "Creating FQDN: " $DNLabel.$Location.cloudapp.azure.com
 }
@@ -824,7 +859,6 @@ try {
 		New-AzureRmVM -ResourceGroupName $rg -Location $Location -VM $VirtualMachine –Confirm:$false -WarningAction SilentlyContinue | Out-Null
 		$LogOut = "Completed Creation of $VMName from $vmMarketImage"
 		Log-Command -Description $LogOut -LogFile $LogOutFile
-		WriteResults # Provides Post-Deployment Description
 						}
 	}
 catch {
@@ -1853,15 +1887,18 @@ Write-Host "Resource Group Name: $rg"
 Write-Host "Server Type: $vmMarketImage"
 Write-Host "VNET Resource Group Name: $vnetrg" -ForegroundColor White
 Write-Host "VNET Name: $VNetName" -ForegroundColor White
-Write-Host "Storage Account Name:  $StorageName"
+Write-Host "Storage Account Name:  $StorageNameVerified"
 
 $vm = Get-AzureRmvm -ResourceGroupName $rg -Name $VMName
+$strprofile = $vm.StorageProfile
+$disktype = $strprofile.OsDisk | Select-Object -ExpandProperty OSType
+$osdiskuri = $strprofile.OsDisk | Select-Object -ExpandProperty Vhd
 $storage = $vm.StorageProfile
 $disk = $storage.OsDisk
 $Name = $disk.Name
 $uri = $disk.Vhd
 $avset = $vm.AvailabilitySetReference
-$extension = $vm.Extensions
+$extension = $vm.Extensions | Select-Object -ExpandProperty VirtualMachineExtensionType
 $extcount = $extension.Count
 $statuscode = $vm.StatusCode
 $availsetid = $avset.Id
@@ -1877,15 +1914,17 @@ $datad = $vm.DataDiskNames
 $datadiskcount = $datad.Count
 
 Write-Host "Server Name:"$name
+Write-Host "OS Type:" $disktype
 Write-Host "Local admin:" $localadmin
-Write-Host "Installed Azure Extensions Count" $extcount
-Write-Host "Data Disk Count:" $datadiskcount
+Write-Host "Installed Azure Extensions Count:" $extcount
+Write-Host "Installed Extensions:" $extension
 Write-Host "Provisioning State:" $provstate
 Write-Host "Status Code:" $statuscode
 Write-Host "Network Adapter Count:" $niccount
 Write-Host "Availability Set:"$availsetid
+Write-Host "Data Disk Count:" $datadiskcount
 
-if($AzExtConfig) {
+if($AddExtension) {
 Write-Host "Extension deployed: $AzExtConfig "
 }
 if($AddAvailabilitySet) {
@@ -1947,6 +1986,113 @@ Function ProvisionResGrp
 		[string]$rg
 	)
 New-AzureRmResourceGroup -Name $rg -Location $Location –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
+}
+
+Function Get-azinfo  {
+	param(
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+		[ValidateSet("network","vm","summary","extension")]
+		[string]
+		$infoset = $infoset,
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
+		[string]
+		$rg = $rg
+	)
+validate-profile
+switch ($infoset)
+	{
+		"network" {
+Write-Host "VNETs in RG" $rg -NoNewline
+Get-AzureRmVirtualNetwork -ResourceGroupName $rg -WarningAction SilentlyContinue | ft Name, ResourceGroupName -Wrap -AutoSize
+
+Write-Host "Subnets located in RG" $rg
+Get-AzureRmVirtualNetwork -ResourceGroupName $rg | Get-AzureRmVirtualNetworkSubnetConfig | ft Name,AddressPrefix
+
+Write-Host "Network Security Groups located in RG" $rg
+Get-AzureRmNetworkSecurityGroup -ResourceGroupName $rg -WarningAction SilentlyContinue | ft "Name"
+if($NSGName){
+Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $rg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access
+Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $rg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig -DefaultRules | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationAddressPrefix,SourceAddressPrefix,Access
+}
+Write-Host "Public Ips located in RG" $rg
+Get-AzureRmPublicIpAddress -ResourceGroupName $rg | ft "Name","IpAddress"
+
+Write-Host "Public DNS Records located in RG" $rg
+Get-AzureRmPublicIpAddress -ResourceGroupName $rg | select-object -ExpandProperty DNSSettings | FT FQDN -Wrap
+exit
+}
+		"vm" {
+Write-Host "VMs located in RG" $rg
+Get-AzureRmVM -ResourceGroupName $rg | ft "Name"
+
+Write-Host "NICs located in RG" $rg
+Get-AzureRmNetworkInterface -ResourceGroupName $rg | ft Name,Location,ResourceGroupName
+
+Write-Host "Private Network Interfaces located in " $rg
+$vms = get-azurermvm -ResourceGroupName $rg
+$nics = get-azurermnetworkinterface -ResourceGroupName $rg | where VirtualMachine -NE $null #skip Nics with no VM
+foreach($nic in $nics)
+{
+	$vm = $vms | where-object -Property Id -EQ $nic.VirtualMachine.id
+	$prv =  $nic.IpConfigurations | select-object -ExpandProperty PrivateIpAddress
+	$alloc =  $nic.IpConfigurations | select-object -ExpandProperty PrivateIpAllocationMethod
+	Write-Output "$($vm.Name): $prv - $alloc" | Format-Table
+
+$vms = Get-AzureRmVM -ResourceGroupName $rg
+$Countvm = $vms.Count
+Write-Host "                                            "
+Write-Host "Total VMs in RG:"$Countvm
+foreach($vm in $vms) {
+$strprofile = $vm.StorageProfile
+$disktype = $strprofile.OsDisk | Select-Object -ExpandProperty OSType
+$osdiskuri = $strprofile.OsDisk | Select-Object -ExpandProperty Vhd
+$storage = $vm.StorageProfile
+$disk = $storage.OsDisk
+$Name = $disk.Name
+$uri = $disk.Vhd
+$avset = $vm.AvailabilitySetReference
+$extension = $vm.Extensions | Select-Object -ExpandProperty VirtualMachineExtensionType
+$extcount = $extension.Count
+$statuscode = $vm.StatusCode
+$availsetid = $avset.Id
+$name = $vm.Name
+$nicids = $vm.NetworkInterfaceIDs
+$nicprofile = $vm.NetworkProfile
+$nicprofiles = $nicprofile.NetworkInterfaces
+$niccount = $nicprofiles.Count
+$osprofile = $vm.OSProfile
+$localadmin = $osprofile.AdminUsername
+$provstate = $vm.ProvisioningState
+$datad = $vm.DataDiskNames
+$datadiskcount = $datad.Count
+
+Write-Host "                                            "
+Write-Host "Server Name:"$name
+Write-Host "OS Type:" $disktype
+Write-Host "Local admin:" $localadmin
+Write-Host "Installed Azure Extensions Count:" $extcount
+Write-Host "Installed Extensions:" $extension
+Write-Host "Provisioning State:" $provstate
+Write-Host "Status Code:" $statuscode
+Write-Host "Network Adapter Count:" $niccount
+Write-Host "Availability Set:"$availsetid
+Write-Host "Data Disk Count:" $datadiskcount
+Write-Host "                                            "
+}
+
+exit
+}
+}
+		"extension" {
+}
+		"storage" {
+}
+		"summary" {
+}
+		default{"An unsupported information set command was used"
+break
+}
+	}
 }
 
 Function CreateStorage {
@@ -2695,6 +2841,50 @@ break
 	}
 } # Deploys Azure Extensions
 
+Function OrphanCleanup {
+	param(
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+	[string]
+	$InterfaceName1 = $VMName + "_nic1",
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+	[string]
+	$InterfaceName2 = $VMName + "_nic2",
+	[string]$Location = $Location,
+	[string]$rg = $rg,
+	[string]$VMName = $VMName
+	)
+$extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $rg -ErrorAction SilentlyContinue
+$nic1 = Get-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -ErrorAction SilentlyContinue
+$nic2 = Get-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -ErrorAction SilentlyContinue
+$pubip =  Get-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $rg -ErrorAction SilentlyContinue
+
+if($extvm)
+{ Write-Host "Host VM Found, cleanup cannot proceed" -ForegroundColor Cyan
+ Start-sleep 5
+Exit }
+else {if($nic1)
+{ Write-Host "Removing orphan $InterfaceName1" -ForegroundColor White
+Remove-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Force -Confirm:$False
+$LogOut = "Removed $InterfaceName1 - Private Adapter"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+ }
+	 if($pubip)
+{
+Remove-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $rg -Force -Confirm:$False
+$LogOut = "Removed $InterfaceName1 - Public Ip"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+	 if($nic2)
+{ Write-Host "Removing orphan $InterfaceName2" -ForegroundColor White
+Remove-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Force -Confirm:$False
+$LogOut = "Removed $InterfaceName2 - Private Adapter"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+ }
+ else {Write-Host "No orphans found." -ForegroundColor Green}
+ exit
+ }
+} #
+
 Function OrphanChk {
 	param(
 	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
@@ -2719,20 +2909,25 @@ Exit }
 else {if($nic1)
 { Write-Host "Removing orphan $InterfaceName1" -ForegroundColor White
 Remove-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Force -Confirm:$False
+$LogOut = "Removed $InterfaceName1 - Private Adapter"
+Log-Command -Description $LogOut -LogFile $LogOutFile
  }
 	 if($pubip)
 {
 Remove-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $rg -Force -Confirm:$False
+$LogOut = "Removed $InterfaceName1 - Public Ip"
+Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 	 if($nic2)
 { Write-Host "Removing orphan $InterfaceName2" -ForegroundColor White
 Remove-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Force -Confirm:$False
+$LogOut = "Removed $InterfaceName2 - Private Adapter"
+Log-Command -Description $LogOut -LogFile $LogOutFile
  }
  else {Write-Host "No orphans found." -ForegroundColor Green}
  }
- $LogOut = "Completed Pre Execution Verification Checks"
-Log-Command -Description $LogOut -LogFile $LogOutFile
 } #
+
 Function Remove-azRg
 {
 Param(
@@ -2742,8 +2937,6 @@ Param(
 )
 Write-Host "Removing RG "
 Get-AzureRmResourceGroup -Name $rg | Remove-AzureRmResourceGroup -Verbose -Force -Confirm:$False
- $LogOut = "Removed $rg"
-Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
 Function Remove-azVM
@@ -2757,8 +2950,8 @@ Param(
 		$VMName = $VMName
 )
 Write-Host "Removing VM"
-Remove-AzureRmVm -Name $VMName -ResourceGroupName $rg -ErrorAction Stop -Confirm:$False -Force
- $LogOut = "Removed $VMName"
+Remove-AzureRmVm -Name $VMName -ResourceGroupName $rg -ErrorAction Stop -Confirm:$False -Force | ft Status,StartTime,EndTime | Format-Table
+$LogOut = "Removed $VMName from RG $rg"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
@@ -2773,8 +2966,8 @@ Param(
 		$NSGName = $NSGName
 )
 Write-Host "Removing NSG"
-Remove-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $rg -WarningAction SilentlyContinue -ErrorAction Stop -Force -Confirm:$False
- $LogOut = "Removed $NSGName"
+Remove-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $rg -WarningAction SilentlyContinue -ErrorAction Stop -Force -Confirm:$False | Format-Table
+$LogOut = "Removed $NSGName"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
@@ -2835,11 +3028,11 @@ switch ($RemoveObject)
 	{
 		"rg" {
 Remove-azRg
+break
 }
 		"vm" {
 Remove-azVM
-OrphanChk
-break
+OrphanCleanup
 }
 		"nsg" {
 Remove-azNSG
@@ -2886,9 +3079,18 @@ else
 }
 
 ##--------------------------- Begin Script Execution -------------------------------------------------------##
+# Global
+$date = Get-Date -UFormat "%Y-%m-%d-%H-%M"
+$workfolder = Split-Path $script:MyInvocation.MyCommand.Path
+$LogOutFile = $workfolder+'\'+$vmname+'-'+$date+'.log'
+$ProfileFile = $workfolder+'\'+$profile+'.json'
 
 AzureVersion # Verifies Azure client Powershell Version
-VerifyProfile # Attempts to use json file for auth, falls back on Add-AzureRmAccount
+if($help) {
+Help-User
+exit
+}
+validate-profile # Attempts to use json file for auth, falls back on Add-AzureRmAccount
 
 try {
 Get-AzureRmResourceGroup -Location $Location -ErrorAction Stop | Out-Null
@@ -2906,13 +3108,14 @@ catch {
 		RegisterRP($resourceProvider);
 	}
  } # Get Resource Providers
+if($getinfo){ Get-Azinfo }
+Write-Output "Steps will be tracked on the log file : [ $LogOutFile ]"
+if($RemoveObject){ RemoveComponent }
 
-if($RemoveObject){ RemoveComponent } #Adds NSG to NIC
+chknull # Verifies required fields have data
 OrphanChk # Verifies no left overs
 VerifyNet
-chknull # Verifies required fields have data
 StorageNameCheck # Verifies Storage Account Name does not exist
-Write-Output "Steps will be tracked on the log file : [ $LogOutFile ]"
 
 $resourcegroups = @($rg,$vnetrg);
 if($resourcegroups.length) {
