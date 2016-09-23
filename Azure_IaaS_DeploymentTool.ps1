@@ -2,14 +2,14 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 6.1
+Ver 6.11
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
 The script allows select of subnet prior to VM Deployment
 The script supports deploying Availability Sets as well as adding new servers to existing Availability Sets through the -AvailabilitySet "True" and -AvailSetName switches.
 The script will generate a name for azure storage endpoint unless the -StorageName variable is updated or referenced at runtime.
 
-v6.1 updates - Modified Prodile to save to script execution directory, added -help switch.
+v6.11 updates - Modified Prodile to save to script execution directory, added -help switch.
 v6.0 updates - Added Remove Functions to script, added subnet correction validation for static IPs and Storage
 v5.9 updates - Moved -add parameters to [switch]
 v5.8 updates - Updated UI to align with .Sourcing
@@ -438,6 +438,8 @@ $infoset = 'network',
 [switch]
 $getinfo,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[Alias("h")]
+[Alias("?")]
 [switch]
 $help
 )
@@ -464,9 +466,37 @@ $fileexist = Test-Path $ProfileFile -NewerThan $comparedate
 
 Function Help-User {
 Write-Host "Don't know where to start? Here are some examples:"
-Write-Host "azure_iaas_deployment_tool.ps1 -vm myvm01 -rg myresgrp -vnetrg myresgrp -configips single -vnetname vnet -addvnet"
-Write-Host "azure_iaas_deployment_tool.ps1 -getinfo -infoset network -rg myresgrp"
-Write-Host "There are more examples at the top of the script that might be helpful"
+Write-Host "                                                       "
+Write-Host "Deploy PFSense"
+Write-Host "azurerm_deploy.ps1 -vm pf001 -image pfsense -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -ConfigIPs DualPvtNoPub -Nic1 10.120.2.7 -Nic2 10.120.3.7"
+Write-Host "Deploy RedHat"
+Write-Host "azurerm_deploy.ps1 -vm red76 -image red67 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -ConfigIPs SinglePvtNoPub -Nic1 10.120.6.124 -Ext linuxbackup"
+Write-Host "Deploy Windows 2012"
+Write-Host "azurerm_deploy.ps1 -vm win006 -image w2k12 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -ConfigIPs Single -AvSet -NSGEnabled -NSGName NSG"
+Write-Host "Deploy Windows 2016"
+Write-Host "azurerm_deploy.ps1 -vm win008 -image w2k16 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -ConfigIPs PvtSingleStat -Nic1 10.120.4.169"
+Write-Host "Deploy Ubuntu"
+Write-Host "azurerm_deploy.ps1 -vm ubu001 -image ubuntu -RG ResGroup1 -vnetrg ResGroup2 -VNet VNET -ConfigIPs PvtSingleStat -Nic1 10.120.5.169 -AddFQDN fqdn mydns2"
+Write-Host "Remove VM:"
+Write-Host "azurerm_deploy.ps1 -vm ubu001 -RG ResGroup1 -RemoveObject VM"
+Write-Host "Remove RG:"
+Write-Host "azurerm_deploy.ps1 -RG ResGroup1 -RemoveObject rg"
+Write-Host "                                                       "
+Write-Host "Required command switches"
+Write-Host "              -vmname - Name of VM to create"
+Write-Host "              -configips - configures network interfaces"
+Write-Host "              -VMMarketImage - Image type to deploy"
+Write-Host "              -rg - Resource Group"
+Write-Host "              -vnetrg - VNET Resource Group"
+Write-Host "              -vnetname - VNET Name"
+Write-Host "                                                       "
+Write-Host "Important command switches"
+Write-Host "             -addvnet - adds new VNET"
+Write-Host "             -nsgenabled - adds new NSG/Configures VM to use existing NSG"
+Write-Host "             -addavailabilityset - adds new Availability Set"
+Write-Host "             -addfqdn - adds FQDN to Public IP address of VM"
+Write-Host "             -addextension - adds VM extension"
+Write-Host "                                                       "
 }
 
 Function Log-Command ([string]$Description, [string]$logFile, [string]$VMName){
