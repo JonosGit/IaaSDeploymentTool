@@ -2,14 +2,15 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 6.11
+Ver 6.2
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
 The script allows select of subnet prior to VM Deployment
 The script supports deploying Availability Sets as well as adding new servers to existing Availability Sets through the -AvailabilitySet "True" and -AvailSetName switches.
 The script will generate a name for azure storage endpoint unless the -StorageName variable is updated or referenced at runtime.
 
-v6.11 updates - Modified Prodile to save to script execution directory, added -help switch.
+v6.2 updates - Added 10 new images including Biztalk, Visual Studio, TFS, Incredibuild, HortonWorks, Dev15, ASR (Azure Site Recovery) Images
+v6.11 updates - Modified Profile to save to script execution directory, added -help switch.
 v6.0 updates - Added Remove Functions to script, added subnet correction validation for static IPs and Storage
 v5.9 updates - Moved -add parameters to [switch]
 v5.8 updates - Updated UI to align with .Sourcing
@@ -194,6 +195,19 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 			SharePoint 2016 - Share2016
 			SharePoint 2013 - share2013
 			Server R - serverr
+			Biztalk 2013 Ent - biztalk2013
+			Biztalk 2016 preview - biztalk2016
+			TFS 2013 - tfs
+			Hortonworks DataPlatform - horton-dp
+			Visual Studio 2015 Ent on W2k12 r2 - vs2015
+			Dev15 - Preview - dev15
+			Incredibuild - Incredibuild
+			Azure Site Recovery Config Server - asr-configsvr
+			Azure Site Recovery Master Target - asr-mastersvr
+			Azure Site Recovery Process Server - asr-processsvr
+			Azure Site Recovery VM Hydration Server - asr-hydvm
+			Microsoft Ads - Data Science Standard Server - ads-datascience
+			Microsoft Ads - Data Science Linux Server - ads-linuxdatascience
 
 -AzExtConfig <Extension Type>
 			access – Adds Azure Access Extension – Added by default during VM creation
@@ -217,7 +231,7 @@ https://github.com/JonosGit/IaaSDeploymentTool/blob/master/The%20IaaS%20Deployme
 Param(
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=1)]
 [ValidateNotNullorEmpty()]
-[ValidateSet("w2k12","w2k8","red67","red72","suse","free","ubuntu","centos","w2k16","sql2016","chef","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","puppet","serverr","solarwinds","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack","hadoop","neos","tomcat","redis","gitlab","jruby")]
+[ValidateSet("w2k12","w2k8","red67","red72","suse","free","ubuntu","centos","w2k16","sql2016","chef","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","horton-dp","serverr","horton-hdp","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack","hadoop","neos","tomcat","redis","gitlab","jruby","biztalk2013","tfs","biztalk2016","vs2015","dev15","incredibuild","asr-hydvm","asr-mastersvr","asr-processsvr","asr-configsvr","ads-linuxdatascience","ads-datascience")]
 [Alias("image")]
 [string]
 $vmMarketImage = 'w2k12',
@@ -1278,7 +1292,7 @@ param(
 	[string]$Product = 'splunk-on-ubuntu-14-04-lts',
 	[string]$name = 'splunk-enterprise-base-image'
 )
-Write-Host "Image Creation in Process - Plan Info - Puppet Enterprise" -ForegroundColor White
+Write-Host "Image Creation in Process - Plan Info - Splunk" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
 $global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
 $global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
@@ -1531,8 +1545,110 @@ param(
 	[string]$version = "latest"
 )
 Write-Host "Image Creation in Process - No Plan Info - SUSE" -ForegroundColor White
-Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
 $global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function MakeImagenoPlanInfo_ads_datascience {
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'microsoft-ads',
+	[string]$offer = 'linux-data-science-vm',
+	[string]$Skus = 'linuxdsvm',
+	[string]$version = 'latest',
+	[string]$Product = 'linux-data-science-vm',
+	[string]$name = 'linuxdsvm'
+)
+Write-Host "Image Creation in Process - No Plan Info - Ads Data Science" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function MakeImagenoPlanInfo_ads_stddatascience {
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'microsoft-ads',
+	[string]$offer = 'standard-data-science-vm',
+	[string]$Skus = 'standard-data-science-vm',
+	[string]$version = 'latest',
+	[string]$Product = 'standard-data-science-vm',
+	[string]$name = 'standard-data-science-vm'
+)
+Write-Host "Image Creation in Process - No Plan Info - Ads Data Science Standard" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function MakeImagenoPlanInfo_asrhydvm {
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'MicrosoftAzureSiteRecovery',
+	[string]$offer = 'ASR-Hydration-VMs',
+	[string]$Skus = 'Windows-2012-R2-Datacenter',
+	[string]$version = 'latest'
+)
+Write-Host "Image Creation in Process - No Plan Info - ASR VMw" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -Windows -ComputerName $VMName -Credential $Credential1 -ProvisionVMAgent -EnableAutoUpdate -WinRMHttp -Verbose
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function MakeImagenoPlanInfo_asrconfigsvr {
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'MicrosoftAzureSiteRecovery',
+	[string]$offer = 'Configuration-Server',
+	[string]$Skus = 'Windows-2012-R2-Datacenter',
+	[string]$version = 'latest'
+)
+Write-Host "Image Creation in Process - No Plan Info - ASR Config" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -Windows -ComputerName $VMName -Credential $Credential1 -ProvisionVMAgent -EnableAutoUpdate -WinRMHttp -Verbose
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function MakeImagenoPlanInfo_asrtargemastersvr {
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'MicrosoftAzureSiteRecovery',
+	[string]$offer = 'Master-Target-Server',
+	[string]$Skus = 'Windows-2012-R2-Datacenter',
+	[string]$version = 'latest'
+)
+Write-Host "Image Creation in Process - No Plan Info - ASR Master" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -Windows -ComputerName $VMName -Credential $Credential1 -ProvisionVMAgent -EnableAutoUpdate -WinRMHttp -Verbose
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function MakeImagenoPlanInfo_asrprocesssvr {
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'MicrosoftAzureSiteRecovery',
+	[string]$offer = 'Process-Server',
+	[string]$Skus = 'Windows-2012-R2-Datacenter',
+	[string]$version = 'latest'
+)
+Write-Host "Image Creation in Process - No Plan Info - ASR Process Server" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -Windows -ComputerName $VMName -Credential $Credential1 -ProvisionVMAgent -EnableAutoUpdate -WinRMHttp -Verbose
 $global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
 $LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
 Log-Command -Description $LogOut -LogFile $LogOutFile
@@ -1652,6 +1768,53 @@ $global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -Publisher
 $LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
+Function MakeImageNoPlanInfo_TeamFoundationServer {
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'MicrosoftVisualStudio',
+	[string]$offer = 'TeamFoundationServer',
+	[string]$Skus = 'Team-Foundation-Server-2013-Update4-WS2012R2',
+	[string]$version = 'latest',
+	[string]$Product = 'Team-Foundation-Server-2013-Update4-WS2012R2',
+	[string]$name = 'TeamFoundationServer'
+)
+Write-Host "Image Creation in Process - No Plan Info - TeamFoundationServer" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -Windows -ComputerName $VMName -Credential $Credential1 -ProvisionVMAgent -EnableAutoUpdate -WinRMHttp -Verbose
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+Function MakeImageNoPlanInfo_Biztalk-Enterprise {
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'MicrosoftBizTalkServer',
+	[string]$offer = 'BizTalk-Server',
+	[string]$Skus = '2013-R2-Enterprise',
+	[string]$version = 'latest'
+)
+Write-Host "Image Creation in Process - No Plan Info - MicrosoftBizTalkServer" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -Windows -ComputerName $VMName -Credential $Credential1 -ProvisionVMAgent -EnableAutoUpdate -WinRMHttp -Verbose
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+Function MakeImageNoPlanInfo_Biztalk2016-PreRelease {
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'MicrosoftBizTalkServer',
+	[string]$offer = 'BizTalk-Server',
+	[string]$Skus = '2016-PreRelease',
+	[string]$version = 'latest'
+)
+Write-Host "Image Creation in Process - No Plan Info - MicrosoftBizTalkServer2016" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -Windows -ComputerName $VMName -Credential $Credential1 -ProvisionVMAgent -EnableAutoUpdate -WinRMHttp -Verbose
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
 
 Function MakeImageNoPlanInfo_sql2k16 {
 param(
@@ -1663,6 +1826,94 @@ param(
 )
 Write-Host "Image Creation in Process - No Plan Info - SQL 2016" -ForegroundColor White
 Write-Host $Publisher $offer $Skus $version
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -Windows -ComputerName $VMName -Credential $Credential1 -ProvisionVMAgent -EnableAutoUpdate -WinRMHttp -Verbose
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function MakeImagePlanInfo_incredibuild {
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'incredibuild',
+	[string]$offer = 'incredibuild',
+	[string]$Skus = 'incredibuild',
+	[string]$version = 'latest',
+	[string]$Product = 'incredibuild',
+	[string]$name = 'incredibuild'
+)
+Write-Host "Image Creation in Process - Plan Info - incredibuild" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function MakeImagePlanInfo_hortonwowk_dp {
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'hortonworks',
+	[string]$offer = 'hortonworks-data-platform-240',
+	[string]$Skus = 'hdp-240-ambari-221',
+	[string]$version = 'latest',
+	[string]$Product = 'hortonworks-data-platform-240',
+	[string]$name = 'hdp-240-ambari-221'
+)
+Write-Host "Image Creation in Process - Plan Info - HortonWorks" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+Function MakeImagePlanInfo_hortonwowk_hdp {
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'hortonworks',
+	[string]$offer = 'hdpimage',
+	[string]$Skus = 'hdpimage',
+	[string]$version = 'latest',
+	[string]$Product = 'hdpimage',
+	[string]$name = 'hdpimage'
+)
+Write-Host "Image Creation in Process - Plan Info - HortonWorks" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function MakeImagenoPlanInfo_w2012r2vs2015 {
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'MicrosoftVisualStudio',
+	[string]$offer = 'VisualStudio',
+	[string]$Skus = 'VS-2015-Ent-AzureSDK-2.9-WS2012R2',
+	[string]$version = 'latest'
+)
+Write-Host "Image Creation in Process - No Plan Info - MicrosoftVisualStudio" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -Windows -ComputerName $VMName -Credential $Credential1 -ProvisionVMAgent -EnableAutoUpdate -WinRMHttp -Verbose
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function MakeImagenoPlanInfo_w2012r2dev15 {
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'MicrosoftVisualStudio',
+	[string]$offer = 'VisualStudio',
+	[string]$Skus = 'VS-Dev15-Preview3-Ent-AzureSDK-291-WS2012R2',
+	[string]$version = 'latest'
+)
+Write-Host "Image Creation in Process - No Plan Info - Dev15 Preview" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
 $global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -Windows -ComputerName $VMName -Credential $Credential1 -ProvisionVMAgent -EnableAutoUpdate -WinRMHttp -Verbose
 $global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
 $LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
@@ -2305,6 +2556,66 @@ switch -Wildcard ($vmMarketImage)
 			AddDiskImage # Completes Image Creation
 			Provvms
 }
+		"*ads-datascience*" {
+			WriteConfigVM
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagenoPlanInfo_ads_stddatascience # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
+}
+		"*ads-linuxdatascience*" {
+			WriteConfigVM
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagenoPlanInfo_ads_datascience # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
+}
+		"*asr-configsvr*" {
+			WriteConfigVM
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagenoPlanInfo_asrconfigsvr # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
+}
+		"*asr-mastersvr*" {
+			WriteConfigVM
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagenoPlanInfo_asrtargemastersvr # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
+}
+		"*asr-processsvr*" {
+			WriteConfigVM
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagenoPlanInfo_asrprocesssvr # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
+}
+		"*asr-hydvm*" {
+			WriteConfigVM
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagenoPlanInfo_asrhydvm # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
+}
 		"*lamp*" {
 			WriteConfigVM
 			CreateStorage
@@ -2385,32 +2696,32 @@ switch -Wildcard ($vmMarketImage)
 			AddDiskImage # Completes Image Creation
 			Provvms
 }
-		"*web-logic*" {
+		"*incredibuild*" {
 			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
-			MakeImagePlanInfo_Oracle_weblogic # Begins Image Creation
+			MakeImagePlanInfo_incredibuild # Begins Image Creation
 			ConfigSet # Adds Network Interfaces
 			AddDiskImage # Completes Image Creation
 			Provvms
 }
-		"*entdb-oracle*" {
+		"*horton-dp*" {
 			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
-			MakeImagePlanInfo_Oracle_EntDB  # Begins Image Creation
+			MakeImagePlanInfo_hortonwowk_dp  # Begins Image Creation
 			ConfigSet # Adds Network Interfaces
 			AddDiskImage # Completes Image Creation
 			Provvms
 }
-		"*stddb-oracle*" {
+		"*horton-hdp*" {
 			WriteConfigVM
 			CreateStorage
 			AvailSet
 			ConfigNet  #Sets network connection info
-			MakeImagePlanInfo_Oracle_StdDB # Begins Image Creation
+			MakeImagePlanInfo_hortonwowk_hdp # Begins Image Creation
 			ConfigSet # Adds Network Interfaces
 			AddDiskImage # Completes Image Creation
 			Provvms
@@ -2441,6 +2752,56 @@ switch -Wildcard ($vmMarketImage)
 			AvailSet
 			ConfigNet  #Sets network connection info
 			MakeImageNoPlanInfo_SharePoint2k13 # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
+}
+		"*tfs*" {
+			WriteConfigVM
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImageNoPlanInfo_TeamFoundationServer # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
+}
+		"*VS2015*" {
+			WriteConfigVM
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagenoPlanInfo_w2012r2vs2015 # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
+}
+		"*DEV15*" {
+			WriteConfigVM
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImagenoPlanInfo_w2012r2dev15 # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
+}
+		"*biztalk2013*" {
+			WriteConfigVM
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImageNoPlanInfo_Biztalk-Enterprise # Begins Image Creation
+			ConfigSet # Adds Network Interfaces
+			AddDiskImage # Completes Image Creation
+			Provvms
+}
+		"*biztalk2016*" {
+			WriteConfigVM
+			CreateStorage
+			AvailSet
+			ConfigNet  #Sets network connection info
+			MakeImageNoPlanInfo_Biztalk2016-PreRelease # Begins Image Creation
 			ConfigSet # Adds Network Interfaces
 			AddDiskImage # Completes Image Creation
 			Provvms
