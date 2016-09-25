@@ -2,32 +2,18 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 6.2
+Ver 6.3
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
 The script allows select of subnet prior to VM Deployment
 The script supports deploying Availability Sets as well as adding new servers to existing Availability Sets through the -AvailabilitySet "True" and -AvailSetName switches.
 The script will generate a name for azure storage endpoint unless the -StorageName variable is updated or referenced at runtime.
 
-v6.2 updates - Added 10 new images including Biztalk, Visual Studio, TFS, Incredibuild, HortonWorks, Dev15, ASR (Azure Site Recovery) Images
+v6.3 updates - DSC Push Configuration added to Extensions
+v6.2 updates - Added 12 new images including Biztalk, Visual Studio, TFS, Incredibuild, HortonWorks, Dev15, ASR (Azure Site Recovery) Images
 v6.11 updates - Modified Profile to save to script execution directory, added -help switch.
 v6.0 updates - Added Remove Functions to script, added subnet correction validation for static IPs and Storage
 v5.9 updates - Moved -add parameters to [switch]
-v5.8 updates - Updated UI to align with .Sourcing
-v5.71 updates - HF Provisioning Function
-v5.7 updates - .Sourcing Functions Now Supported
-v5.6 updates - Added Ability to upload custom scripts to blob for use by VM
-v5.5 updates - Logic Checking for Extensions
-v5.4 updates - Aligned Syntax with User Guide
-v5.3 updates - Added Puppet Agent and OMS Agents to Extensions
-v5.2 updates - Moved VNET configuration to global parameters
-v5.1 updates - Added VPN Creation Function
-v5.0 updates - Added Alias' to command parameters
-v4.9 updates - additional validation functions, note changes to AddVNET and NSGEnabled field types (was string now bool)
-v4.8 updates - Added F5/Barracuda as well as Bitnami images
-v4.7 updates - Added Step Logging
-v4.6 Updates - Added Support for F5, Barracuda, SAP and Solar Winds
-v4.5 Updates - Fixes for Azure PowerShell 2.1
 
 .DESCRIPTION
 Deploys 30 different Market Images on a new or existing VNET. Supports post deployment configuration through Azure Extensions.
@@ -142,7 +128,7 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 .EXAMPLE
 \.azdeploy.ps1 -vm red76 -image red67 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -sub1 7 -ConfigIPs SinglePvtNoPub -Nic1 10.120.6.124 -Ext linuxbackup
 .EXAMPLE
-\.azdeploy.ps1 -vm win006 -image w2k12 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNE T-sub1 2 -ConfigIPs Single -AvSet $True -NSGEnabled $True -NSGName NSG
+\.azdeploy.ps1 -vm win006 -image w2k12 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNE T-sub1 2 -ConfigIPs Single -AvSet -NSGEnabled -NSGName NSG
 .EXAMPLE
 \.azdeploy.ps1 -vm win008 -image w2k16 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -sub1 5 -ConfigIPs PvtSingleStat -Nic1 10.120.4.169 -AddFQDN -fqdn mydns1
 .EXAMPLE
@@ -231,7 +217,7 @@ https://github.com/JonosGit/IaaSDeploymentTool/blob/master/The%20IaaS%20Deployme
 Param(
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=1)]
 [ValidateNotNullorEmpty()]
-[ValidateSet("w2k12","w2k8","red67","red72","suse","free","ubuntu","centos","w2k16","sql2016","chef","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","horton-dp","serverr","horton-hdp","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack","hadoop","neos","tomcat","redis","gitlab","jruby","biztalk2013","tfs","biztalk2016","vs2015","dev15","incredibuild","asr-hydvm","asr-mastersvr","asr-processsvr","asr-configsvr","ads-linuxdatascience","ads-datascience")]
+[ValidateSet("w2k12","w2k8","red67","red72","suse","free","ubuntu","centos","w2k16","sql2016","chef","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","horton-dp","serverr","horton-hdp","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack","hadoop","neos","tomcat","redis","gitlab","jruby","biztalk2013","tfs","biztalk2016","vs2015","dev15","incredibuild","asr-hydvm","tableau","asr-mastersvr","asr-processsvr","O365-suite","ads-linuxdatascience","ads-datascience")]
 [Alias("image")]
 [string]
 $vmMarketImage = 'w2k12',
@@ -415,7 +401,7 @@ $Azautoacct = "DSC-Auto",
 [string]
 $Profile = "profile",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[ValidateSet("diag","msav","access","linuxbackup","chefagent","eset","customscript","opsinsightLinux","opsinsightWin","WinPuppet","domjoin","RegisterAzDSC")]
+[ValidateSet("diag","msav","access","linuxbackup","chefagent","eset","customscript","opsinsightLinux","opsinsightWin","WinPuppet","domjoin","RegisterAzDSC","PushDSC")]
 [Alias("ext")]
 [string]
 $AzExtConfig = 'diag',
@@ -428,6 +414,15 @@ $AddExtension,
 [Alias("upload")]
 [string]
 $CustomScriptUpload = 'False',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateSet("True","False")]
+[Alias("uploaddsc")]
+[string]
+$DSCUpload  = 'False',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[Alias("dscscriptname")]
+[string]
+$dscname = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("customscriptname")]
 [string]
@@ -519,7 +514,7 @@ Write-Host $Output -ForegroundColor white
 ((Get-Date -UFormat "[%d-%m-%Y %H:%M:%S] ") + $Output) | Out-File -FilePath $LogOutFile -Append -Force
 }
 
-Function VerifyPvtIp {
+Function Verify-PvtIp {
 if($PvtIPNic1)
 	{
 	[int]$subnet = $Subnet1
@@ -540,7 +535,7 @@ $global:Subnet1 = $Subnet1
 }
 }
 
-Function VerifyPvtIp2 {
+Function Verify-PvtIp2 {
 if($PvtIPNic2)
 	{
 	[int]$subnet = $Subnet2
@@ -561,27 +556,15 @@ $global:Subnet2 = $Subnet2
 }
 }
 
-Function VerifyNicValue1 {
-if($PvtIPNic1.Length -le 7) {Write-Host "Invalid IP"
-exit
-}
-}
-
-Function VerifyNicValue2 {
-if($PvtIPNic1.Length -le 7) {Write-Host "Invalid IP"
-exit
-}
-}
-
-Function VerifyNet {
+Function Verify-NIC {
 If ($ConfigIPs -eq "StatPvtNoPubSingle")
 { Write-Host "Subnet IP Validation" -ForegroundColor White
-VerifyPvtIp
+Verify-PvtIp
 }
 If ($ConfigIPs -eq "StatPvtNoPubDual")
 { Write-Host "Subnet IP Validation" -ForegroundColor White
-VerifyPvtIp
-VerifyPvtIp2
+Verify-PvtIp
+Verify-PvtIp2
 }
 If ($ConfigIPs -eq "Single")
 { Write-Host "Skipping Subnet IP Validation"
@@ -599,16 +582,16 @@ $global:Subnet2 = $Subnet2
 }
 If ($ConfigIPs -eq "PvtSingleStat")
 { Write-Host "Subnet IP Validation"
-VerifyPvtIp
+Verify-PvtIp
 }
 If ($ConfigIPs -eq "PvtDualStat")
 { Write-Host "Subnet IP Validation"
-VerifyPvtIp
-VerifyPvtIp2
+Verify-PvtIp
+Verify-PvtIp2
 }
 }
 
-function chknull {
+function Check-NullValues {
 if(!$vmMarketImage) {
 Write-Host "Please Enter vmMarketImage"
 exit }
@@ -629,7 +612,33 @@ exit }
 					exit }
 }
 
-Function PubIPconfig {
+function Check-AvailabilitySet {
+if($AddAvailabilitySet -and !$AvailSetName) {
+Write-Host "Please Enter AvailabilitySet Name"
+exit
+ }
+}
+function Check-FQDN {
+if($AddFQDN -and !$DNLabel) {
+Write-Host "Please Enter Public FQDN"
+exit
+ }
+}
+
+function Check-NSGName {
+if($NSGEnabled -and !$NSGName) {
+Write-Host "Please Enter NSG Name"
+exit
+ }
+}
+
+function Check-Extension {
+if($AddExtension -and !$AzExtConfig) {
+Write-Host "Please Enter Extension Name"
+ }
+}
+
+Function Configure-PubIpDNS {
 	param(
 	[string]$vnetrg = $vnetrg,
 	[string]$Location = $Location,
@@ -649,7 +658,7 @@ $global:PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupNam
 }
 }
 
-Function PubDNSconfig {
+Function Configure-PubDNS {
 if($AddFQDN)
 {
 Write-Host "Creating FQDN: " $DNLabel.$Location.cloudapp.azure.com
@@ -659,7 +668,7 @@ else
 Write-Host "No DNS Name Specified"
 }
 }
-Function StorageNameCheck
+Function Check-StorageName
 {
 	param(
 		[string]$StorageName  = $StorageName
@@ -677,7 +686,7 @@ $global:StorageNameVerified = $StorageName.ToLower()
 Write-Host $StorageNameVerified
  }
 }
-Function ConfigNet {
+Function Configure-Nics {
 	param(
 	[string]$vnetrg = $vnetrg,
 	[string]$Location = $Location,
@@ -694,14 +703,14 @@ switch ($ConfigIPs)
 	{
 		"PvtDualStat" {
 Write-Host "Dual IP Configuration - Static"
-PubIPconfig
+Configure-PubIpDNS
 $global:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
 $global:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue
 $global:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id -PrivateIpAddress $PvtIPNic2 –Confirm:$false -WarningAction SilentlyContinue
 }
 		"PvtSingleStat" {
 Write-Host "Single IP Configuration - Static"
-PubIPconfig
+Configure-PubIpDNS
 $global:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
 $global:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue
 }
@@ -718,13 +727,13 @@ $global:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -Resource
 }
 		"Single" {
 Write-Host "Default Single IP Configuration"
-PubIPconfig
+Configure-PubIpDNS
 $global:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
 $global:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id –Confirm:$false -WarningAction SilentlyContinue
 }
 		"Dual" {
 Write-Host "Default Dual IP Configuration"
-PubIPconfig
+Configure-PubIpDNS
 $global:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
 $global:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id –Confirm:$false -WarningAction SilentlyContinue
 $global:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id –Confirm:$false -WarningAction SilentlyContinue
@@ -744,7 +753,7 @@ $global:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -Resource
 }
 }
 
-Function AddNICs {
+Function Add-NICs {
 Write-Host "Adding 2 Network Interface(s) $InterfaceName1 $InterfaceName2" -ForegroundColor White
 $global:VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $global:Interface1.Id -Primary -WarningAction SilentlyContinue
 $global:VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $global:Interface2.Id -WarningAction SilentlyContinue
@@ -752,46 +761,46 @@ $LogOut = "Completed adding NICs"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
-Function AddNIC {
+Function Add-NIC {
 Write-Host "Adding Network Interface $InterfaceName1" -ForegroundColor White
 $global:VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $global:Interface1.Id -Primary -WarningAction SilentlyContinue
 $LogOut = "Completed adding NIC"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
-Function ConfigSet {
+Function Set-NicConfiguration {
 switch  ($ConfigIPs)
 	{
 		"PvtDualStat" {
-AddNICs
+Add-NICs
 }
 		"PvtSingleStat" {
-AddNIC
+Add-NIC
 }
 		"StatPvtNoPubDual" {
-AddNICs
+Add-NICs
 }
 		"StatPvtNoPubSingle" {
-AddNIC
+Add-NIC
 }
 		"Single" {
-AddNIC
+Add-NIC
 }
 		"Dual" {
-AddNICs
+Add-NICs
 }
 		"NoPubSingle" {
-AddNIC
+Add-NIC
 }
 		"NoPubDual" {
-AddNICs
+Add-NICs
 }
 		default{"An unsupported network configuration was referenced"
 		break
 					}
 }
 }
-Function NSGEnabled
+Function Configure-NSGEnabled
 {
 if($NSGEnabled){
 $nic1 = Get-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -ErrorAction SilentlyContinue
@@ -818,7 +827,7 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 }
 }
-Function CreateVPN {
+Function Create-VPN {
 Write-Host "VPN Creation can take up to 45 minutes!"
 New-AzureRmLocalNetworkGateway -Name LocalSite -ResourceGroupName $vnetrg -Location $Location -GatewayIpAddress $LocalNetPip -AddressPrefix $LocalAddPrefix -ErrorAction Stop -WarningAction SilentlyContinue | Out-Null
 Write-Host "Completed Local Network GW Creation"
@@ -831,12 +840,12 @@ Write-Host "Completed VNET Network GW Creation"
 Get-AzureRmPublicIpAddress -Name vpnpip -ResourceGroupName $rg -WarningAction SilentlyContinue
 Write-Host "Configure Local Device with Azure VNET vpn Public IP"
 }
-Function ConnectVPN {
+Function Connect-VPN {
 [PSObject]$gateway1 = Get-AzureRmVirtualNetworkGateway -Name vnetvpn1 -ResourceGroupName $vnetrg -WarningAction SilentlyContinue
 [PSObject]$local = Get-AzureRmLocalNetworkGateway -Name LocalSite -ResourceGroupName $vnetrg -WarningAction SilentlyContinue
 New-AzureRmVirtualNetworkGatewayConnection -ConnectionType IPSEC  -Name sitetosite -ResourceGroupName $vnetrg -Location $Location -VirtualNetworkGateway1 $gateway1 -LocalNetworkGateway2 $local -SharedKey '4321avfe' -Verbose -Force -RoutingWeight 10 -WarningAction SilentlyContinue| Out-Null
 }
-Function SelectNicDescrtipt {
+Function Select-NicDescrtipt {
 if($ConfigIPs-EQ "Dual"){Write-Host "Dual Pvt IP & Public IP will be created" }
 	elseif($ConfigIPs-EQ "Single"){Write-Host "Single Pvt IP & Public IP will be created" }
 		elseif($ConfigIPs-EQ "PvtDualStat"){Write-Host "Dual Static Pvt IP & Public IP will be created" }
@@ -850,7 +859,7 @@ if($ConfigIPs-EQ "Dual"){Write-Host "Dual Pvt IP & Public IP will be created" }
 	}
 }
 
-Function RegisterRP {
+Function Register-RP {
 	Param(
 		[string]$ResourceProviderNamespace
 	)
@@ -859,7 +868,7 @@ Function RegisterRP {
 	Register-AzureRmResourceProvider -ProviderNamespace $ResourceProviderNamespace –Confirm:$false -WarningAction SilentlyContinue | Out-Null;
 }
 
-Function AvailSet {
+Function Create-AvailabilitySet {
 	param(
 		[string]$rg = $rg,
 		[string]$Location = $Location,
@@ -892,7 +901,7 @@ catch {
 }
  }
 
- function Provvms {
+ function Provision-Vm {
 	 param (
 	[string]$rg = $rg,
 	[string]$Location = $Location
@@ -912,7 +921,7 @@ catch {
 }
 	 }
 
-Function AddDiskImage {
+Function Configure-Image {
 Write-Host "Completing image creation..." -ForegroundColor White
 $global:osDiskCaching = "ReadWrite"
 $global:OSDiskName = $VMName + "OSDisk"
@@ -1545,8 +1554,64 @@ param(
 	[string]$version = "latest"
 )
 Write-Host "Image Creation in Process - No Plan Info - SUSE" -ForegroundColor White
-$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
 $global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function MakeImagePlanInfo_tableau {
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'tableau',
+	[string]$offer = 'tableau-server',
+	[string]$Skus = 'bring-your-own-license',
+	[string]$version = 'latest',
+	[string]$Product = 'tableau-server',
+	[string]$name = 'bring-your-own-license'
+)
+Write-Host "Image Creation in Process - Plan Info - Tableau" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -windows -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function MakeImagePlanInfo_RevAnalytics_win {
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'revolution-analytics',
+	[string]$offer = 'revolution-r-enterprise',
+	[string]$Skus = 'rre74-win2012r2',
+	[string]$version = 'latest',
+	[string]$Product = 'revolution-r-enterprise',
+	[string]$name = 'rre74-win2012r2'
+)
+Write-Host "Image Creation in Process - Plan Info - Revo Analytics" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -windows -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function MakeImagePlanInfo_RevAnalytics_cent {
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'revolution-analytics',
+	[string]$offer = 'revolution-r-enterprise',
+	[string]$Skus = 'rre74-centos65',
+	[string]$version = 'latest',
+	[string]$Product = 'revolution-r-enterprise',
+	[string]$name = 'rre74-centos65'
+)
+Write-Host "Image Creation in Process - Plan Info - Revo Analytics" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -windows -ComputerName $VMName -Credential $Credential1
 $global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
 $LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
 Log-Command -Description $LogOut -LogFile $LogOutFile
@@ -1816,6 +1881,25 @@ $LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Sku
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
+Function MakeImagePlanInfo_metavistech {
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'metavistech',
+	[string]$offer = 'metavis-office365-suite',
+	[string]$Skus = 'mv-office365-ste-azure-1',
+	[string]$version = 'latest',
+	[string]$Product = 'metavis-office365-suite',
+	[string]$name = 'mv-office365-ste-azure-1'
+)
+Write-Host "Image Creation in Process - Plan Info - metavistech" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
 Function MakeImageNoPlanInfo_sql2k16 {
 param(
 	[string]$VMName = $VMName,
@@ -1920,7 +2004,7 @@ $LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Sku
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
-Function CreateVnet {
+Function Create-Vnet {
 param(
 [string]$VNETName = $VNetName,
 [string]$vnetrg = $vnetrg,
@@ -1943,6 +2027,7 @@ param(
 [string]$SubnetAddPrefix8 = $SubnetAddPrefix8,
 [string]$SubnetNameAddPrefix8 = $SubnetNameAddPrefix8
 )
+Write-ConfigVNet
 Write-Host "Network Preparation in Process.."
 $subnet1 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix $SubnetAddPrefix1 -Name $SubnetNameAddPrefix1
 $subnet2 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix $SubnetAddPrefix2 -Name $SubnetNameAddPrefix2
@@ -1960,7 +2045,7 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
 # End of Provision VNET Function
-Function CreateNSG {
+Function Create-NSG {
 param(
 [string]$NSGName = $NSGName,
 [string]$Location = $Location,
@@ -1982,7 +2067,7 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 # End of Provision Network Security Groups Function
 
-Function SubnetMatch {
+Function Subnet-Match {
 	Param(
 		[INT]$Subnet
 	)
@@ -2002,7 +2087,7 @@ default {No Subnet Found}
 }
 }
 
-Function WriteConfig {
+Function Write-Config {
 param(
 $Subnet1 = $global:Subnet1,
 $Subnet2 = $global:Subnet2
@@ -2019,38 +2104,38 @@ Write-Host "Server Type: $vmMarketImage"
 Write-Host "VNET Name: $vNetName"
 Write-Host "VNET Resource Group Name: $vnetrg"
 Write-Host "Storage Account Name:  $StorageName"
-SelectNicDescrtipt
+Select-NicDescrtipt
 If ($ConfigIPs -eq "StatPvtNoPubSingle")
 { Write-Host "Public Ip Will not be created" -ForegroundColor White
 Write-Host "Nic1: $PvtIPNic1"
-SubnetMatch $Subnet1
+Subnet-Match $Subnet1
 }
 If ($ConfigIPs -eq "StatPvtNoPubDual")
 { Write-Host "Public Ip Will not be created" -ForegroundColor White
 Write-Host "Nic1: $PvtIPNic1"
 Write-Host "Nic2: $PvtIPNic2"
-SubnetMatch $Subnet1
-SubnetMatch $Subnet2
+Subnet-Match $Subnet1
+Subnet-Match $Subnet2
 }
 If ($ConfigIPs -eq "Single")
 { Write-Host "Public Ip Will be created"
-SubnetMatch $Subnet1
+Subnet-Match $Subnet1
 }
 
 If ($ConfigIPs -eq "Dual")
 { Write-Host "Public Ip Will be created"
-SubnetMatch $Subnet1
-SubnetMatch $Subnet2
+Subnet-Match $Subnet1
+Subnet-Match $Subnet2
 }
 If ($ConfigIPs -eq "PvtSingleStat")
 { Write-Host "Public Ip Will be created"
-SubnetMatch $Subnet1
+Subnet-Match $Subnet1
 Write-Host "Nic1: $PvtIPNic1"
 }
 If ($ConfigIPs -eq "PvtDualStat")
 { Write-Host "Public Ip Will be created"
-SubnetMatch $Subnet1
-SubnetMatch $Subnet2
+Subnet-Match $Subnet1
+Subnet-Match $Subnet2
 Write-Host "Nic1: $PvtIPNic1"
 Write-Host "Nic2: $PvtIPNic2"
 }
@@ -2072,7 +2157,7 @@ Write-Host "                                                               "
 }
 }
 
-Function WriteConfigVM {
+Function Write-ConfigVM {
 param(
 $Subnet1 = $global:Subnet1,
 $Subnet2 = $global:Subnet2
@@ -2089,37 +2174,37 @@ Write-Host "Geo Location: $Location"
 Write-Host "VNET Name: $vNetName"
 Write-Host "Storage Account Name: $StorageName"
 Write-Host "Storage Account Type: $StorageType"
-SelectNicDescrtipt
+Select-NicDescrtipt
 If ($ConfigIPs -eq "StatPvtNoPubSingle")
 { Write-Host "Public Ip Will not be created" -ForegroundColor White
 Write-Host "Nic1: $PvtIPNic1"
-SubnetMatch $Subnet1
+Subnet-Match $Subnet1
 }
 If ($ConfigIPs -eq "StatPvtNoPubDual")
 { Write-Host "Public Ip Will not be created" -ForegroundColor White
 Write-Host "Nic1: $PvtIPNic1"
 Write-Host "Nic2: $PvtIPNic2"
-SubnetMatch $Subnet1
-SubnetMatch $Subnet2
+Subnet-Match $Subnet1
+Subnet-Match $Subnet2
 }
 If ($ConfigIPs -eq "Single")
 { Write-Host "Public Ip Will be created"
-SubnetMatch $Subnet1
+Subnet-Match $Subnet1
 }
 If ($ConfigIPs -eq "Dual")
 { Write-Host "Public Ip Will be created"
-SubnetMatch $Subnet1
-SubnetMatch $Subnet2
+Subnet-Match $Subnet1
+Subnet-Match $Subnet2
 }
 If ($ConfigIPs -eq "PvtSingleStat")
 { Write-Host "Public Ip Will be created"
-SubnetMatch $Subnet1
+Subnet-Match $Subnet1
 Write-Host "Nic1: $PvtIPNic1"
 }
 If ($ConfigIPs -eq "PvtDualStat")
 { Write-Host "Public Ip Will be created"
-SubnetMatch $Subnet1
-SubnetMatch $Subnet2
+Subnet-Match $Subnet1
+Subnet-Match $Subnet2
 Write-Host "Nic1: $PvtIPNic1"
 Write-Host "Nic2: $PvtIPNic2"
 }
@@ -2138,7 +2223,7 @@ Write-Host "                                                               "
 }
 }
 
-Function WriteConfigVnet {
+Function Write-ConfigVnet {
 Write-Host "                                                               "
 $time = " Start Time " + (Get-Date -UFormat "%d-%m-%Y %H:%M:%S")
 Write-Host VNET CONFIGURATION - $time --------- -ForegroundColor Cyan
@@ -2154,7 +2239,7 @@ Write-Host "NSG Name: $NSGName"
 Write-Host "                                                               "
 }
 
-Function WriteResults {
+Function Write-Results {
 param(
 $Subnet1 = $global:Subnet1,
 $Subnet2 = $global:Subnet2
@@ -2221,10 +2306,10 @@ $time = " Completed Time " + (Get-Date -UFormat "%d-%m-%Y %H:%M:%S")
 Write-Host -------------- $time ------------- -ForegroundColor Cyan
 Write-Host "                                                               "
 }
-EndState
+Write-FinalState
 }
 
-Function EndState {
+Function Write-FinalState {
 Write-Host "                                                               "
 Write-Host "Private Network Interfaces for $rg"
 $vms = get-azurermvm -ResourceGroupName $rg
@@ -2245,12 +2330,12 @@ Write-Host "Public Network Interfaces for $rg"
 Get-AzureRmPublicIpAddress -ResourceGroupName $rg| ft "Name","IpAddress" -Wrap
 Get-AzureRmPublicIpAddress -ResourceGroupName $rg | select-object -ExpandProperty DNSSettings | FT FQDN -Wrap
 }
-ResultsRollup
+Results-Rollup
 Write-Host "                                                               "
 break
 }
 
-Function ResultsRollup {
+Function Results-Rollup {
 Write-Host "                                                               "
 Write-Host "Storage Accounts for $rg" -NoNewLine
 Get-AzurermStorageAccount -ResourceGroupName $rg -WarningAction SilentlyContinue | ft StorageAccountName,Location,ResourceGroupname -Wrap
@@ -2261,7 +2346,7 @@ Get-AzurermAvailabilitySet -ResourceGroupName $rg -WarningAction SilentlyContinu
 }
 }
 
-Function ProvisionResGrp
+Function Provision-RG
 {
 	Param(
 		[string]$rg
@@ -2376,7 +2461,7 @@ break
 	}
 }
 
-Function CreateStorage {
+Function Create-Storage {
 		param(
 		[string]$StorageName = $global:StorageNameVerified,
 		[string]$rg = $rg,
@@ -2390,7 +2475,7 @@ $LogOut = "Storage Configuration completed: $StorageName"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 } # Creates Storage
 
-Function CreateVM {
+Function Create-VM {
 	param(
 	[string]$VMName = $VMName,
 	[ValidateSet("w2k12","w2k8","red67","red72","suse","free","ubuntu","centos","w2k16","sql2016","chef","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","puppet","serverr","solarwinds","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack","hadoop","neos","tomcat","redis","gitlab","jruby")]
@@ -2434,563 +2519,564 @@ Function CreateVM {
 	[switch]
 	$AddFQDN = $AddFQDN
 	)
+
 switch -Wildcard ($vmMarketImage)
 	{
 		"*pfsense*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagePlanInfo_Pfsense # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*free*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImageNoPlanInfo_FreeBsd  # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*red72*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImageNoPlanInfo_RedHat72  # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*red67*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImageNoPlanInfo_RedHat67  # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*w2k12*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImageNoPlanInfo_w2k12  # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*sql2016*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImageNoPlanInfo_sql2k16  # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*check*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagePlanInfo_Checkpoint  # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*cent*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImageNoPlanInfo_CentOs  # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*Suse*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImageNoPlanInfo_Suse  # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*w2k8*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImageNoPlanInfo_w2k8  # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*w2k16*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImageNoPlanInfo_w2k16  # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*chef*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagePlanInfo_Chef  # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*ads-datascience*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagenoPlanInfo_ads_stddatascience # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*ads-linuxdatascience*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagenoPlanInfo_ads_datascience # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
-		"*asr-configsvr*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
-			MakeImagenoPlanInfo_asrconfigsvr # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+		"*tableau*" {
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
+			MakeImagePlanInfo_tableau # Begins Image Creation
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
-		"*asr-mastersvr*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
-			MakeImagenoPlanInfo_asrtargemastersvr # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+		"*RevoAn-Lin*" {
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
+			MakeImagePlanInfo_RevAnalytics_cent # Begins Image Creation
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
-		"*asr-processsvr*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
-			MakeImagenoPlanInfo_asrprocesssvr # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+		"*RevoAn-Win*" {
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
+			MakeImagePlanInfo_RevAnalytics_win # Begins Image Creation
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*asr-hydvm*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagenoPlanInfo_asrhydvm # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*lamp*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagePlanInfo_Bitnami_Lamp # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*mongodb*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagePlanInfo_Bitnami_mongodb # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*mysql*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagePlanInfo_Bitnami_mysql # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*elastics*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagePlanInfo_Bitnami_elastic # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*nodejs*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagePlanInfo_Bitnami_nodejs # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*nginxstack*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagePlanInfo_Bitnami_nginxstack # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*postgressql*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagePlanInfo_Bitnami_postgresql # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*oracle-linux*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagePlanInfo_Oracle_linux # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*incredibuild*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagePlanInfo_incredibuild # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*horton-dp*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagePlanInfo_hortonwowk_dp  # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*horton-hdp*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagePlanInfo_hortonwowk_hdp # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*puppet*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagePlanInfo_puppet_puppetent # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*splunk*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagePlanInfo_splunk # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*share2013*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImageNoPlanInfo_SharePoint2k13 # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*tfs*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImageNoPlanInfo_TeamFoundationServer # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*VS2015*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagenoPlanInfo_w2012r2vs2015 # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*DEV15*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagenoPlanInfo_w2012r2dev15 # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*biztalk2013*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImageNoPlanInfo_Biztalk-Enterprise # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*biztalk2016*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImageNoPlanInfo_Biztalk2016-PreRelease # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*share2016*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImageNoPlanInfo_SharePoint2k16 # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*serverr*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagePlanInfo_Microsoft_Serverr # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*ubuntu*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImageNoPlanInfo_Ubuntu # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*f5bigip*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagePlanInfo_f5_bigip_good_byol # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*f5appfire*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagePlanInfo_f5_webappfire_byol # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*barrahourngfw*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagePlanInfo_Barracuda_ng_firewall_hourly # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*barrabyolngfw*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagePlanInfo_Barracuda_ng_firewall_byol # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*barrahourspam*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagePlanInfo_Barracuda_spam_firewall_hourly # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*barrabyolspam*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagePlanInfo_Barracuda_spam_firewall_byol # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
-		"*sap*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
-			MakeImagePlanInfo_SAP_ase # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+		"*O365-Suite*" {
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
+			MakeImagePlanInfo_metavistech # Begins Image Creation
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*solarwinds*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagePlanInfo_SolarWinds # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*hadoop*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagePlanInfo_Bitnami_hadoop # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*tomcat*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagePlanInfo_Bitnami_tomcat # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*redis*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagePlanInfo_Bitnami_redis # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*neos*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagePlanInfo_Bitnami_neos # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*gitlab*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagePlanInfo_Bitnami_gitlab # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*jruby*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagePlanInfo_Bitnami_jrubystack # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		"*jenkins*" {
-			WriteConfigVM
-			CreateStorage
-			AvailSet
-			ConfigNet  #Sets network connection info
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
 			MakeImagePlanInfo_Bitnami_jenkins # Begins Image Creation
-			ConfigSet # Adds Network Interfaces
-			AddDiskImage # Completes Image Creation
-			Provvms
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
 }
 		default{"An unsupported image was referenced"}
 	}
 }
 
-Function ExtCompatWin {
+Function Verify-ExtWin {
 if($vmMarketImage -eq 'w2k12') {Write-Host "Found Windows $vmMarketImage"}
 	elseif($vmMarketImage -eq 'w2k8') {Write-Host "Found Windows $vmMarketImage"}
 		elseif($vmMarketImage -eq 'w2k16') {Write-Host "Found Windows $vmMarketImage"}
@@ -3002,7 +3088,7 @@ Write-Host "No Compatble OS Found, please verify the extension is compatible wit
 exit
 }
 }
-Function ExtCompatLin {
+Function Verify-ExtLinux {
 if($vmMarketImage -eq 'red67') {Write-Host "Found Linux" $vmMarketImage}
 	elseif($vmMarketImage -eq 'suse') {Write-Host "Found Linux $vmMarketImage"}
 		elseif($vmMarketImage -eq 'ubuntu') {Write-Host "Found Linux $vmMarketImage"}
@@ -3014,17 +3100,81 @@ Write-Host "No Compatble OS Found, please verify the extension is compatible wit
 exit
 }
 }
-Function TestUpload {
+Function Configure-DSC {
+param(
+
+ [Parameter(Mandatory=$False)]
+ [string]
+ $DSCConfig = 'WIN_MSUpdate',
+
+ [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+ [string]
+ $IISConfigurationPath = '.\IIS.ps1',
+
+ [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+ [string]
+ $IISConfigurationName = "IISInstall",
+
+ [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+ [string]
+ $IISArchiveBlobName = "IIS.ps1.zip",
+
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+ [string]
+ $MSUpdateConfigurationName = "MuSecurityImportant",
+ [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+ [string]
+ $MSUpdateArchiveBlobName = "WindowsUpdate.ps1.zip",
+
+ [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+ [string]
+ $MSUpdateConfigurationPath = 'C:\Temp\customscripts\WindowsUpdate.ps1',
+
+ [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+ [string]
+ $storageAccountName = $storageName,
+
+ [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+ [string]
+ $StorageType = "Standard_GRS"
+
+)
+
+	 switch -Wildcard ($DSCConfig)
+	{
+		"*WIN_IIS*" {
+Publish-AzureRmVMDscConfiguration -ResourceGroupName $rg -ConfigurationPath $IISConfigurationPath -StorageAccountName $storageAccountName -Force
+Set-AzureRmVMDscExtension -ResourceGroupName $rg -VMName $VMName -ArchiveBlobName $IISArchiveBlobName -ArchiveStorageAccountName $storageAccountName -ConfigurationName $IISConfigurationName -Version 2.19
+}
+		"*WIN_MSUpdate*" {
+Publish-AzureRmVMDscConfiguration -ResourceGroupName $rg -ConfigurationPath $MSUpdateConfigurationPath -StorageAccountName $storageAccountName -Force
+Set-AzureRmVMDscExtension -ResourceGroupName $rg -VMName $VMName -ArchiveBlobName $MSUpdateArchiveBlobName -ArchiveStorageAccountName $storageAccountName -ConfigurationName $MSUPdateConfigurationName -Version 2.19
+}
+		default{"An unsupported DSC command was used"}
+	}
+}
+
+Function Test-Upload {
+param(
+	$localFolder = $localFolder
+	)
+
 $folderexist = Test-Path -Path $localFolder
 if(!$folderexist)
 {
 Write-Host "Folder Doesn't Exist"
 exit }
 else
-{ Upload }
+{  }
 }
 
-Function Upload {
+Function Upload-CustomScript {
+	param(
+	$StorageName = $StorageName,
+	$containerName = $containerName,
+	$rg = $rg,
+	$localFolder = $localFolder
+	)
 $Keys = Get-AzureRmStorageAccountKey -ResourceGroupName $rg -Name $StorageName;
 $StorageContext = New-AzureStorageContext -StorageAccountName $StorageName -StorageAccountKey $Keys[0].Value;
 New-AzureStorageContainer -Context $StorageContext -Name $containerName;
@@ -3042,7 +3192,7 @@ foreach($file in $files)
 write-host "All files in $localFolder uploaded to $containerName!"
 }
 
-Function UnInstallExt {
+Function UnInstall-Ext {
 	param(
 		[string]$Location = $Location,
 		[string]$rg = $rg,
@@ -3101,7 +3251,7 @@ break
 	}
 } # Deploys Azure Extensions
 
-Function InstallExt {
+Function Install-Ext {
 	param(
 		[string]$AzExtConfig = $AzExtConfig,
 		[string]$NSGName = $NSGName,
@@ -3109,15 +3259,17 @@ Function InstallExt {
 		[string]$rg = $rg,
 		[string]$StorageName = $StorageName,
 		[string]$VMName = $VMName,
-		[string]$containerName = $containerName,
+		[string]$containerNameDSC = 'dsc',
+		[string]$containerNameScripts = 'scripts',
 		[string]$DomName = $DomName,
-		[string]$customextname = $customextname
-
+		[string]$customextname = $customextname,
+		[string]$localfolderdsc = 'C:\Temp\customscripts',
+		[string]$localfolderscripts = 'C:\Temp\customscripts'
 	)
 switch ($AzExtConfig)
 	{
 		"access" {
-ExtCompatWin
+Verify-ExtWin
 Write-Host "VM Access Agent VM Image Preparation in Process"
 Set-AzureRmVMAccessExtension -ResourceGroupName $rg -VMName $VMName -Name "VMAccess" -typeHandlerVersion "2.0" -Location $Location -Verbose -username $locadmin -password $locpassword | Out-Null
 Get-AzureRmVMAccessExtension -ResourceGroupName $rg -VMName $VMName -Name "VMAccess" -Status
@@ -3125,7 +3277,7 @@ $Description = "Added VM Access Extension"
 Log-Command -Description $Description -LogFile $LogOutFile
 }
 		"msav" {
-ExtCompatWin
+Verify-ExtWin
 Write-Host "MSAV Agent VM Image Preparation in Process"
 Set-AzureRmVMExtension  -ResourceGroupName $rg -VMName $VMName -Name "MSAVExtension" -ExtensionType "IaaSAntimalware" -Publisher "Microsoft.Azure.Security" -typeHandlerVersion 1.4 -Location $Location | Out-Null
 Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "MSAVExtension" -Status
@@ -3136,7 +3288,8 @@ Log-Command -Description $Description -LogFile $LogOutFile
 Write-Host "Updating server with custom script"
 if($CustomScriptUpload -eq 'True')
 {
-TestUpload
+Test-Upload -localFolder $localfolderscripts
+Upload-CustomScript -StorageName $StorageName -rg $rg -containerName $containerNameScripts -localFolder $localfolderscripts
 }
 Set-AzureRmVMCustomScriptExtension -Name $customextname -ContainerName $containerName -ResourceGroupName $rg -VMName $VMName -StorageAccountName $StorageName -FileName $scriptname -Location $Location -TypeHandlerVersion "1.1" | Out-Null
 Get-AzureRmVMCustomScriptExtension -ResourceGroupName $rg -VMName $VMName -Name $customextname -Status | Out-Null
@@ -3151,7 +3304,7 @@ $Description = "Added VM Enhanced Diag Extension"
 Log-Command -Description $Description -LogFile $LogOutFile
 }
 		"domjoin" {
-ExtCompatWin
+Verify-ExtWin
 $DomName = 'aip.local'
 Write-Host "Domain Join active"
 Set-AzureRmVMADDomainExtension -DomainName $DomName -ResourceGroupName $rg -VMName $VMName -Location $Location -Name 'DomJoin' -WarningAction SilentlyContinue -Restart | Out-Null
@@ -3160,7 +3313,7 @@ $Description = "Added VM Domain Join Extension"
 Log-Command -Description $Description -LogFile $LogOutFile
 }
 		"linuxOsPatch" {
-ExtCompatLin
+Verify-ExtLinux
 Write-Host "Adding Azure OS Patching Linux"
 Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OSPatch" -ExtensionType "OSPatchingForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.0" -InformationAction SilentlyContinue -Verbose
 Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "OSPatch"
@@ -3168,7 +3321,7 @@ $Description = "Added VM OS Patch Extension"
 Log-Command -Description $Description -LogFile $LogOutFile
 		}
 		"linuxbackup" {
-ExtCompatLin
+Verify-ExtLinux
 Write-Host "Adding Linux VMBackup"
 Set-AzureRmVMBackupExtension -VMName $VMName -ResourceGroupName $rg -Name "VMBackup" -Tag "OSBackup" -WarningAction SilentlyContinue | Out-Null
 $Description = "Added VM Backup Extension"
@@ -3184,7 +3337,7 @@ $Description = "Added VM Chef Extension"
 Log-Command -Description $Description -LogFile $LogOutFile
 }
 		"opsinsightLinux" {
-ExtCompatLin
+Verify-ExtLinux
 Write-Host "Adding Linux Insight Agent"
 Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OperationalInsights" -ExtensionType "OmsAgentForLinux" -Publisher "Microsoft.EnterpriseCloud.Monitoring" -typeHandlerVersion "1.0" -InformationAction SilentlyContinue -Verbose | Out-Null
 Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "OperationalInsights"
@@ -3192,7 +3345,7 @@ $Description = "Added OpsInsight Extension"
 Log-Command -Description $Description -LogFile $LogOutFile
 }
 		"opsinsightWin" {
-ExtCompatWin
+Verify-ExtWin
 Write-Host "Adding Windows Insight Agent"
 Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OperationalInsights" -ExtensionType "MicrosoftMonitoringAgent" -Publisher "Microsoft.EnterpriseCloud.Monitoring" -typeHandlerVersion "1.0" -InformationAction SilentlyContinue -Verbose | Out-Null
 Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "OperationalInsights"
@@ -3200,10 +3353,24 @@ $Description = "Added OpsInsight Extension"
 Log-Command -Description $Description -LogFile $LogOutFile
 }
 		"ESET" {
-ExtCompatWin
+Verify-ExtWin
 Write-Host "Setting File Security"
 Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "ESET" -ExtensionType "FileSecurity" -Publisher "ESET" -typeHandlerVersion "6.0" -InformationAction SilentlyContinue -Verbose | Out-Null
 Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "ESET"
+$Description = "Added ESET Extension"
+Log-Command -Description $Description -LogFile $LogOutFile
+}
+		"PushDSC" {
+Verify-ExtWin
+if($DSCUpload -eq 'True')
+{
+Test-Upload -localFolder $localfolderdsc
+Upload-CustomScript -StorageName $StorageName -rg $rg -containerName $containerNameDSC -localFolder $localfolderdsc
+}
+Configure-DSC
+
+Write-Host "Pushing DSC"
+
 $Description = "Added ESET Extension"
 Log-Command -Description $Description -LogFile $LogOutFile
 }
@@ -3219,7 +3386,7 @@ $Description = "Registered with Azure Automation DSC"
 Log-Command -Description $Description -LogFile $LogOutFile
 }
 		"WinPuppet" {
-ExtCompatWin
+Verify-ExtWin
 Write-Host "Deploying Puppet Extension"
 Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "PuppetEnterpriseAgent" -ExtensionType "PuppetEnterpriseAgent" -Publisher "PuppetLabs" -typeHandlerVersion "3.2" -InformationAction SilentlyContinue -Verbose | Out-Null
 Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "PuppetEnterpriseAgent"
@@ -3232,7 +3399,7 @@ break
 	}
 } # Deploys Azure Extensions
 
-Function OrphanCleanup {
+Function Remove-Orphans {
 	param(
 	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 	[string]
@@ -3276,7 +3443,7 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
  }
 } #
 
-Function OrphanChk {
+Function Check-Orphans {
 	param(
 	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 	[string]
@@ -3410,7 +3577,7 @@ Remove-AzureRmAvailabilitySet -ResourceGroupName $rg -Confirm:$False -Force -Nam
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
-Function RemoveComponent {
+Function Remove-Component {
 	param(
 		[string]$RemoveObject = $RemoveObject
 	)
@@ -3423,7 +3590,7 @@ break
 }
 		"vm" {
 Remove-azVM
-OrphanCleanup
+Remove-Orphans
 }
 		"nsg" {
 Remove-azNSG
@@ -3448,7 +3615,7 @@ break
 } # Deploys Azure Extensions
 
 # Fuctions
-Function AzureVersion{
+Function Verify-AzureVersion {
 $name='Azure'
 if(Get-Module -ListAvailable |
 	Where-Object { $_.name -eq $name })
@@ -3476,7 +3643,7 @@ $workfolder = Split-Path $script:MyInvocation.MyCommand.Path
 $LogOutFile = $workfolder+'\'+$vmname+'-'+$date+'.log'
 $ProfileFile = $workfolder+'\'+$profile+'.json'
 
-AzureVersion # Verifies Azure client Powershell Version
+Verify-AzureVersion # Verifies Azure client Powershell Version
 if($help) {
 Help-User
 exit
@@ -3496,38 +3663,41 @@ catch {
  if($resourceProviders.length) {
 	Write-Host "Registering resource providers"
 	foreach($resourceProvider in $resourceProviders) {
-		RegisterRP($resourceProvider);
+		Register-RP($resourceProvider);
 	}
  } # Get Resource Providers
 if($getinfo){ Get-Azinfo }
 Write-Output "Steps will be tracked on the log file : [ $LogOutFile ]"
-if($RemoveObject){ RemoveComponent }
+if($RemoveObject){ Remove-Component }
 
-chknull # Verifies required fields have data
-OrphanChk # Verifies no left overs
-VerifyNet
-StorageNameCheck # Verifies Storage Account Name does not exist
+Check-NullValues # Verifies required fields have data
+Check-NSGName
+Check-AvailabilitySet
+Check-FQDN
+Check-Orphans # Verifies no left overs
+Verify-NIC
+Check-StorageName # Verifies Storage Account Name does not exist
 
 $resourcegroups = @($rg,$vnetrg);
 if($resourcegroups.length) {
 	foreach($resourcegroup in $resourcegroups) {
-		ProvisionResGrp($resourcegroup);
+		Provision-RG($resourcegroup);
 	}
 } # Create Resource Groups
 
-# WriteConfig # Provides Pre-Deployment Description
-WriteConfigVNet
-if($AddVnet){CreateVnet} # Creates VNET
+# Write-Config # Provides Pre-Deployment Description
 
-if($NSGEnabled){CreateNSG} # Creates NSG and Security Groups
+if($AddVnet){Create-Vnet} # Creates VNET
 
-CreateVM # Configure Image
+if($NSGEnabled){Create-NSG} # Creates NSG and Security Groups
 
-if($NSGEnabled){NSGEnabled} #Adds NSG to NIC
+Create-VM # Configure Image
 
-if($AddExtension){InstallExt} #Installs Azure Extensions
+if($NSGEnabled){Configure-NSGEnabled} #Adds NSG to NIC
+
+if($AddExtension){Install-Ext} #Installs Azure Extensions
 
 if($AddVPN -eq 'True'){
-CreateVPN
-ConnectVPN
+Create-VPN
+Connect-VPN
 } #Creates VPN
