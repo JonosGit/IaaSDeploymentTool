@@ -2,13 +2,15 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 6.3
-This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerour Market Place VMs or make use of an existing VNETs.
+Ver 6.5
+This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerous Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
 The script allows select of subnet prior to VM Deployment
 The script supports deploying Availability Sets as well as adding new servers to existing Availability Sets through the -AvailabilitySet "True" and -AvailSetName switches.
 The script will generate a name for azure storage endpoint unless the -StorageName variable is updated or referenced at runtime.
 
+v6.5 updates - Custom Scripts directory and logs directory will now be created in the scripts execution directory.
+v6.4 updates - Added Cloudera, cloud-connector, datastax to image offerings
 v6.3 updates - DSC Push Configuration added to Extensions
 v6.2 updates - Added 12 new images including Biztalk, Visual Studio, TFS, Incredibuild, HortonWorks, Dev15, ASR (Azure Site Recovery) Images
 v6.11 updates - Modified Profile to save to script execution directory, added -help switch.
@@ -121,6 +123,8 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 
 .PARAMETER RemoveObject
 
+.PARAMETER RemoveExt
+
 .PARAMETER Help
 
 .EXAMPLE
@@ -128,7 +132,7 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 .EXAMPLE
 \.azdeploy.ps1 -vm red76 -image red67 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -sub1 7 -ConfigIPs SinglePvtNoPub -Nic1 10.120.6.124 -Ext linuxbackup
 .EXAMPLE
-\.azdeploy.ps1 -vm win006 -image w2k12 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNE T-sub1 2 -ConfigIPs Single -AvSet -NSGEnabled -NSGName NSG
+\.azdeploy.ps1 -vm win006 -image w2k12 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -sub1 2 -ConfigIPs Single -AvSet -NSGEnabled -NSGName NSG
 .EXAMPLE
 \.azdeploy.ps1 -vm win008 -image w2k16 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -sub1 5 -ConfigIPs PvtSingleStat -Nic1 10.120.4.169 -AddFQDN -fqdn mydns1
 .EXAMPLE
@@ -144,20 +148,28 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 			Single & Dual – Deploys the default configuration of a Public IP and automatically generated private IP(s).
 			StatPvtNoPubDual & StatPvtNoPubSingle – Deploys the server without a Public IP using the private IP(s) specified by the user.
 -VMMarketImage <Image ShortName>
-			Redhat 6.7 – Red67
-			Redhat7.2 – Red72
+
 			Windows 2012 R2 – w2k12
+			Windows 2008 R2 – w2k8
+			Windows 2016 – w2k16
+			SharePoint 2016 - Share2016
+			SharePoint 2013 - share2013
+			Biztalk 2013 Ent - biztalk2013
+			Biztalk 2016 preview - biztalk2016
+			TFS 2013 - tfs
+			Visual Studio 2015 Ent on W2k12 r2 - vs2015
+			Dev15 - Preview - dev15
+			SQL Server 2016 (on Windows 2012 host) – sql2016
 			PFSense 2.5 – pfsense
 			Free BSD – free
 			Suse – suse
-			CentOs 7.2 – cent
+			CentOs 7.2 – centos
 			Ubuntu 14.04 – ubuntu
-			SQL Server 2016 (on Windows 2012 host) – sql2016
+			Redhat 6.7 – Red67
+			Redhat 7.2 – Red72
 			MySql – mysql
-			CheckPoint – check
-			Windows 2008 R2 – w2k8
-			Windows 2016 – w2k16
-			Chef v12 - chef
+			CheckPoint AppFirewall – check
+			Chef Server v12 - 100 Client - chef
 			Bitnami LampStack - lamp
 			Bitnami MySql - mysql
 			Bitnami NodeJs - node
@@ -178,27 +190,22 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 			Barracuda NG Firewall (BYOL) - barrabyolngfw
 			Barracuda spam Firewall (hourly) - barrahourspam
 			Barracuda spam Firewall (byol) - barrabyolspam
-			SharePoint 2016 - Share2016
-			SharePoint 2013 - share2013
 			Server R - serverr
-			Biztalk 2013 Ent - biztalk2013
-			Biztalk 2016 preview - biztalk2016
-			TFS 2013 - tfs
 			Hortonworks DataPlatform - horton-dp
-			Visual Studio 2015 Ent on W2k12 r2 - vs2015
-			Dev15 - Preview - dev15
 			Incredibuild - Incredibuild
-			Azure Site Recovery Config Server - asr-configsvr
-			Azure Site Recovery Master Target - asr-mastersvr
-			Azure Site Recovery Process Server - asr-processsvr
-			Azure Site Recovery VM Hydration Server - asr-hydvm
 			Microsoft Ads - Data Science Standard Server - ads-datascience
 			Microsoft Ads - Data Science Linux Server - ads-linuxdatascience
+			Cloudera - cloudera
+			DataStax - datastax
+			Cloud-connector - cloud-conn
+			Tableau Desktop - tableau
+			metavistech O365 Suite - O365-suite
 
 -AzExtConfig <Extension Type>
 			access – Adds Azure Access Extension – Added by default during VM creation
 			msav – Adds Azure Antivirus Extension
 			custScript – Adds Custom Script for Execution (Requires Table Storage Configuration first)
+			pushdsc - Deploys DSC Configuration to Azure VM
 			diag – Adds Azure Diagnostics Extension
 			linuxOsPatch - Deploy Latest updates for Linux platforms
 			linuxbackup - Deploys Azure Linux bacup Extension
@@ -213,11 +220,11 @@ https://github.com/JonosGit/IaaSDeploymentTool
 https://github.com/JonosGit/IaaSDeploymentTool/blob/master/The%20IaaS%20Deployment%20Tool%20User%20Guide.pdf
 #>
 
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = 'default')]
 Param(
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=1)]
 [ValidateNotNullorEmpty()]
-[ValidateSet("w2k12","w2k8","red67","red72","suse","free","ubuntu","centos","w2k16","sql2016","chef","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","horton-dp","serverr","horton-hdp","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack","hadoop","neos","tomcat","redis","gitlab","jruby","biztalk2013","tfs","biztalk2016","vs2015","dev15","incredibuild","asr-hydvm","tableau","asr-mastersvr","asr-processsvr","O365-suite","ads-linuxdatascience","ads-datascience")]
+[ValidateSet("w2k12","w2k8","w2k16","sql2016","biztalk2013","tfs","biztalk2016","vs2015","dev15","incredibuild","msnav2016","red67","red72","suse","free","ubuntu","centos","chef","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","horton-dp","serverr","horton-hdp","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack","hadoop","neos","tomcat","redis","gitlab","jruby","tableau","cloudera","datastax","O365-suite","ads-linuxdatascience","ads-datascience","cloud-conn")]
 [Alias("image")]
 [string]
 $vmMarketImage = 'w2k12',
@@ -238,6 +245,9 @@ $vnetrg = '',
 [switch]
 $AddVnet,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$BatchAddVnet = 'False',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("vnet")]
 [string]
 $VNetName = '',
@@ -251,7 +261,10 @@ $ConfigIPs = '',
 [switch]
 $NSGEnabled,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[ValidateSet("vm","vnet","rg","nsg","extension","storage","availabilityset")]
+[string]
+$BatchAddNSG = 'False',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateSet("vm","vnet","rg","nsg","storage","availabilityset")]
 [string]
 $RemoveObject = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
@@ -318,6 +331,9 @@ $Subnet2 = $global:Subnet2,
 $AddAvailabilitySet,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
+$BatchAddAvSet = 'False',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
 $AvailSetName = $GenerateName,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("fqdn")]
@@ -326,6 +342,9 @@ $DNLabel = 'mytesr1',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [switch]
 $AddFQDN,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$BatchAddFQDN,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [Alias("nic1")]
@@ -401,7 +420,7 @@ $Azautoacct = "DSC-Auto",
 [string]
 $Profile = "profile",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[ValidateSet("diag","msav","access","linuxbackup","chefagent","eset","customscript","opsinsightLinux","opsinsightWin","WinPuppet","domjoin","RegisterAzDSC","PushDSC")]
+[ValidateSet("diag","msav","access","linuxbackup","chefagent","eset","customscript","opsinsightLinux","opsinsightWin","WinPuppet","domjoin","RegisterAzDSC","PushDSC","bginfo")]
 [Alias("ext")]
 [string]
 $AzExtConfig = 'diag',
@@ -410,19 +429,21 @@ $AzExtConfig = 'diag',
 [switch]
 $AddExtension,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$BatchAddExtension = 'False',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[Alias("removeext")]
+[switch]
+$RemoveExtension,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateSet("True","False")]
 [Alias("upload")]
 [string]
 $CustomScriptUpload = 'False',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[ValidateSet("True","False")]
-[Alias("uploaddsc")]
-[string]
-$DSCUpload  = 'False',
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("dscscriptname")]
 [string]
-$dscname = '',
+$dscname = $DSCConfig,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("customscriptname")]
 [string]
@@ -435,10 +456,10 @@ $containername = 'scripts',
 $customextname = 'customscript',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$scriptfolder = "C:\Temp",
+$scriptfolder = $workfolder,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$localfolder = "$scriptfolder\customscripts",
+$localfolder = "$scriptfolder\scripts",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateSet("network","vm","summary","extension")]
 [string]
@@ -659,7 +680,7 @@ $global:PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupNam
 }
 
 Function Configure-PubDNS {
-if($AddFQDN)
+if($AddFQDN -or $BatchAddFQDN -eq 'True')
 {
 Write-Host "Creating FQDN: " $DNLabel.$Location.cloudapp.azure.com
 }
@@ -875,7 +896,7 @@ Function Create-AvailabilitySet {
 		[string]$AvailSetName = $AvailSetName
 )
  try {
- If ($AddAvailabilitySet)
+ If ($AddAvailabilitySet -or $BatchAddAvset -eq 'True')
  {
  Write-Host "Availability Set configuration in process.." -ForegroundColor White
 New-AzureRmAvailabilitySet -ResourceGroupName $rg -Name $AvailSetName -Location $Location -WarningAction SilentlyContinue | Out-Null
@@ -909,7 +930,7 @@ catch {
 	$ProvisionVMs = @($VirtualMachine);
 try {
    foreach($provisionvm in $ProvisionVMs) {
-		New-AzureRmVM -ResourceGroupName $rg -Location $Location -VM $VirtualMachine –Confirm:$false -WarningAction SilentlyContinue | Out-Null
+		New-AzureRmVM -ResourceGroupName $rg -Location $Location -VM $VirtualMachine -DisableBginfoExtension –Confirm:$false -WarningAction SilentlyContinue | Out-Null
 		$LogOut = "Completed Creation of $VMName from $vmMarketImage"
 		Log-Command -Description $LogOut -LogFile $LogOutFile
 						}
@@ -1182,78 +1203,7 @@ $global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -Publisher
 $LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
-Function MakeImagePlanInfo_Oracle_linux {
-param(
-	[string]$VMName = $VMName,
-	[string]$Publisher = 'Oracle',
-	[string]$offer = 'Oracle-Linux',
-	[string]$Skus = '7.2',
-	[string]$version = 'latest',
-	[string]$Product = 'Oracle-Linux',
-	[string]$name = '7.2'
-)
-Write-Host "Image Creation in Process - Plan Info - Oracle Linux" -ForegroundColor White
-Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
-$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
-$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
-$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
-Log-Command -Description $LogOut -LogFile $LogOutFile
-}
-Function MakeImagePlanInfo_Oracle_weblogic {
-param(
-	[string]$VMName = $VMName,
-	[string]$Publisher = 'Oracle',
-	[string]$offer = 'Oracle-WebLogic-server',
-	[string]$Skus = 'Oracle-WebLogic-Server',
-	[string]$version = 'latest',
-	[string]$Product = 'Oracle-WebLogic-Server',
-	[string]$name = 'Oracle-WebLogic-Server'
-)
-Write-Host "Image Creation in Process - Plan Info - Oracle WebLogic" -ForegroundColor White
-Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
-$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
-$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
-$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
-Log-Command -Description $LogOut -LogFile $LogOutFile
-}
-Function MakeImagePlanInfo_Oracle_EntDB {
-param(
-	[string]$VMName = $VMName,
-	[string]$Publisher = 'Oracle',
-	[string]$offer = 'Oracle-database-Ee',
-	[string]$Skus = '12.1.0.2',
-	[string]$version = 'latest',
-	[string]$Product = '12.1.0.2',
-	[string]$name = 'Oracle-database-Ee'
-)
-Write-Host "Image Creation in Process - Plan Info - Oracle Enterprise Edition" -ForegroundColor White
-Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
-$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
-$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
-$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
-Log-Command -Description $LogOut -LogFile $LogOutFile
-}
-Function MakeImagePlanInfo_Oracle_StdDB {
-param(
-	[string]$VMName = $VMName,
-	[string]$Publisher = 'Oracle',
-	[string]$offer = 'Oracle-database-Se',
-	[string]$Skus = '12.1.0.2',
-	[string]$version = 'latest',
-	[string]$Product = '12.1.0.2',
-	[string]$name = 'Oracle-database-Se'
-)
-Write-Host "Image Creation in Process - Plan Info - Oracle Standard Edition" -ForegroundColor White
-Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
-$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
-$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
-$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
-Log-Command -Description $LogOut -LogFile $LogOutFile
-}
+
 Function MakeImagePlanInfo_SAP_ase {
 param(
 	[string]$VMName = $VMName,
@@ -1385,6 +1335,81 @@ $LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Sku
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
+Function MakeImagePlanInfo_cloudera {
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'cloudera',
+	[string]$offer = 'cloudera-centos-os',
+	[string]$Skus = '7_2',
+	[string]$version = 'latest',
+	[string]$Product = 'cloudera-centos-os',
+	[string]$name = '7_2'
+)
+Write-Host "Image Creation in Process - Plan Info - cloudera" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function MakeImagePlanInfo_datastax {
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'datastax',
+	[string]$offer = 'datastax-enterprise',
+	[string]$Skus = 'datastaxenterprise',
+	[string]$version = 'latest',
+	[string]$Product = 'datastax-enterprise',
+	[string]$name = 'datastaxenterprise'
+)
+Write-Host "Image Creation in Process - Plan Info - datastax" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function MakeImagePlanInfo_cloudconnector {
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'elfiqnetworks',
+	[string]$offer = 'cloud-connector',
+	[string]$Skus = 'cloud-connector-azure',
+	[string]$version = 'latest',
+	[string]$Product = 'cloud-connector',
+	[string]$name = 'cloud-connector-azure'
+)
+Write-Host "Image Creation in Process - Plan Info - cloud connector" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function MakeImagePlanInfo_chefbyol {
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'chef-software',
+	[string]$offer = 'chef-server',
+	[string]$Skus = 'chefbyol',
+	[string]$version = 'latest',
+	[string]$Product = 'chef-server',
+	[string]$name = 'chefbyol'
+)
+Write-Host "Image Creation in Process - Plan Info - Chef BYOL" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
 Function MakeImagePlanInfo_Barracuda_spam_firewall_hourly {
 param(
 	[string]$VMName = $VMName,
@@ -1801,6 +1826,36 @@ $global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -Publisher
 $LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
+Function MakeImageNoPlanInfo_Win10 {
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = "MicrosoftVisualStudio",
+	[string]$offer = "Windows",
+	[string]$Skus = "Windows-10-N-x64",
+	[string]$version = "latest"
+)
+Write-Host "Image Creation in Process - No Plan Info - Windows 10" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -Windows -ComputerName $VMName -Credential $Credential1 -ProvisionVMAgent -EnableAutoUpdate -WinRMHttp -Verbose
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+Function MakeImageNoPlanInfo_MSNAV2016 {
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = "MicrosoftDynamicsNAV",
+	[string]$offer = "DynamicsNAV",
+	[string]$Skus = "2016",
+	[string]$version = "latest"
+)
+Write-Host "Image Creation in Process - No Plan Info - MS Nav 2016" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$global:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -Windows -ComputerName $VMName -Credential $Credential1 -ProvisionVMAgent -EnableAutoUpdate -WinRMHttp -Verbose
+$global:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
 
 Function MakeImageNoPlanInfo_SharePoint2k16 {
 param(
@@ -2139,10 +2194,10 @@ Subnet-Match $Subnet2
 Write-Host "Nic1: $PvtIPNic1"
 Write-Host "Nic2: $PvtIPNic2"
 }
-if($AddExtension) {
+if($AddExtension -or $BatchAddExtension -eq 'True') {
 Write-Host "Extension selected for deployment: $AzExtConfig "
 }
-if($AddAvailabilitySet) {
+if($AddAvailabilitySet -or $AddAvailabilitySet -eq 'True') {
 Write-Host "Availability Set to 'True'"
 Write-Host "Availability Set Name:  '$AvailSetName'"
 Write-Host "                                                               "
@@ -2208,10 +2263,10 @@ Subnet-Match $Subnet2
 Write-Host "Nic1: $PvtIPNic1"
 Write-Host "Nic2: $PvtIPNic2"
 }
-if($AddExtension) {
+if($AddExtension -or $BatchAddExtension -eq 'True') {
 Write-Host "Extension selected for deployment: $AzExtConfig "
 }
-if($AddAvailabilitySet) {
+if($AddAvailabilitySet -or $AddAvailabilitySet -eq 'True') {
 Write-Host "Availability Set to 'True'"
 Write-Host "Availability Set Name:  '$AvailSetName'"
 Write-Host "                                                               "
@@ -2290,10 +2345,10 @@ Write-Host "Network Adapter Count:" $niccount
 Write-Host "Availability Set:"$availsetid
 Write-Host "Data Disk Count:" $datadiskcount
 
-if($AddExtension) {
+if($AddExtension -or $BatchAddExtension -eq 'True'){
 Write-Host "Extension deployed: $AzExtConfig "
 }
-if($AddAvailabilitySet) {
+if($AddAvailabilitySet -or $AddAvailabilitySet -eq 'True') {
 Write-Host "Availability Set Configured"
 Write-Host "Availability Set Name:  '$AvailSetName'"
 $time = " Completed Time " + (Get-Date -UFormat "%d-%m-%Y %H:%M:%S")
@@ -2519,7 +2574,7 @@ Function Create-VM {
 	[switch]
 	$AddFQDN = $AddFQDN
 	)
-
+Check-NullValues
 switch -Wildcard ($vmMarketImage)
 	{
 		"*pfsense*" {
@@ -2572,6 +2627,16 @@ switch -Wildcard ($vmMarketImage)
 			Configure-Image # Completes Image Creation
 			Provision-Vm
 }
+		"*MSNav2016*" {
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
+			MakeImageNoPlanInfo_MSNAV2016  # Begins Image Creation
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
+}
 		"*sql2016*" {
 			Write-ConfigVM
 			Create-Storage
@@ -2588,6 +2653,26 @@ switch -Wildcard ($vmMarketImage)
 			Create-AvailabilitySet
 			Configure-Nics  #Sets network connection info
 			MakeImagePlanInfo_Checkpoint  # Begins Image Creation
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
+}
+		"*cloudera*" {
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
+			MakeImagePlanInfo_cloudera # Begins Image Creation
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
+}
+		"*datastax*" {
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
+			MakeImagePlanInfo_datastax # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
 			Provision-Vm
@@ -2692,16 +2777,6 @@ switch -Wildcard ($vmMarketImage)
 			Configure-Image # Completes Image Creation
 			Provision-Vm
 }
-		"*asr-hydvm*" {
-			Write-ConfigVM
-			Create-Storage
-			Create-AvailabilitySet
-			Configure-Nics  #Sets network connection info
-			MakeImagenoPlanInfo_asrhydvm # Begins Image Creation
-			Set-NicConfiguration # Adds Network Interfaces
-			Configure-Image # Completes Image Creation
-			Provision-Vm
-}
 		"*lamp*" {
 			Write-ConfigVM
 			Create-Storage
@@ -2768,16 +2843,6 @@ switch -Wildcard ($vmMarketImage)
 			Create-AvailabilitySet
 			Configure-Nics  #Sets network connection info
 			MakeImagePlanInfo_Bitnami_postgresql # Begins Image Creation
-			Set-NicConfiguration # Adds Network Interfaces
-			Configure-Image # Completes Image Creation
-			Provision-Vm
-}
-		"*oracle-linux*" {
-			Write-ConfigVM
-			Create-Storage
-			Create-AvailabilitySet
-			Configure-Nics  #Sets network connection info
-			MakeImagePlanInfo_Oracle_linux # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
 			Provision-Vm
@@ -3103,7 +3168,8 @@ exit
 Function Configure-DSC {
 param(
 
- [Parameter(Mandatory=$False)]
+ [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+ [ValidateSet("WIN_MSUpdate","WIN_IIS")]
  [string]
  $DSCConfig = 'WIN_MSUpdate',
 
@@ -3132,7 +3198,7 @@ param(
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
- $storageAccountName = $storageName,
+ $storageAccountName = $global:StorageNameVerified,
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
@@ -3197,53 +3263,76 @@ Function UnInstall-Ext {
 		[string]$Location = $Location,
 		[string]$rg = $rg,
 		[string]$VMName = $VMName,
-		[string]$customextname = $customextname
+		[string]$customextname = $customextname,
+		[string]$AzExtConfig = $AzExtConfig
 
 	)
 switch ($AzExtConfig)
 	{
 		"access" {
-Write-Host "VM Access Agent VM Image Preparation in Process"
+Write-Host "VM Access Agent VM Image Removal in Process"
 Remove-AzureRmVMAccessExtension -ResourceGroupName $rg -VMName $VMName -Name "VMAccess" -Force -Confirm:$false
+exit
 }
 		"msav" {
-Write-Host "MSAV Agent VM Image Preparation in Process"
+Write-Host "MSAV Agent VM Image Removal in Process"
 Remove-AzureRmVMExtension -Name "MSAVExtension" -ResourceGroupName $rg -VMName $VMName -Force -Confirm:$false
+exit
 }
 		"customscript" {
-Write-Host "Updating server with custom script"
+Write-Host "Removing custom script"
+			exit
 }
 		"diag" {
 Write-Host "Removing Azure Enhanced Diagnostics"
 Remove-AzureRmVMAEMExtension -ResourceGroupName $rg -VMName $VMName
+			exit
 }
 		"domjoin" {
-Write-Host "Domain Join active"
+Write-Host "Removing Domain Join"
 }
 		"linuxOsPatch" {
-Write-Host "Adding Azure OS Patching Linux"
+Write-Host "Removing Azure OS Patching Linux"
+			exit
 		}
 		"linuxbackup" {
 Write-Host "Removing Linux VMBackup"
-Remove-AzureRmVMBackup -ResourceGroupName $rg -VMName $VMName -Tag "OSBackup"
+Remove-AzureRmVMBackup -ResourceGroupName $rg -VMName $VMName -Tag 'OSBackup'
+			exit
 		}
 		"chefAgent" {
-Write-Host "Adding Chef Agent"
+Write-Host "Removing Chef Agent"
+			exit
 }
 		"opsinsightLinux" {
-Write-Host "Adding Linux Insight Agent"
+Write-Host "Removing Linux Insight Agent"
+			exit
 }
 		"opsinsightWin" {
-Write-Host "Adding Windows Insight Agent"
+Write-Host "Removing Windows Insight Agent"
+			exit
 }
 		"ESET" {
-Write-Host "Setting File Security"
+Write-Host "Removing File Security"
+			exit
 }
 		"RegisterAzDSC" {
-Write-Host "Registering with Azure Automation DSC"
+Write-Host "Removing Azure Automation DSC"
+			exit
 }
 		"WinPuppet" {
-Write-Host "Deploying Puppet Extension"
+Write-Host "Removing Puppet Extension"
+			exit
+}
+		"PushDSC" {
+Write-Host "Removing DSC Extension"
+Remove-DscExt
+			exit
+}
+		"Bginfo" {
+Write-Host "Removing BgInfo Extension"
+Remove-AzureVMBGInfoExtension -VM $VMName
+			exit
 }
 		default{"An unsupported uninstall Extension command was used"
 break
@@ -3257,13 +3346,12 @@ Function Install-Ext {
 		[string]$NSGName = $NSGName,
 		[string]$Location = $Location,
 		[string]$rg = $rg,
-		[string]$StorageName = $StorageName,
+		[string]$StorageName = $global:StorageNameVerified,
 		[string]$VMName = $VMName,
 		[string]$containerNameDSC = 'dsc',
 		[string]$containerNameScripts = 'scripts',
 		[string]$DomName = $DomName,
 		[string]$customextname = $customextname,
-		[string]$localfolderdsc = 'C:\Temp\customscripts',
 		[string]$localfolderscripts = 'C:\Temp\customscripts'
 	)
 switch ($AzExtConfig)
@@ -3275,6 +3363,7 @@ Set-AzureRmVMAccessExtension -ResourceGroupName $rg -VMName $VMName -Name "VMAcc
 Get-AzureRmVMAccessExtension -ResourceGroupName $rg -VMName $VMName -Name "VMAccess" -Status
 $Description = "Added VM Access Extension"
 Log-Command -Description $Description -LogFile $LogOutFile
+Write-Results
 }
 		"msav" {
 Verify-ExtWin
@@ -3283,6 +3372,7 @@ Set-AzureRmVMExtension  -ResourceGroupName $rg -VMName $VMName -Name "MSAVExtens
 Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "MSAVExtension" -Status
 $Description = "Added VM msav Extension"
 Log-Command -Description $Description -LogFile $LogOutFile
+Write-Results
 }
 		"customscript" {
 Write-Host "Updating server with custom script"
@@ -3291,10 +3381,11 @@ if($CustomScriptUpload -eq 'True')
 Test-Upload -localFolder $localfolderscripts
 Upload-CustomScript -StorageName $StorageName -rg $rg -containerName $containerNameScripts -localFolder $localfolderscripts
 }
-Set-AzureRmVMCustomScriptExtension -Name $customextname -ContainerName $containerName -ResourceGroupName $rg -VMName $VMName -StorageAccountName $StorageName -FileName $scriptname -Location $Location -TypeHandlerVersion "1.1" | Out-Null
+Set-AzureRmVMCustomScriptExtension -Name $customextname -ContainerName $containerName -ResourceGroupName $rg -VMName $VMName -StorageAccountName $StorageName -FileName $scriptname -Location $Location -TypeHandlerVersion "1.1" -WarningAction SilentlyContinue | Out-Null
 Get-AzureRmVMCustomScriptExtension -ResourceGroupName $rg -VMName $VMName -Name $customextname -Status | Out-Null
 $Description = "Added VM Custom Script Extension"
 Log-Command -Description $Description -LogFile $LogOutFile
+Write-Results
 }
 		"diag" {
 Write-Host "Adding Azure Enhanced Diagnostics"
@@ -3302,6 +3393,7 @@ Set-AzureRmVMAEMExtension -ResourceGroupName $rg -VMName $VMName -WADStorageAcco
 Get-AzureRmVMAEMExtension -ResourceGroupName $rg -VMName $VMName | Out-Null
 $Description = "Added VM Enhanced Diag Extension"
 Log-Command -Description $Description -LogFile $LogOutFile
+Write-Results
 }
 		"domjoin" {
 Verify-ExtWin
@@ -3319,6 +3411,7 @@ Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Locatio
 Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "OSPatch"
 $Description = "Added VM OS Patch Extension"
 Log-Command -Description $Description -LogFile $LogOutFile
+Write-Results
 		}
 		"linuxbackup" {
 Verify-ExtLinux
@@ -3326,6 +3419,7 @@ Write-Host "Adding Linux VMBackup"
 Set-AzureRmVMBackupExtension -VMName $VMName -ResourceGroupName $rg -Name "VMBackup" -Tag "OSBackup" -WarningAction SilentlyContinue | Out-Null
 $Description = "Added VM Backup Extension"
 Log-Command -Description $Description -LogFile $LogOutFile
+Write-Results
 		}
 		"chefAgent" {
 Write-Host "Adding Chef Agent"
@@ -3335,6 +3429,7 @@ Set-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "ChefStrap" 
 Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "ChefStrap"
 $Description = "Added VM Chef Extension"
 Log-Command -Description $Description -LogFile $LogOutFile
+Write-Results
 }
 		"opsinsightLinux" {
 Verify-ExtLinux
@@ -3343,6 +3438,7 @@ Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Locatio
 Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "OperationalInsights"
 $Description = "Added OpsInsight Extension"
 Log-Command -Description $Description -LogFile $LogOutFile
+Write-Results
 }
 		"opsinsightWin" {
 Verify-ExtWin
@@ -3351,6 +3447,7 @@ Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Locatio
 Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "OperationalInsights"
 $Description = "Added OpsInsight Extension"
 Log-Command -Description $Description -LogFile $LogOutFile
+Write-Results
 }
 		"ESET" {
 Verify-ExtWin
@@ -3359,20 +3456,13 @@ Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Locatio
 Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "ESET"
 $Description = "Added ESET Extension"
 Log-Command -Description $Description -LogFile $LogOutFile
+Write-Results
 }
 		"PushDSC" {
 Verify-ExtWin
-if($DSCUpload -eq 'True')
-{
-Test-Upload -localFolder $localfolderdsc
-Upload-CustomScript -StorageName $StorageName -rg $rg -containerName $containerNameDSC -localFolder $localfolderdsc
-}
 Configure-DSC
-
 Write-Host "Pushing DSC"
-
-$Description = "Added ESET Extension"
-Log-Command -Description $Description -LogFile $LogOutFile
+Write-Results
 }
 		"RegisterAzDSC" {
 Write-Host "Registering with Azure Automation DSC"
@@ -3384,6 +3474,7 @@ $ConfigurationName = -join $VMNAME+".node"
 Register-AzureRmAutomationDscNode -AutomationAccountName $AutoAcctName -AzureVMName $VMName -ActionAfterReboot $ActionAfterReboot -ConfigurationMode $configmode -RebootNodeIfNeeded $True -ResourceGroupName $rg -NodeConfigurationName $ConfigurationName -AzureVMLocation $Location -AzureVMResourceGroup $rg -Verbose | Out-Null
 $Description = "Registered with Azure Automation DSC"
 Log-Command -Description $Description -LogFile $LogOutFile
+Write-Results
 }
 		"WinPuppet" {
 Verify-ExtWin
@@ -3392,6 +3483,7 @@ Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Locatio
 Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "PuppetEnterpriseAgent"
 $Description = "Added Puppet Agent Extension"
 Log-Command -Description $Description -LogFile $LogOutFile
+Write-Results
 }
 		default{"An unsupported Extension command was used"
 break
@@ -3485,6 +3577,20 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
  else {Write-Host "No orphans found." -ForegroundColor Green}
  }
 } #
+
+Function Remove-DscExt
+{
+Param(
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
+		[string]
+		$rg = $rg,
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
+		[string]
+		$VMName = $VMName
+)
+Write-Host "Removing DSC Extension"
+Remove-AzureRmVMDscExtension -ResourceGroupName $rg -VMName $VMName -Confirm:$False
+}
 
 Function Remove-azRg
 {
@@ -3608,6 +3714,10 @@ break
 Remove-AzAvailabilitySet
 break
 }
+		"dsc" {
+Remove-Dsc
+break
+}
 		default{"An unsupported uninstall Extension command was used"
 break
 }
@@ -3636,14 +3746,31 @@ else
 }
 }
 
+Function Create-LogDir {
+$logdirexists = Test-Path -Path $logdir
+if(!$logdirexists) { New-Item -Path $logdir -ItemType Directory -Force | Out-Null }
+else
+{Write-Host "Log Directory Already Exists" }
+}
+
+Function Create-ScriptDir {
+$logdirexists = Test-Path -Path $customscriptsdir
+if(!$logdirexists) { New-Item -Path $customscriptsdir -ItemType Directory -Force | Out-Null }
+else
+{Write-Host "Scripts Directory Already Exists" }
+}
+
 ##--------------------------- Begin Script Execution -------------------------------------------------------##
 # Global
 $date = Get-Date -UFormat "%Y-%m-%d-%H-%M"
 $workfolder = Split-Path $script:MyInvocation.MyCommand.Path
-$LogOutFile = $workfolder+'\'+$vmname+'-'+$date+'.log'
+$logdir = $workfolder+'\'+'log'+'\'
+$customscriptsdir = $workfolder+'\'+'customscripts'+'\'
+$LogOutFile = $logdir+'\'+$vmname+'-'+$date+'.log'
 $ProfileFile = $workfolder+'\'+$profile+'.json'
 
 Verify-AzureVersion # Verifies Azure client Powershell Version
+
 if($help) {
 Help-User
 exit
@@ -3667,10 +3794,14 @@ catch {
 	}
  } # Get Resource Providers
 if($getinfo){ Get-Azinfo }
-Write-Output "Steps will be tracked on the log file : [ $LogOutFile ]"
-if($RemoveObject){ Remove-Component }
+Create-LogDir
+Create-ScriptDir
+Write-Output "Steps will be tracked in the log file : [ $LogOutFile ]"
 
-Check-NullValues # Verifies required fields have data
+if($RemoveObject){ Remove-Component }
+if($RemoveExtension) {UnInstall-Ext}
+
+# Verifies required fields have data
 Check-NSGName
 Check-AvailabilitySet
 Check-FQDN
@@ -3687,15 +3818,17 @@ if($resourcegroups.length) {
 
 # Write-Config # Provides Pre-Deployment Description
 
-if($AddVnet){Create-Vnet} # Creates VNET
+if($AddVnet -or $BatchAddVnet -eq 'True'){Create-Vnet} # Creates VNET
 
-if($NSGEnabled){Create-NSG} # Creates NSG and Security Groups
+if($NSGEnabled -or $BatchAddNSG -eq 'True'){Create-NSG} # Creates NSG and Security Groups
 
 Create-VM # Configure Image
 
-if($NSGEnabled){Configure-NSGEnabled} #Adds NSG to NIC
+if($NSGEnabled -or $BatchAddNSG -eq 'True'){Configure-NSGEnabled} #Adds NSG to NIC
 
-if($AddExtension){Install-Ext} #Installs Azure Extensions
+if($AddExtension -or $BatchAddExtension -eq 'True')
+{Install-Ext}
+else { Write-Results }
 
 if($AddVPN -eq 'True'){
 Create-VPN
