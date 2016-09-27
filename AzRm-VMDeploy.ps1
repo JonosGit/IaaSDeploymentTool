@@ -5,10 +5,11 @@ email: jonos@live.com
 Ver 6.5
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerous Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
-The script allows select of subnet prior to VM Deployment
-The script supports deploying Availability Sets as well as adding new servers to existing Availability Sets through the -AvailabilitySet "True" and -AvailSetName switches.
-The script will generate a name for azure storage endpoint unless the -StorageName variable is updated or referenced at runtime.
+The script supports deploying Availability Sets as well as adding new servers to existing Availability Sets through the -AvailabilitySet and -AvailSetName switches.
+The script supports deploying Azure Extensions through the -AddExtensions switch.
+The script will create three directories if they do not exist in the runtime directory, Log, Scripts, DSC. 
 
+v6.6 updates - Added CSV Import command and csv file name parameter, script now supports csv execution.
 v6.5 updates - Custom Scripts directory and logs directory will now be created in the scripts execution directory.
 v6.4 updates - Added Cloudera, cloud-connector, datastax to image offerings
 v6.3 updates - DSC Push Configuration added to Extensions
@@ -18,7 +19,7 @@ v6.0 updates - Added Remove Functions to script, added subnet correction validat
 v5.9 updates - Moved -add parameters to [switch]
 
 .DESCRIPTION
-Deploys 30 different Market Images on a new or existing VNET. Supports post deployment configuration through Azure Extensions.
+Deploys 45 different Market Images on a new or existing VNET. Supports post deployment configuration through Azure Extensions.
 Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windows 2012 R2, Ubuntu 14.04, CentOs 7.2, SUSE, SQL 2016 (on W2K12R2), R Server on Windows, Windows 2016 (Preview), Checkpoint Firewall, FreeBsd, Oracle Linux, Puppet, Splunk, Oracle Web-Logic, Oracle DB, Bitnami Lamp, Bitnami PostGresSql, Bitnami nodejs, Bitnami Elastics, Bitnami MySql, SharePoint 2013/2016, Barracuda NG, Barracuda SPAM, F5 BigIP, F5 App Firewall, SAP, Solar Winds, Bitnami JRuby, Bitnami Neos, Bitnami TomCat, Bitnami redis, Bitnami hadoop
 
 .PARAMETER vmMarketImage
@@ -89,34 +90,6 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 
 .PARAMETER SubnetNameAddPrefix1
 
-.PARAMETER SubnetAddPrefix2
-
-.PARAMETER SubnetNameAddPrefix2
-
-.PARAMETER SubnetAddPrefix3
-
-.PARAMETER SubnetNameAddPrefix3
-
-.PARAMETER SubnetAddPrefix4
-
-.PARAMETER SubnetNameAddPrefix4
-
-.PARAMETER SubnetAddPrefix5
-
-.PARAMETER SubnetNameAddPrefix5
-
-.PARAMETER SubnetAddPrefix6
-
-.PARAMETER SubnetNameAddPrefix6
-
-.PARAMETER SubnetAddPrefix7
-
-.PARAMETER SubnetNameAddPrefix7
-
-.PARAMETER SubnetAddPrefix8
-
-.PARAMETER SubnetNameAddPrefix8
-
 .PARAMETER Azautoacct
 
 .PARAMETER AzExtConfig
@@ -127,20 +100,26 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 
 .PARAMETER Help
 
+.PARAMETER CSVImport
+
+.PARAMETER CSVFile
+
 .EXAMPLE
-\.azdeploy.ps1 -vm pf001 -image pfsense -rg ResGroup1 -vnetrg ResGroup2 -addvnet -vnet VNET -sub1 3 -sub2 4 -ConfigIPs DualPvtNoPub -Nic1 10.120.2.7 -Nic2 10.120.3.7
+\.AZRM-VMDeploy.ps1 -csvimport -csvfile C:\temp\iaasdeployment.csv
 .EXAMPLE
-\.azdeploy.ps1 -vm red76 -image red67 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -sub1 7 -ConfigIPs SinglePvtNoPub -Nic1 10.120.6.124 -Ext linuxbackup
+\.AZRM-VMDeploy.ps1 -vm pf001 -image pfsense -rg ResGroup1 -vnetrg ResGroup2 -addvnet -vnet VNET -sub1 3 -sub2 4 -ConfigIPs DualPvtNoPub -Nic1 10.120.2.7 -Nic2 10.120.3.7
 .EXAMPLE
-\.azdeploy.ps1 -vm win006 -image w2k12 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -sub1 2 -ConfigIPs Single -AvSet -NSGEnabled -NSGName NSG
+\.AZRM-VMDeploy.ps1 -vm red76 -image red67 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -sub1 7 -ConfigIPs SinglePvtNoPub -Nic1 10.120.6.124 -Ext linuxbackup
 .EXAMPLE
-\.azdeploy.ps1 -vm win008 -image w2k16 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -sub1 5 -ConfigIPs PvtSingleStat -Nic1 10.120.4.169 -AddFQDN -fqdn mydns1
+\.AZRM-VMDeploy.ps1 -vm win006 -image w2k12 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -sub1 2 -ConfigIPs Single -AvSet -NSGEnabled -NSGName NSG
 .EXAMPLE
-\.azdeploy.ps1 -vm ubu001 -image ubuntu -RG ResGroup1 -vnetrg ResGroup2 -VNet VNET -sub1 6 -ConfigIPs PvtSingleStat -Nic1 10.120.5.169 -AddFQDN fqdn mydns2
+\.AZRM-VMDeploy.ps1 -vm win008 -image w2k16 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -sub1 5 -ConfigIPs PvtSingleStat -Nic1 10.120.4.169 -AddFQDN -fqdn mydns1
 .EXAMPLE
-\.azdeploy.ps1 -vm ubu001 -RG ResGroup1 -RemoveObject VM
+\.AZRM-VMDeploy.ps1 -vm ubu001 -image ubuntu -RG ResGroup1 -vnetrg ResGroup2 -VNet VNET -sub1 6 -ConfigIPs PvtSingleStat -Nic1 10.120.5.169 -AddFQDN fqdn mydns2
 .EXAMPLE
-\.azdeploy.ps1 -RG ResGroup1 -RemoveObject rg
+\.AZRM-VMDeploy.ps1 -vm ubu001 -RG ResGroup1 -RemoveObject VM
+.EXAMPLE
+\.AZRM-VMDeploy.ps1 -RG ResGroup1 -RemoveObject rg
 .NOTES
 -ConfigIps  <Configuration>
 			PvtSingleStat & PvtDualStat – Deploys the server with a Public IP and the private IP(s) specified by the user.
@@ -468,6 +447,12 @@ $infoset = 'network',
 [switch]
 $getinfo,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[switch]
+$csvimport,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$csvfile = "C:\Temp\newinfra_ext_globalv4.csv",
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("h")]
 [Alias("?")]
 [switch]
@@ -533,6 +518,26 @@ Function Log-Command ([string]$Description, [string]$logFile, [string]$VMName){
 $Output = $LogOut+'. '
 Write-Host $Output -ForegroundColor white
 ((Get-Date -UFormat "[%d-%m-%Y %H:%M:%S] ") + $Output) | Out-File -FilePath $LogOutFile -Append -Force
+}
+
+Function csv-run {
+param(
+[string] $csvin = $csvfile
+)
+try {
+$GetPath = test-path -Path $csvin
+	if(!$csvin)
+	{exit}
+	else {
+	Write-Host $GetPath "File Exists"
+import-csv -Path $csvin -Delimiter ',' | ForEach-Object{.\AZRM-VMDeploy.ps1 -VMName $_.VMName -vmMarketImage $_.Image -rg $_.rg -vNetrg $_.vnetrg -VNetName $_.VNetName -ConfigIPs $_.ConfigIPs -subnet1 $_.Subnet1 -subnet2 $_.Subnet2 -PvtIPNic1 $_.PvtIPNic1 -PvtIPNic2 $_.PvtIPNic2 -BatchAddVnet $_.BatchAddVnet -BatchAddNSG $_.BatchAddNSG -NSGName $_.NSGName -AzExtConfig $_.AzExtConfig -BatchAddExtension $_.BatchAddExtension -BatchAddAvSet $_.BatchAddAvSet -BatchAddFqdn $_.BatchAddFqdn -CustomScriptUpload $_.CustomScriptUpload -scriptname $_.scriptname -containername $_.containername -scriptfolder $_.scriptfolder -customextname $_.customextname }
+	}
+}
+catch {
+	Write-Host -foregroundcolor Yellow `
+	"$($_.Exception.Message)"; `
+	break
+}
 }
 
 Function Verify-PvtIp {
@@ -2142,76 +2147,6 @@ default {No Subnet Found}
 }
 }
 
-Function Write-Config {
-param(
-$Subnet1 = $global:Subnet1,
-$Subnet2 = $global:Subnet2
-)
-Write-Host "                                                               "
-$time = " Start Time " + (Get-Date -UFormat "%d-%m-%Y %H:%M:%S")
-Write-Host -------------- $time --------------- -ForegroundColor Cyan
-Write-Host "                                                               "
-Write-Host "Current configuration"
-
-Write-Host "VM Name: $VMName " -ForegroundColor White
-Write-Host "Resource Group Name: $rg"
-Write-Host "Server Type: $vmMarketImage"
-Write-Host "VNET Name: $vNetName"
-Write-Host "VNET Resource Group Name: $vnetrg"
-Write-Host "Storage Account Name:  $StorageName"
-Select-NicDescrtipt
-If ($ConfigIPs -eq "StatPvtNoPubSingle")
-{ Write-Host "Public Ip Will not be created" -ForegroundColor White
-Write-Host "Nic1: $PvtIPNic1"
-Subnet-Match $Subnet1
-}
-If ($ConfigIPs -eq "StatPvtNoPubDual")
-{ Write-Host "Public Ip Will not be created" -ForegroundColor White
-Write-Host "Nic1: $PvtIPNic1"
-Write-Host "Nic2: $PvtIPNic2"
-Subnet-Match $Subnet1
-Subnet-Match $Subnet2
-}
-If ($ConfigIPs -eq "Single")
-{ Write-Host "Public Ip Will be created"
-Subnet-Match $Subnet1
-}
-
-If ($ConfigIPs -eq "Dual")
-{ Write-Host "Public Ip Will be created"
-Subnet-Match $Subnet1
-Subnet-Match $Subnet2
-}
-If ($ConfigIPs -eq "PvtSingleStat")
-{ Write-Host "Public Ip Will be created"
-Subnet-Match $Subnet1
-Write-Host "Nic1: $PvtIPNic1"
-}
-If ($ConfigIPs -eq "PvtDualStat")
-{ Write-Host "Public Ip Will be created"
-Subnet-Match $Subnet1
-Subnet-Match $Subnet2
-Write-Host "Nic1: $PvtIPNic1"
-Write-Host "Nic2: $PvtIPNic2"
-}
-if($AddExtension -or $BatchAddExtension -eq 'True') {
-Write-Host "Extension selected for deployment: $AzExtConfig "
-}
-if($AddAvailabilitySet -or $AddAvailabilitySet -eq 'True') {
-Write-Host "Availability Set to 'True'"
-Write-Host "Availability Set Name:  '$AvailSetName'"
-Write-Host "                                                               "
-Write-Host "--------------------------------------------------------------" -ForegroundColor Cyan
-Write-Host "                                                               "
-}
-else
-{
-Write-Host "Availability Set to 'False'" -ForegroundColor White
-Write-Host "--------------------------------------------------------------" -ForegroundColor Cyan
-Write-Host "                                                               "
-}
-}
-
 Function Write-ConfigVM {
 param(
 $Subnet1 = $global:Subnet1,
@@ -2533,7 +2468,7 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 Function Create-VM {
 	param(
 	[string]$VMName = $VMName,
-	[ValidateSet("w2k12","w2k8","red67","red72","suse","free","ubuntu","centos","w2k16","sql2016","chef","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","puppet","serverr","solarwinds","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack","hadoop","neos","tomcat","redis","gitlab","jruby")]
+	[ValidateSet("w2k12","w2k8","w2k16","sql2016","biztalk2013","tfs","biztalk2016","vs2015","dev15","incredibuild","msnav2016","red67","red72","suse","free","ubuntu","centos","chef","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","horton-dp","serverr","horton-hdp","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack","hadoop","neos","tomcat","redis","gitlab","jruby","tableau","cloudera","datastax","O365-suite","ads-linuxdatascience","ads-datascience","cloud-conn")]
 	[string]
 	$vmMarketImage = $vmMarketImage,
 	[string]
@@ -3175,7 +3110,7 @@ param(
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
- $IISConfigurationPath = '.\IIS.ps1',
+ $IISConfigurationPath =  $dscdir + '\IIS.ps1',
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
@@ -3194,7 +3129,7 @@ param(
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
- $MSUpdateConfigurationPath = 'C:\Temp\customscripts\WindowsUpdate.ps1',
+ $MSUpdateConfigurationPath = $dscdir + '\WindowsUpdate.ps1',
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
@@ -3748,16 +3683,30 @@ else
 
 Function Create-LogDir {
 $logdirexists = Test-Path -Path $logdir
-if(!$logdirexists) { New-Item -Path $logdir -ItemType Directory -Force | Out-Null }
+if(!$logdirexists) { New-Item -Path $logdir -ItemType Directory -Force | Out-Null
+		Write-Host "Created directory" $logdir
+}
 else
 {Write-Host "Log Directory Already Exists" }
 }
 
 Function Create-ScriptDir {
-$logdirexists = Test-Path -Path $customscriptsdir
-if(!$logdirexists) { New-Item -Path $customscriptsdir -ItemType Directory -Force | Out-Null }
+$direxists = Test-Path -Path $customscriptsdir
+if(!$direxists) { New-Item -Path $customscriptsdir -ItemType Directory -Force | Out-Null
+		Write-Host "Created directory" $customscriptsdir
+}
 else
 {Write-Host "Scripts Directory Already Exists" }
+}
+
+Function Create-Dsc {
+$direxists = Test-Path -Path $dscdir
+if(!$direxists) {
+	 New-Item -Path $dscdir -ItemType Directory -Force | Out-Null
+	Write-Host "Created directory" $dscdir
+}
+else
+{Write-Host "DSC Directory Already Exists" }
 }
 
 ##--------------------------- Begin Script Execution -------------------------------------------------------##
@@ -3766,6 +3715,7 @@ $date = Get-Date -UFormat "%Y-%m-%d-%H-%M"
 $workfolder = Split-Path $script:MyInvocation.MyCommand.Path
 $logdir = $workfolder+'\'+'log'+'\'
 $customscriptsdir = $workfolder+'\'+'customscripts'+'\'
+$dscdir = $workfolder+'\'+'dsc'+'\'
 $LogOutFile = $logdir+'\'+$vmname+'-'+$date+'.log'
 $ProfileFile = $workfolder+'\'+$profile+'.json'
 
@@ -3793,9 +3743,11 @@ catch {
 		Register-RP($resourceProvider);
 	}
  } # Get Resource Providers
+if($csvimport) { csv-run }
 if($getinfo){ Get-Azinfo }
 Create-LogDir
 Create-ScriptDir
+Create-Dsc
 Write-Output "Steps will be tracked in the log file : [ $LogOutFile ]"
 
 if($RemoveObject){ Remove-Component }
@@ -3816,19 +3768,21 @@ if($resourcegroups.length) {
 	}
 } # Create Resource Groups
 
-# Write-Config # Provides Pre-Deployment Description
+if($AddVnet -or $BatchAddVnet -eq 'True')
+{Create-Vnet} # Creates VNET
 
-if($AddVnet -or $BatchAddVnet -eq 'True'){Create-Vnet} # Creates VNET
-
-if($NSGEnabled -or $BatchAddNSG -eq 'True'){Create-NSG} # Creates NSG and Security Groups
+if($NSGEnabled -or $BatchAddNSG -eq 'True')
+{Create-NSG} # Creates NSG and Security Groups
 
 Create-VM # Configure Image
 
-if($NSGEnabled -or $BatchAddNSG -eq 'True'){Configure-NSGEnabled} #Adds NSG to NIC
+if($NSGEnabled -or $BatchAddNSG -eq 'True')
+{Configure-NSGEnabled} #Adds NSG to NIC
 
 if($AddExtension -or $BatchAddExtension -eq 'True')
-{Install-Ext}
-else { Write-Results }
+{ Install-Ext }
+else 
+{ Write-Results }
 
 if($AddVPN -eq 'True'){
 Create-VPN
