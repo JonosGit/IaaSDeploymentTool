@@ -1,5 +1,5 @@
 Deploys 45 different Market Images on a new or existing VNET. Supports post deployment configuration through Azure Extensions.
-Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windows 2012 R2, Ubuntu 14.04, CentOs 7.2, SUSE, SQL 2016 (on W2K12R2), R Server on Windows, Windows 2016 (Preview), Checkpoint Firewall, FreeBsd, Oracle Linux, Puppet, Splunk, Oracle Web-Logic, Oracle DB, Bitnami Lamp, Bitnami PostGresSql, Bitnami nodejs, Bitnami Elastics, Bitnami MySql, SharePoint 2013/2016, Barracuda NG, Barracuda SPAM, F5 BigIP, F5 App Firewall, SAP, Solar Winds, Bitnami JRuby, Bitnami Neos, Bitnami TomCat, Bitnami redis, Bitnami hadoop
+Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windows 2012 R2, Ubuntu 14.04, CentOs 7.2, SUSE, SQL 2016 (on W2K12R2), R Server on Windows, Windows 2016 (Preview), Checkpoint Firewall, FreeBsd, Puppet, Splunk, Bitnami Lamp, Bitnami PostGresSql, Bitnami nodejs, Bitnami Elastics, Bitnami MySql, SharePoint 2013/2016, Barracuda NG, Barracuda SPAM, F5 BigIP, F5 App Firewall, Bitnami JRuby, Bitnami Neos, Bitnami TomCat, Bitnami redis, Bitnami hadoop, Incredibuild, VS 2015, Dev15 Preview, Tableau, MS NAV, TFS, Ads Data Science Server, Biztalk 2013/2016
 
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerous Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
@@ -26,3 +26,71 @@ Runtime named parameters examples:
 \.AZRM-VMDeploy.ps1 -vm ubu001 -RG ResGroup1 -RemoveObject VM
 .EXAMPLE
 \.AZRM-VMDeploy.ps1 -RG ResGroup1 -RemoveObject rg
+
+Available Image Short Codes
+
+			Windows 2012 R2 – w2k12
+			Windows 2008 R2 – w2k8
+			Windows 2016 – w2k16
+			SharePoint 2016 - Share2016
+			SharePoint 2013 - share2013
+			Biztalk 2013 Ent - biztalk2013
+			Biztalk 2016 preview - biztalk2016
+			TFS 2013 - tfs
+			Visual Studio 2015 Ent on W2k12 r2 - vs2015
+			Dev15 - Preview - dev15
+			SQL Server 2016 (on Windows 2012 host) – sql2016
+			PFSense 2.5 – pfsense
+			Free BSD – free
+			Suse – suse
+			CentOs 7.2 – centos
+			Ubuntu 14.04 – ubuntu
+			Redhat 6.7 – Red67
+			Redhat 7.2 – Red72
+			MySql – mysql
+			CheckPoint AppFirewall – check
+			Chef Server v12 - 100 Client - chef
+			Bitnami LampStack - lamp
+			Bitnami MySql - mysql
+			Bitnami NodeJs - node
+			Bitnami Elastics Search - elastics
+			Bitnami Jenkins - jenkins
+			Bitnami PostGresSql - postgressql
+			Bitnami Git Lab - gitlab
+			Bitnami Redis - redis
+			Bitnami Hadoop - hadoop
+			Bitnami Tom-Cat - tomcat
+			Bitnami jRubyStack - jruby
+			Bitnami neos - neos
+			Puppet Enterprise - puppet
+			F5 BIG IP - f5bigip
+			F5 Application Firewall - f5appfire
+			Barracuda NG Firewall (hourly) - barrahourngfw
+			Barracuda NG Firewall (BYOL) - barrabyolngfw
+			Barracuda spam Firewall (hourly) - barrahourspam
+			Barracuda spam Firewall (byol) - barrabyolspam
+			Server R - serverr
+			Hortonworks DataPlatform - horton-dp
+			Incredibuild - Incredibuild
+			Microsoft Ads - Data Science Standard Server - ads-datascience
+			Microsoft Ads - Data Science Linux Server - ads-linuxdatascience
+			Cloudera - cloudera
+			DataStax - datastax
+			Cloud-connector - cloud-conn
+			Tableau Desktop - tableau
+			metavistech O365 Suite - O365-suite
+
+Available Azure Extensions
+			access – Adds Azure Access Extension – Added by default during VM creation
+			msav – Adds Azure Antivirus Extension
+			custScript – Adds Custom Script for Execution (Requires Table Storage Configuration first)
+			pushdsc - Deploys DSC Configuration to Azure VM
+			diag – Adds Azure Diagnostics Extension
+			linuxOsPatch - Deploy Latest updates for Linux platforms
+			linuxbackup - Deploys Azure Linux bacup Extension
+			addDom – Adds Azure Domain Join Extension
+			chef – Adds Azure Chef Extension (Requires Chef Certificate and Settings info first)
+			opsinsightLinux - OMS Agent
+			opsinsightWin - OMS Agent
+			eset - File Security Ext
+			WinPuppet - Puppet Agent Install for Windows
