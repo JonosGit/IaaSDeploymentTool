@@ -87,7 +87,7 @@ Available Azure Extensions
 			pushdsc - Deploys DSC Configuration to Azure VM
 			diag – Adds Azure Diagnostics Extension
 			linuxOsPatch - Deploy Latest updates for Linux platforms
-			linuxbackup - Deploys Azure Linux bacup Extension
+			linuxbackup - Deploys Azure Linux backup Extension
 			addDom – Adds Azure Domain Join Extension
 			chef – Adds Azure Chef Extension (Requires Chef Certificate and Settings info first)
 			opsinsightLinux - OMS Agent
