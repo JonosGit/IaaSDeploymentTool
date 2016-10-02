@@ -2,13 +2,14 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 6.8
+Ver 6.9
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerous Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
 The script supports deploying Availability Sets as well as adding new servers to existing Availability Sets through the -AvailabilitySet and -AvailSetName switches.
 The script supports deploying Azure Extensions through the -AddExtensions switch.
 The script will create three directories if they do not exist in the runtime directory, Log, Scripts, DSC.
 
+v6.9 updates - Exception Handling generates to log file
 v6.8 updates - Added Core parameters for -Action-Type Update, Create and Remove
 v6.7 updates - Created -updateextension swith for OOB deployments of extensions to existing Azure VMs
 v6.6 updates - Added CSV Import command and csv file name parameter, script now supports csv execution.
@@ -538,7 +539,7 @@ $SecureLocPassword=Convertto-SecureString $locpassword –asplaintext -Force
 $Credential1 = New-Object System.Management.Automation.PSCredential ($locadmin,$SecureLocPassword)
 $Error.Clear()
 Set-StrictMode -Version Latest
-Trap [SystemException] {"Exception logged"; continue}
+Trap [System.SystemException] {("Exception" + $_ ) ; break}
 
 #region Validate Profile
 Function validate-profile {
@@ -670,46 +671,54 @@ if($PvtIPNic2)
 }
 
 Function Verify-NIC {
-If ($ConfigIPs -eq "StatPvtNoPubSingle")
-{
-	Write-Host "Subnet IP Validation" -ForegroundColor White
-	Verify-PvtIp
-}
-If ($ConfigIPs -eq "StatPvtNoPubDual")
-{
-	Write-Host "Subnet IP Validation" -ForegroundColor White
-	Verify-PvtIp
-	Verify-PvtIp2
-}
-If ($ConfigIPs -eq "Single")
-{
-	Write-Host "Skipping Subnet IP Validation"
-	if($Subnet1 -le 2)
-	{$subnet1 = 2}
-	$script:Subnet1 = $Subnet1
-}
+	If ($ConfigIPs -eq "StatPvtNoPubSingle")
+	{
+		Write-Host "Subnet IP Validation" -ForegroundColor White
+		Verify-PvtIp
+	}
+	If ($ConfigIPs -eq "StatPvtNoPubDual")
+	{
+		Write-Host "Subnet IP Validation" -ForegroundColor White
+		Verify-PvtIp
+		Verify-PvtIp2
+	}
+	If ($ConfigIPs -eq "Single")
+	{
+		Write-Host "Skipping Subnet IP Validation"
+		if($Subnet1 -le 2)
+		{$subnet1 = 2}
+		$script:Subnet1 = $Subnet1
+	}
 
-If ($ConfigIPs -eq "Dual")
-{
-	Write-Host "Skipping Subnet IP Validation"
-	if($Subnet1 -le 2){$subnet1 = 2}
-	if($Subnet2 -le 2){$subnet2 = 2}
-	$script:Subnet1 = $Subnet1
-	$script:Subnet2 = $Subnet2
-}
-If ($ConfigIPs -eq "PvtSingleStat")
-{
-	Write-Host "Subnet IP Validation"
-	Verify-PvtIp
-}
-If ($ConfigIPs -eq "PvtDualStat")
-{
-	Write-Host "Subnet IP Validation"
-	Verify-PvtIp
-	Verify-PvtIp2
-}
+	If ($ConfigIPs -eq "Dual")
+	{
+		Write-Host "Skipping Subnet IP Validation"
+		if($Subnet1 -le 2){$subnet1 = 2}
+		if($Subnet2 -le 2){$subnet2 = 2}
+		$script:Subnet1 = $Subnet1
+		$script:Subnet2 = $Subnet2
+	}
+	If ($ConfigIPs -eq "PvtSingleStat")
+	{
+		Write-Host "Subnet IP Validation"
+		Verify-PvtIp
+	}
+	If ($ConfigIPs -eq "PvtDualStat")
+	{
+		Write-Host "Subnet IP Validation"
+		Verify-PvtIp
+		Verify-PvtIp2
+	}
 }
 #endregion
+
+Function Check-Vnet {
+$vnetexists = Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+if(!$vnetexists)
+	{Create-Vnet}
+	else
+		{Write-Host "Proceeding with VNET $VnetName"}
+}
 
 #region Check Values of runtime params
 function Check-NullValues {
@@ -781,15 +790,27 @@ Function Configure-PubIpDNS {
 	[string]$InterfaceName1 = $InterfaceName1,
 	[string]$DNLabel = $DNLabel
 	)
+
+	Try
+	{
 if($AddFQDN -or $BatchAddFQDN -eq 'True')
 {
-	$script:PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -AllocationMethod "Dynamic" -DomainNameLabel $DNLabel.ToLower() –Confirm:$false -WarningAction SilentlyContinue
+	$script:PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -AllocationMethod "Dynamic" -DomainNameLabel $DNLabel.ToLower() –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 	$LogOut = "Completed Public DNS record creation $DNLabel.$Location.cloudapp.azure.com"
 	Log-Command -Description $LogOut -LogFile $LogOutFile
 	}
 	else
 	{
-	$script:PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -AllocationMethod "Dynamic" –Confirm:$false -WarningAction SilentlyContinue
+	$script:PIp = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -AllocationMethod "Dynamic" –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
+	}
+	}
+	Catch
+	{
+	Write-Host -foregroundcolor Yellow `
+	"$($_.Exception.Message)"; `
+	$LogOut = "$($_.Exception.Message)"
+	Log-Command -Description $LogOut -LogFile $LogOutFile
+	break
 	}
 }
 #endregion
@@ -844,77 +865,89 @@ Function Configure-Nics {
 	[ipaddress]$PvtIPNic2 = $PvtIPNic2,
 	[string]$ConfigIps = $ConfigIps
 	)
+
+	Try
+	{
 switch ($ConfigIPs)
 	{
 		"PvtDualStat" {
-Write-Host "Dual IP Configuration - Static"
-Configure-PubIpDNS
-$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue
-$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id -PrivateIpAddress $PvtIPNic2 –Confirm:$false -WarningAction SilentlyContinue
+			Write-Host "Dual IP Configuration - Static"
+			Configure-PubIpDNS
+			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
+			$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id -PrivateIpAddress $PvtIPNic2 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 }
 		"PvtSingleStat" {
-Write-Host "Single IP Configuration - Static"
-Configure-PubIpDNS
-$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue
+			Write-Host "Single IP Configuration - Static"
+			Configure-PubIpDNS
+			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 }
 		"StatPvtNoPubDual" {
-Write-Host "Dual IP Configuration- Static - No Public"
-$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue
-$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id -PrivateIpAddress $PvtIPNic2 –Confirm:$false -WarningAction SilentlyContinue
+			Write-Host "Dual IP Configuration- Static - No Public"
+			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
+			$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id -PrivateIpAddress $PvtIPNic2 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 }
 		"StatPvtNoPubSingle" {
-Write-Host "Single IP Configuration - Static - No Public"
-$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue
+			Write-Host "Single IP Configuration - Static - No Public"
+			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 }
 		"Single" {
-Write-Host "Default Single IP Configuration"
-Configure-PubIpDNS
-$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id –Confirm:$false -WarningAction SilentlyContinue
+			Write-Host "Default Single IP Configuration"
+			Configure-PubIpDNS
+			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 }
 		"Dual" {
-Write-Host "Default Dual IP Configuration"
-Configure-PubIpDNS
-$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id –Confirm:$false -WarningAction SilentlyContinue
-$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id –Confirm:$false -WarningAction SilentlyContinue
+			Write-Host "Default Dual IP Configuration"
+			Configure-PubIpDNS
+			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
+			$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 }
 		"NoPubSingle" {
-Write-Host "Single IP - No Public"
-$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id –Confirm:$false -WarningAction SilentlyContinue
+			Write-Host "Single IP - No Public"
+			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 }
 		"NoPubDual" {
-Write-Host "Dual IP - No Public"
-$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id –Confirm:$false -WarningAction SilentlyContinue
-$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id –Confirm:$false -WarningAction SilentlyContinue
+			Write-Host "Dual IP - No Public"
+			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
+			$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 }
 		default{"Nothing matched entry criteria"}
 }
+	}
+	Catch
+		{
+		Write-Host -foregroundcolor Yellow `
+		"$($_.Exception.Message)"; `
+		$LogOut = "$($_.Exception.Message)"
+		Log-Command -Description $LogOut -LogFile $LogOutFile
+		break
+		}
 }
 #endregion
 
 #region Add Dual Nics
 Function Add-NICs {
-Write-Host "Adding 2 Network Interface(s) $InterfaceName1 $InterfaceName2" -ForegroundColor White
-$script:VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $script:Interface1.Id -Primary -WarningAction SilentlyContinue
-$script:VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $script:Interface2.Id -WarningAction SilentlyContinue
-$LogOut = "Completed adding NICs"
-Log-Command -Description $LogOut -LogFile $LogOutFile
+	Write-Host "Adding 2 Network Interface(s) $InterfaceName1 $InterfaceName2" -ForegroundColor White
+	$script:VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $script:Interface1.Id -Primary -WarningAction SilentlyContinue -ErrorAction Stop
+	$script:VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $script:Interface2.Id -WarningAction SilentlyContinue
+	$LogOut = "Completed adding NICs"
+	Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 #endregion
 
 #region Add Single Nic
 Function Add-NIC {
-Write-Host "Adding Network Interface $InterfaceName1" -ForegroundColor White
-$script:VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $script:Interface1.Id -Primary -WarningAction SilentlyContinue
-$LogOut = "Completed adding NIC"
-Log-Command -Description $LogOut -LogFile $LogOutFile
+	Write-Host "Adding Network Interface $InterfaceName1" -ForegroundColor White
+	$script:VirtualMachine = Add-AzureRmVMNetworkInterface -VM $VirtualMachine -Id $script:Interface1.Id -Primary -WarningAction SilentlyContinue  -ErrorAction Stop
+	$LogOut = "Completed adding NIC"
+	Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 #endregion
 
@@ -963,44 +996,66 @@ Function Configure-NSGEnabled
 		$VMName = $VMName
 	)
 
+	Try
+	{
 	$nic1 = Get-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -ErrorAction SilentlyContinue
 	$nic2 = Get-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -ErrorAction SilentlyContinue
 		if($nic1)
 		{
-		$nsg = Get-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Name $NSGName
-		$nic = Get-AzureRmNetworkInterface -ResourceGroupName $rg -Name $InterfaceName1
-		$nic.NetworkSecurityGroup = $nsg
-		Set-AzureRmNetworkInterface -NetworkInterface $nic | Out-Null
-		$LogOut = "Completed Image NSG Post Configuration. Added $InterfaceName1 to $NSGName"
-		Log-Command -Description $LogOut -LogFile $LogOutFile
+			$nsg = Get-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Name $NSGName
+			$nic = Get-AzureRmNetworkInterface -ResourceGroupName $rg -Name $InterfaceName1
+			$nic.NetworkSecurityGroup = $nsg
+			Set-AzureRmNetworkInterface -NetworkInterface $nic | Out-Null
+			$LogOut = "Completed Image NSG Post Configuration. Added $InterfaceName1 to $NSGName"
+			Log-Command -Description $LogOut -LogFile $LogOutFile
 		}
 			if($nic2)
 			{
-			$nsg = Get-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Name $NSGName
-			$nic = Get-AzureRmNetworkInterface -ResourceGroupName $rg -Name $InterfaceName2
-			$nic.NetworkSecurityGroup = $nsg
-			Set-AzureRmNetworkInterface -NetworkInterface $nic | Out-Null
-			$secrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access | Format-Table | Out-Null
-			$defsecrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg | Get-AzureRmNetworkSecurityRuleConfig -DefaultRules | Format-Table | Out-Null
-			$LogOut = "Completed Image NSG Post Configuration. Added $InterfaceName2 to $NSGName"
-			Log-Command -Description $LogOut -LogFile $LogOutFile
+				$nsg = Get-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Name $NSGName
+				$nic = Get-AzureRmNetworkInterface -ResourceGroupName $rg -Name $InterfaceName2
+				$nic.NetworkSecurityGroup = $nsg
+				Set-AzureRmNetworkInterface -NetworkInterface $nic | Out-Null
+				$secrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access | Format-Table | Out-Null
+				$defsecrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg | Get-AzureRmNetworkSecurityRuleConfig -DefaultRules | Format-Table | Out-Null
+				$LogOut = "Completed Image NSG Post Configuration. Added $InterfaceName2 to $NSGName"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
 			}
+	}
+	Catch
+	{
+	Write-Host -foregroundcolor Yellow `
+	"$($_.Exception.Message)"; `
+	$LogOut = "$($_.Exception.Message)"
+	Log-Command -Description $LogOut -LogFile $LogOutFile
+	break
+	}
 }
 #endregion
 
 #region Create VPN
 Function Create-VPN {
-Write-Host "VPN Creation can take up to 45 minutes!"
-New-AzureRmLocalNetworkGateway -Name LocalSite -ResourceGroupName $vnetrg -Location $Location -GatewayIpAddress $LocalNetPip -AddressPrefix $LocalAddPrefix -ErrorAction Stop -WarningAction SilentlyContinue | Out-Null
-Write-Host "Completed Local Network GW Creation"
-$vpnpip= New-AzureRmPublicIpAddress -Name vpnpip -ResourceGroupName $vnetrg -Location $Location -AllocationMethod Dynamic -ErrorAction Stop -WarningAction SilentlyContinue
-$vnet = Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg -ErrorAction Stop -WarningAction SilentlyContinue
-$subnet = Get-AzureRmVirtualNetworkSubnetConfig -Name 'GatewaySubnet' -VirtualNetwork $vnet -WarningAction SilentlyContinue
-$vpnipconfig = New-AzureRmVirtualNetworkGatewayIpConfig -Name vpnipconfig1 -SubnetId $subnet.Id -PublicIpAddressId $vpnpip.Id -WarningAction SilentlyContinue
-New-AzureRmVirtualNetworkGateway -Name vnetvpn1 -ResourceGroupName $vnetrg -Location $Location -IpConfigurations $vpnipconfig -GatewayType Vpn -VpnType RouteBased -GatewaySku Standard -ErrorAction Stop -WarningAction SilentlyContinue | Out-Null
-Write-Host "Completed VNET Network GW Creation"
-Get-AzureRmPublicIpAddress -Name vpnpip -ResourceGroupName $rg -WarningAction SilentlyContinue
-Write-Host "Configure Local Device with Azure VNET vpn Public IP"
+	Try
+	{
+		Write-Host "VPN Creation can take up to 45 minutes!"
+		New-AzureRmLocalNetworkGateway -Name LocalSite -ResourceGroupName $vnetrg -Location $Location -GatewayIpAddress $LocalNetPip -AddressPrefix $LocalAddPrefix -ErrorAction Stop -WarningAction SilentlyContinue | Out-Null
+		Write-Host "Completed Local Network GW Creation"
+			$vpnpip= New-AzureRmPublicIpAddress -Name vpnpip -ResourceGroupName $vnetrg -Location $Location -AllocationMethod Dynamic -ErrorAction Stop -WarningAction SilentlyContinue
+			$vnet = Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg -ErrorAction Stop -WarningAction SilentlyContinue
+			$subnet = Get-AzureRmVirtualNetworkSubnetConfig -Name 'GatewaySubnet' -VirtualNetwork $vnet -WarningAction SilentlyContinue
+			$vpnipconfig = New-AzureRmVirtualNetworkGatewayIpConfig -Name vpnipconfig1 -SubnetId $subnet.Id -PublicIpAddressId $vpnpip.Id -WarningAction SilentlyContinue
+		New-AzureRmVirtualNetworkGateway -Name vnetvpn1 -ResourceGroupName $vnetrg -Location $Location -IpConfigurations $vpnipconfig -GatewayType Vpn -VpnType RouteBased -GatewaySku Standard -ErrorAction Stop -WarningAction SilentlyContinue | Out-Null
+		Write-Host "Completed VNET Network GW Creation"
+		Get-AzureRmPublicIpAddress -Name vpnpip -ResourceGroupName $rg -WarningAction SilentlyContinue
+		Write-Host "Configure Local Device with Azure VNET vpn Public IP"
+	}
+	Catch
+	{
+		Write-Host -foregroundcolor Yellow `
+		"$($_.Exception.Message)"; `
+			$LogOut = "$($_.Exception.Message)"
+			Log-Command -Description $LogOut -LogFile $LogOutFile
+		break
+	}
 }
 #endregion
 
@@ -1008,7 +1063,7 @@ Write-Host "Configure Local Device with Azure VNET vpn Public IP"
 Function Connect-VPN {
 [PSObject]$gateway1 = Get-AzureRmVirtualNetworkGateway -Name vnetvpn1 -ResourceGroupName $vnetrg -WarningAction SilentlyContinue
 [PSObject]$local = Get-AzureRmLocalNetworkGateway -Name LocalSite -ResourceGroupName $vnetrg -WarningAction SilentlyContinue
-New-AzureRmVirtualNetworkGatewayConnection -ConnectionType IPSEC  -Name sitetosite -ResourceGroupName $vnetrg -Location $Location -VirtualNetworkGateway1 $gateway1 -LocalNetworkGateway2 $local -SharedKey '4321avfe' -Verbose -Force -RoutingWeight 10 -WarningAction SilentlyContinue| Out-Null
+New-AzureRmVirtualNetworkGatewayConnection -ConnectionType IPSEC  -Name sitetosite -ResourceGroupName $vnetrg -Location $Location -VirtualNetworkGateway1 $gateway1 -LocalNetworkGateway2 $local -SharedKey '4321avfe' -Verbose -Force -RoutingWeight 10 -WarningAction SilentlyContinue  -ErrorAction Stop | Out-Null
 }
 #endregion
 
@@ -1049,26 +1104,28 @@ Function Create-AvailabilitySet {
  try {
  If ($AddAvailabilitySet -or $BatchAddAvset -eq 'True')
  {
- Write-Host "Availability Set configuration in process.." -ForegroundColor White
-New-AzureRmAvailabilitySet -ResourceGroupName $rg -Name $AvailSetName -Location $Location -WarningAction SilentlyContinue | Out-Null
-$AddAvailabilitySet = (Get-AzureRmAvailabilitySet -ResourceGroupName $rg -Name $AvailSetName).Id
-$script:VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AddAvailabilitySet -WarningAction SilentlyContinue
-Write-Host "Availability Set has been configured" -ForegroundColor White
-$LogOut = "Completed Availability Set configuration $AvailSetName"
-Log-Command -Description $LogOut -LogFile $LogOutFile
+	Write-Host "Availability Set configuration in process.." -ForegroundColor White
+	New-AzureRmAvailabilitySet -ResourceGroupName $rg -Name $AvailSetName -Location $Location -WarningAction SilentlyContinue  -ErrorAction Stop | Out-Null
+	$AddAvailabilitySet = (Get-AzureRmAvailabilitySet -ResourceGroupName $rg -Name $AvailSetName).Id
+	$script:VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AddAvailabilitySet -WarningAction SilentlyContinue
+	Write-Host "Availability Set has been configured" -ForegroundColor White
+	$LogOut = "Completed Availability Set configuration $AvailSetName"
+	Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 else
 {
-Write-Host "Skipping Availability Set configuration" -ForegroundColor White
-$script:VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -WarningAction SilentlyContinue
-$LogOut = "Skipped Availability Set Configuration"
-Log-Command -Description $LogOut -LogFile $LogOutFile
+	Write-Host "Skipping Availability Set configuration" -ForegroundColor White
+	$script:VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -WarningAction SilentlyContinue -ErrorAction Stop
+	$LogOut = "Skipped Availability Set Configuration"
+	Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 	}
 
 catch {
-	Write-Host -foregroundcolor Red `
+	Write-Host -foregroundcolor Yellow `
 	"$($_.Exception.Message)"; `
+	$LogOut = "$($_.Exception.Message)"
+	Log-Command -Description $LogOut -LogFile $LogOutFile
 	break
 }
  }
@@ -1083,14 +1140,16 @@ catch {
 	$ProvisionVMs = @($VirtualMachine);
 try {
    foreach($provisionvm in $ProvisionVMs) {
-		New-AzureRmVM -ResourceGroupName $rg -Location $Location -VM $VirtualMachine -DisableBginfoExtension –Confirm:$false -WarningAction SilentlyContinue | Out-Null
+		New-AzureRmVM -ResourceGroupName $rg -Location $Location -VM $VirtualMachine -DisableBginfoExtension –Confirm:$false -WarningAction SilentlyContinue -ErrorAction Stop | Out-Null
 		$LogOut = "Completed Creation of $VMName from $vmMarketImage"
 		Log-Command -Description $LogOut -LogFile $LogOutFile
 						}
 	}
 catch {
-	Write-Host -foregroundcolor Red `
-	"$($_.Exception.Message)"; `
+	Write-Host -foregroundcolor Yellow `
+	"Exception Encountered"; `
+	$LogOut = "$($_.Exception.Message)"
+	Log-Command -Description $LogOut -LogFile $LogOutFile
 	break
 }
 	 }
@@ -1098,11 +1157,22 @@ catch {
 
 #region Configure Image
 Function Configure-Image {
-Write-Host "Completing image creation..." -ForegroundColor White
-$script:osDiskCaching = "ReadWrite"
-$script:OSDiskName = $VMName + "OSDisk"
-$script:OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDiskName + ".vhd"
-$script:VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching -WarningAction SilentlyContinue
+	Try
+	{
+		Write-Host "Completing image creation..." -ForegroundColor White
+		$script:osDiskCaching = "ReadWrite"
+		$script:OSDiskName = $VMName + "OSDisk"
+		$script:OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDiskName + ".vhd"
+		$script:VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching -WarningAction SilentlyContinue
+	}
+	Catch
+	{
+	Write-Host -foregroundcolor Yellow `
+	"$($_.Exception.Message)"; `
+	$LogOut = "$($_.Exception.Message)"
+	Log-Command -Description $LogOut -LogFile $LogOutFile
+	break
+	}
 }
 #endregion
 
@@ -1117,14 +1187,14 @@ param(
 	[string]$Product = 'lampstack',
 	[string]$name = '5-6'
 )
-Write-Host "Image Creation in Process - Plan Info - LampStack" -ForegroundColor White
-Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
-$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
-$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
-$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
-Log-Command -Description $LogOut -LogFile $LogOutFile
-}
+	Write-Host "Image Creation in Process - Plan Info - LampStack" -ForegroundColor White
+	Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+	$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+	$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+	$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+	$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+	Log-Command -Description $LogOut -LogFile $LogOutFile
+	}
 Function MakeImagePlanInfo_Bitnami_elastic {
 param(
 	[string]$VMName = $VMName,
@@ -1135,11 +1205,11 @@ param(
 	[string]$Product = 'elastic-search',
 	[string]$name = '2-2'
 )
-Write-Host "Image Creation in Process - Plan Info - Elastic Search" -ForegroundColor White
-Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
-$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
-$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+	Write-Host "Image Creation in Process - Plan Info - Elastic Search" -ForegroundColor White
+	Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+	$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+	$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+	$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
 }
 Function MakeImagePlanInfo_Bitnami_jenkins {
 param(
@@ -1151,11 +1221,11 @@ param(
 	[string]$Product = 'jenkins',
 	[string]$name = '1-650'
 )
-Write-Host "Image Creation in Process - Plan Info - Jenkins" -ForegroundColor White
-Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
-$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
-$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+	Write-Host "Image Creation in Process - Plan Info - Jenkins" -ForegroundColor White
+	Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+	$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+	$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+	$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
 }
 
 Function MakeImagePlanInfo_Microsoft_ServerR {
@@ -1168,11 +1238,11 @@ param(
 	[string]$Product = 'microsoft-r-server',
 	[string]$name = 'msr80-win2012r2'
 )
-Write-Host "Image Creation in Process - Plan Info - Microsoft R Server" -ForegroundColor White
-Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
-$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -Windows -ComputerName $VMName -Credential $Credential1
-$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+	Write-Host "Image Creation in Process - Plan Info - Microsoft R Server" -ForegroundColor White
+	Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+	$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+	$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -Windows -ComputerName $VMName -Credential $Credential1
+	$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
 }
 Function MakeImagePlanInfo_Bitnami_tomcat {
 param(
@@ -1184,11 +1254,11 @@ param(
 	[string]$Product = 'tom-cat',
 	[string]$name = '7-0'
 )
-Write-Host "Image Creation in Process - Plan Info - Tom-Cat" -ForegroundColor White
-Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
-$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
-$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+	Write-Host "Image Creation in Process - Plan Info - Tom-Cat" -ForegroundColor White
+	Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+	$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+	$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+	$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
 }
 
 Function MakeImagePlanInfo_Bitnami_redis {
@@ -1201,11 +1271,11 @@ param(
 	[string]$Product = 'redis',
 	[string]$name = '3-2'
 )
-Write-Host "Image Creation in Process - Plan Info - Redis"
-Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
-$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
-$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+	Write-Host "Image Creation in Process - Plan Info - Redis"
+	Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+	$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+	$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+	$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
 }
 Function MakeImagePlanInfo_Bitnami_neos {
 param(
@@ -1216,12 +1286,12 @@ param(
 	[string]$version = 'latest',
 	[string]$Product = 'neos',
 	[string]$name = '2-0'
-)
-Write-Host "Image Creation in Process - Plan Info - neos"
-Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
-$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
-$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+	)
+	Write-Host "Image Creation in Process - Plan Info - neos"
+	Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+	$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+	$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+	$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
 }
 Function MakeImagePlanInfo_Bitnami_hadoop {
 param(
@@ -1233,11 +1303,11 @@ param(
 	[string]$Product = 'hadoop',
 	[string]$name = '2-7'
 )
-Write-Host "Image Creation in Process - Plan Info - hadoop"
-Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
-$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
-$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+	Write-Host "Image Creation in Process - Plan Info - hadoop"
+	Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+	$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+	$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+	$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
 }
 Function MakeImagePlanInfo_Bitnami_gitlab {
 param(
@@ -1249,11 +1319,11 @@ param(
 	[string]$Product = 'gitlab',
 	[string]$name = '8-5'
 )
-Write-Host "Image Creation in Process - Plan Info - gitlab"
-Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
-$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
-$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+	Write-Host "Image Creation in Process - Plan Info - gitlab"
+	Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+	$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+	$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+	$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
 }
 Function MakeImagePlanInfo_Bitnami_jrubystack {
 param(
@@ -1265,11 +1335,11 @@ param(
 	[string]$Product = 'jrubystack',
 	[string]$name = '9-0'
 )
-Write-Host "Image Creation in Process - Plan Info - jrubystack"
-Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
-$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
-$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+	Write-Host "Image Creation in Process - Plan Info - jrubystack"
+	Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+	$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+	$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+	$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
 }
 
 Function MakeImagePlanInfo_Bitnami_mongodb {
@@ -1282,11 +1352,11 @@ param(
 	[string]$Product = 'mongodb',
 	[string]$name = '3-2'
 )
-Write-Host "Image Creation in Process - Plan Info - MongoDb" -ForegroundColor White
-Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
-$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
-$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+	Write-Host "Image Creation in Process - Plan Info - MongoDb" -ForegroundColor White
+	Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+	$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+	$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+	$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
 }
 Function MakeImagePlanInfo_Bitnami_mysql {
 param(
@@ -1298,13 +1368,13 @@ param(
 	[string]$Product = 'mysql',
 	[string]$name = '5-6'
 )
-Write-Host "Image Creation in Process - Plan Info - MySql" -ForegroundColor White
-Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
-$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
-$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
-$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
-Log-Command -Description $LogOut -LogFile $LogOutFile
+	Write-Host "Image Creation in Process - Plan Info - MySql" -ForegroundColor White
+	Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+	$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+	$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+	$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+	$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+	Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 Function MakeImagePlanInfo_Bitnami_nginxstack {
 param(
@@ -1316,13 +1386,13 @@ param(
 	[string]$Product = 'nginxstack',
 	[string]$name = '1-9'
 )
-Write-Host "Image Creation in Process - Plan Info - Nginxstack" -ForegroundColor White
-Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
-$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
-$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
-$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
-Log-Command -Description $LogOut -LogFile $LogOutFile
+	Write-Host "Image Creation in Process - Plan Info - Nginxstack" -ForegroundColor White
+	Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+	$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+	$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+	$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+	$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+	Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 Function MakeImagePlanInfo_Bitnami_nodejs {
 param(
@@ -1334,13 +1404,13 @@ param(
 	[string]$Product = 'nodejs',
 	[string]$name = '4-3'
 )
-Write-Host "Image Creation in Process - Plan Info - Nodejs" -ForegroundColor White
-Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
-$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
-$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
-$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
-Log-Command -Description $LogOut -LogFile $LogOutFile
+	Write-Host "Image Creation in Process - Plan Info - Nodejs" -ForegroundColor White
+	Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+	$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+	$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+	$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+	$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+	Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 Function MakeImagePlanInfo_Bitnami_postgresql {
 param(
@@ -1352,32 +1422,13 @@ param(
 	[string]$Product = 'postgresql',
 	[string]$name = '9-5'
 )
-Write-Host "Image Creation in Process - Plan Info - postgresql" -ForegroundColor White
-Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
-$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
-$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
-$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
-Log-Command -Description $LogOut -LogFile $LogOutFile
-}
-
-Function MakeImagePlanInfo_SAP_ase {
-param(
-	[string]$VMName = $VMName,
-	[string]$Publisher = 'sap',
-	[string]$offer = 'ase',
-	[string]$Skus = 'ase_hourly',
-	[string]$version = 'latest',
-	[string]$Product = 'ase_hourly',
-	[string]$name = 'ase'
-)
-Write-Host "Image Creation in Process - Plan Info - SAP - ASE" -ForegroundColor White
-Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
-$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
-$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
-$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
-Log-Command -Description $LogOut -LogFile $LogOutFile
+	Write-Host "Image Creation in Process - Plan Info - postgresql" -ForegroundColor White
+	Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+	$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+	$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+	$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+	$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+	Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
 Function MakeImagePlanInfo_puppet_puppetent {
@@ -1398,42 +1449,6 @@ $script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -Publisher
 $LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
-Function MakeImagePlanInfo_splunk {
-param(
-	[string]$VMName = $VMName,
-	[string]$Publisher = 'Splunk',
-	[string]$offer = 'splunk-enterprise-base-image',
-	[string]$Skus = 'splunk-on-ubuntu-14-04-lts',
-	[string]$version = 'latest',
-	[string]$Product = 'splunk-on-ubuntu-14-04-lts',
-	[string]$name = 'splunk-enterprise-base-image'
-)
-Write-Host "Image Creation in Process - Plan Info - Splunk" -ForegroundColor White
-Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
-$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
-$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
-$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
-Log-Command -Description $LogOut -LogFile $LogOutFile
-}
-Function MakeImagePlanInfo_SolarWinds {
-param(
-	[string]$VMName = $VMName,
-	[string]$Publisher = 'solarwinds',
-	[string]$offer = 'solarwinds-database-performance-analyzer',
-	[string]$Skus = 'dpa-byol',
-	[string]$version = 'latest',
-	[string]$Product = 'solarwinds-database-performance-analyzer',
-	[string]$name = 'dpa-byol'
-)
-Write-Host "Image Creation in Process - Plan Info - SolarWinds" -ForegroundColor White
-Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
-$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
-$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
-$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
-Log-Command -Description $LogOut -LogFile $LogOutFile
-}
 
 Function MakeImagePlanInfo_Barracuda_ng_firewall_hourly {
 param(
@@ -1445,13 +1460,24 @@ param(
 	[string]$Product = 'barracuda-ng-firewall',
 	[string]$name = 'hourly'
 )
-Write-Host "Image Creation in Process - Plan Info - Barracuda Firewall " -ForegroundColor White
-Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
-$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
-$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
-$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
-Log-Command -Description $LogOut -LogFile $LogOutFile
+	Try
+	{
+		Write-Host "Image Creation in Process - Plan Info - Barracuda Firewall " -ForegroundColor White
+		Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+		$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+		$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+		$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+		$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+		Log-Command -Description $LogOut -LogFile $LogOutFile
+	}
+	Catch
+	{
+	Write-Host -foregroundcolor Yellow `
+	"$($_.Exception.Message)"; `
+	$LogOut = "$($_.Exception.Message)"
+	Log-Command -Description $LogOut -LogFile $LogOutFile
+	break
+	}
 }
 
 Function MakeImagePlanInfo_Barracuda_ng_firewall_byol {
@@ -1502,13 +1528,24 @@ param(
 	[string]$Product = 'cloudera-centos-os',
 	[string]$name = '7_2'
 )
-Write-Host "Image Creation in Process - Plan Info - cloudera" -ForegroundColor White
-Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
-$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
-$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
-$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
-Log-Command -Description $LogOut -LogFile $LogOutFile
+	Try
+	{
+		Write-Host "Image Creation in Process - Plan Info - cloudera" -ForegroundColor White
+		Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+		$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+		$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+		$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+		$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+		Log-Command -Description $LogOut -LogFile $LogOutFile
+	}
+	Catch
+	{
+	Write-Host -foregroundcolor Yellow `
+	"$($_.Exception.Message)"; `
+	$LogOut = "$($_.Exception.Message)"
+	Log-Command -Description $LogOut -LogFile $LogOutFile
+	break
+	}
 }
 
 Function MakeImagePlanInfo_datastax {
@@ -1615,13 +1652,24 @@ param(
 	[string]$Product = 'f5-web-application-firewall',
 	[string]$name = 'f5-waf-solution-byol'
 )
-Write-Host "Image Creation in Process - Plan Info - F5 WebApp Firewall- BYOL" -ForegroundColor White
-Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
-$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
-$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
-$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
-Log-Command -Description $LogOut -LogFile $LogOutFile
+	Try
+	{
+		Write-Host "Image Creation in Process - Plan Info - F5 WebApp Firewall- BYOL" -ForegroundColor White
+		Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+		$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+		$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+		$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+		$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+		Log-Command -Description $LogOut -LogFile $LogOutFile
+	}
+	Catch
+	{
+	Write-Host -foregroundcolor Yellow `
+	"$($_.Exception.Message)"; `
+	$LogOut = "$($_.Exception.Message)"
+	Log-Command -Description $LogOut -LogFile $LogOutFile
+	break
+	}
 }
 
 Function MakeImagePlanInfo_Pfsense {
@@ -2173,11 +2221,22 @@ Write-ConfigVNet
 	$subnet6 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix $SubnetAddPrefix6 -Name $SubnetNameAddPrefix6
 	$subnet7 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix $SubnetAddPrefix7 -Name $SubnetNameAddPrefix7
 	$subnet8 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix $SubnetAddPrefix8 -Name $SubnetNameAddPrefix8
+	Try
+	{
 	New-AzureRmVirtualNetwork -Location $Location -Name $VNetName -ResourceGroupName $vnetrg -AddressPrefix $AddRange -Subnet $subnet1,$subnet2,$subnet3,$subnet4,$subnet5,$subnet6,$subnet7,$subnet8 –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
 	Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Get-AzureRmVirtualNetworkSubnetConfig -WarningAction SilentlyContinue | Out-Null
 	Write-Host "Network Preparation completed" -ForegroundColor White
 	$LogOut = "Completed Network Configuration of $VNetName"
 	Log-Command -Description $LogOut -LogFile $LogOutFile
+	}
+	Catch
+	{
+	Write-Host -foregroundcolor Yellow `
+	"$($_.Exception.Message)"; `
+	$LogOut = "$($_.Exception.Message)"
+	Log-Command -Description $LogOut -LogFile $LogOutFile
+	break
+	}
 }
 #endregion
 
@@ -2188,7 +2247,9 @@ param(
 [string]$Location = $Location,
 [string]$vnetrg = $vnetrg
 )
-		Write-Host "Network Security Group Preparation in Process.."
+	Try
+	{
+			Write-Host "Network Security Group Preparation in Process.."
 		$httprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTP" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "80" -DestinationPortRange "80" -SourceAddressPrefix "*" -DestinationAddressPrefix "10.120.0.0/21" -Access Allow -Direction Inbound -Priority 200
 		$httpsrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTPS" -Description "HTTPS Exception for Web frontends" -Protocol Tcp -SourcePortRange "443" -DestinationPortRange "443" -SourceAddressPrefix "*" -DestinationAddressPrefix "10.120.0.0/21" -Access Allow -Direction Inbound -Priority 201
 		$sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_SSH" -Description "SSH Exception for Web frontends" -Protocol Tcp -SourcePortRange "22" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix "10.120.0.0/21" -Access Allow -Direction Inbound ` -Priority 203
@@ -2202,6 +2263,15 @@ param(
 		Log-Command -Description $LogOut -LogFile $LogOutFile
 		$LogOut = "Completed NSG Configuration of $NSGName"
 		Log-Command -Description $LogOut -LogFile $LogOutFile
+	}
+	Catch
+	{
+	Write-Host -foregroundcolor Yellow `
+	"$($_.Exception.Message)"; `
+	$LogOut = "$($_.Exception.Message)"
+	Log-Command -Description $LogOut -LogFile $LogOutFile
+	break
+	}
 }
 #endregion
 
@@ -2283,7 +2353,7 @@ Write-Host "Nic2: $PvtIPNic2"
 if($AddExtension -or $BatchAddExtension -eq 'True') {
 Write-Host "Extension selected for deployment: $AzExtConfig "
 }
-if($AddAvailabilitySet -or $AddAvailabilitySet -eq 'True') {
+if($AddAvailabilitySet -or $BatchAddAvset -eq 'True') {
 Write-Host "Availability Set to 'True'"
 Write-Host "Availability Set Name:  '$AvailSetName'"
 Write-Host "                                                               "
@@ -2307,7 +2377,7 @@ Write-Host "Geo Location: $Location"
 Write-Host "VNET Name: $vNetName"
 Write-Host "VNET Resource Group Name: $vnetrg"
 Write-Host "Address Range:  $AddRange"
-if($NSGEnabled)
+if($NSGEnabled -or $BatchAddNSG -eq 'True')
 {
 Write-Host "NSG Name: $NSGName"
 }
@@ -2336,7 +2406,7 @@ Write-Host "Storage Account Name:  $StorageNameVerified"
 if($AddExtension -or $BatchAddExtension -eq 'True'){
 Write-Host "Extension deployed: $AzExtConfig "
 }
-if($AddAvailabilitySet -or $AddAvailabilitySet -eq 'True') {
+if($AddAvailabilitySet -or $BatchAddAvset -eq 'True') {
 Write-Host "Availability Set Configured"
 Write-Host "Availability Set Name:  '$AvailSetName'"
 $time = " Completed Time " + (Get-Date -UFormat "%d-%m-%Y %H:%M:%S")
@@ -2790,16 +2860,7 @@ Function Create-VM {
 			Configure-Image # Completes Image Creation
 			Provision-Vm
 }
-		"*splunk*" {
-			Write-ConfigVM
-			Create-Storage
-			Create-AvailabilitySet
-			Configure-Nics  #Sets network connection info
-			MakeImagePlanInfo_splunk # Begins Image Creation
-			Set-NicConfiguration # Adds Network Interfaces
-			Configure-Image # Completes Image Creation
-			Provision-Vm
-}
+
 		"*share2013*" {
 			Write-ConfigVM
 			Create-Storage
@@ -2960,16 +3021,6 @@ Function Create-VM {
 			Configure-Image # Completes Image Creation
 			Provision-Vm
 }
-		"*solarwinds*" {
-			Write-ConfigVM
-			Create-Storage
-			Create-AvailabilitySet
-			Configure-Nics  #Sets network connection info
-			MakeImagePlanInfo_SolarWinds # Begins Image Creation
-			Set-NicConfiguration # Adds Network Interfaces
-			Configure-Image # Completes Image Creation
-			Provision-Vm
-}
 		"*hadoop*" {
 			Write-ConfigVM
 			Create-Storage
@@ -3006,16 +3057,6 @@ Function Create-VM {
 			Create-AvailabilitySet
 			Configure-Nics  #Sets network connection info
 			MakeImagePlanInfo_Bitnami_neos # Begins Image Creation
-			Set-NicConfiguration # Adds Network Interfaces
-			Configure-Image # Completes Image Creation
-			Provision-Vm
-}
-		"*gitlab*" {
-			Write-ConfigVM
-			Create-Storage
-			Create-AvailabilitySet
-			Configure-Nics  #Sets network connection info
-			MakeImagePlanInfo_Bitnami_gitlab # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
 			Provision-Vm
@@ -3252,7 +3293,7 @@ Function Verify-StorageExists {
 		$StorageName = $StorageName
 
 	)
-$strexists = Get-AzureRmStorageAccount -ResourceGroupName $rg -Name $StorageName.ToLower() -WarningAction SilentlyContinue -ErrorAction SilentlyContinue
+		$strexists = Get-AzureRmStorageAccount -ResourceGroupName $rg -Name $StorageName.ToLower() -WarningAction SilentlyContinue -ErrorAction SilentlyContinue
 if(!$strexists)
 {
 	 $script:StorageNameVerified = $GenerateName.ToLower()
@@ -3281,134 +3322,134 @@ Function Install-Ext {
 switch ($AzExtConfig)
 	{
 		"access" {
-		Verify-ExtWin
-		Write-Host "VM Access Agent VM Image Preparation in Process"
-		Set-AzureRmVMAccessExtension -ResourceGroupName $rg -VMName $VMName -Name "VMAccess" -typeHandlerVersion "2.0" -Location $Location -Verbose -username $locadmin -password $locpassword | Out-Null
-		Get-AzureRmVMAccessExtension -ResourceGroupName $rg -VMName $VMName -Name "VMAccess" -Status
-		$LogOut = "Added VM Access Extension"
-		Log-Command -Description $LogOut -LogFile $LogOutFile
-		Write-Results
+				Verify-ExtWin
+				Write-Host "VM Access Agent VM Image Preparation in Process"
+				Set-AzureRmVMAccessExtension -ResourceGroupName $rg -VMName $VMName -Name "VMAccess" -typeHandlerVersion "2.0" -Location $Location -Verbose -username $locadmin -password $locpassword | Out-Null
+				Get-AzureRmVMAccessExtension -ResourceGroupName $rg -VMName $VMName -Name "VMAccess" -Status
+				$LogOut = "Added VM Access Extension"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+				Write-Results
 }
 		"msav" {
-		Verify-ExtWin
-		Write-Host "MSAV Agent VM Image Preparation in Process"
-		Set-AzureRmVMExtension  -ResourceGroupName $rg -VMName $VMName -Name "MSAVExtension" -ExtensionType "IaaSAntimalware" -Publisher "Microsoft.Azure.Security" -typeHandlerVersion 1.4 -Location $Location | Out-Null
-		Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "MSAVExtension" -Status
-		 $LogOut = "Added VM msav Extension"
-		Log-Command -Description $LogOut -LogFile $LogOutFile
-		Write-Results
+				Verify-ExtWin
+				Write-Host "MSAV Agent VM Image Preparation in Process"
+				Set-AzureRmVMExtension  -ResourceGroupName $rg -VMName $VMName -Name "MSAVExtension" -ExtensionType "IaaSAntimalware" -Publisher "Microsoft.Azure.Security" -typeHandlerVersion 1.4 -Location $Location | Out-Null
+				Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "MSAVExtension" -Status
+				 $LogOut = "Added VM msav Extension"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+				Write-Results
 }
 		"customscript" {
-		Verify-StorageExists
-		Write-Host "Updating: $VMName in the Resource Group: $rg with a custom script: $customextname in Storage Account: $StorageName"
-		if($CustomScriptUpload -eq 'True')
-		{
-		Test-Upload -localFolder $localfolderscripts
-		Upload-CustomScript -StorageName $StorageName -rg $rg -containerName $containerNameScripts -localFolder $localfolderscripts
-		}
-		Set-AzureRmVMCustomScriptExtension -Name $customextname -ContainerName $containerName -ResourceGroupName $rg -VMName $VMName -StorageAccountName $StorageName -FileName $scriptname -Location $Location -TypeHandlerVersion "1.1" -WarningAction SilentlyContinue | Out-Null
-		Get-AzureRmVMCustomScriptExtension -ResourceGroupName $rg -VMName $VMName -Name $customextname -Status | Out-Null
-		 $LogOut = "Added VM Custom Script Extension for $scriptname"
-		Log-Command -Description $LogOut -LogFile $LogOutFile
-		Write-Results
+				Verify-StorageExists
+				Write-Host "Updating: $VMName in the Resource Group: $rg with a custom script: $customextname in Storage Account: $StorageName"
+				if($CustomScriptUpload -eq 'True')
+				{
+				Test-Upload -localFolder $localfolderscripts
+				Upload-CustomScript -StorageName $StorageName -rg $rg -containerName $containerNameScripts -localFolder $localfolderscripts
+				}
+				Set-AzureRmVMCustomScriptExtension -Name $customextname -ContainerName $containerName -ResourceGroupName $rg -VMName $VMName -StorageAccountName $StorageName -FileName $scriptname -Location $Location -TypeHandlerVersion "1.1" -WarningAction SilentlyContinue | Out-Null
+				Get-AzureRmVMCustomScriptExtension -ResourceGroupName $rg -VMName $VMName -Name $customextname -Status | Out-Null
+				 $LogOut = "Added VM Custom Script Extension for $scriptname"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+				Write-Results
 }
 		"diag" {
-		Verify-StorageExists
-		Write-Host "Adding Azure Enhanced Diagnostics to $VMName in $rg using the $StorageName Storage Account"
-		Set-AzureRmVMAEMExtension -ResourceGroupName $rg -VMName $VMName -WADStorageAccountName $StorageName -InformationAction SilentlyContinue -WarningAction SilentlyContinue | Out-Null
-		Get-AzureRmVMAEMExtension -ResourceGroupName $rg -VMName $VMName | Out-Null
-		 $LogOut = "Added VM Enhanced Diag Extension to Storage Profile $StorageName"
-		Log-Command -Description $LogOut -LogFile $LogOutFile
-		Write-Results
+				Verify-StorageExists
+				Write-Host "Adding Azure Enhanced Diagnostics to $VMName in $rg using the $StorageName Storage Account"
+				Set-AzureRmVMAEMExtension -ResourceGroupName $rg -VMName $VMName -WADStorageAccountName $StorageName -InformationAction SilentlyContinue -WarningAction SilentlyContinue | Out-Null
+				Get-AzureRmVMAEMExtension -ResourceGroupName $rg -VMName $VMName | Out-Null
+				 $LogOut = "Added VM Enhanced Diag Extension to Storage Profile $StorageName"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+				Write-Results
 }
 		"domjoin" {
-		Verify-ExtWin
-		Write-Host "Domain Join active"
-		Set-AzureRmVMADDomainExtension -DomainName $DomName -ResourceGroupName $rg -VMName $VMName -Location $Location -Name 'DomJoin' -WarningAction SilentlyContinue -Restart | Out-Null
-		Get-AzureRmVMADDomainExtension -ResourceGroupName $rg  -VMName $VMName -Name 'DomJoin' | Out-Null
-		 $LogOut = "Added VM Domain Join Extension for domain: $DomName "
-		Log-Command -Description $LogOut -LogFile $LogOutFile
+				Verify-ExtWin
+				Write-Host "Domain Join active"
+				Set-AzureRmVMADDomainExtension -DomainName $DomName -ResourceGroupName $rg -VMName $VMName -Location $Location -Name 'DomJoin' -WarningAction SilentlyContinue -Restart | Out-Null
+				Get-AzureRmVMADDomainExtension -ResourceGroupName $rg  -VMName $VMName -Name 'DomJoin' | Out-Null
+				 $LogOut = "Added VM Domain Join Extension for domain: $DomName "
+				Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 		"linuxOsPatch" {
-		Write-Host "Adding Azure OS Patching Linux"
-		Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OSPatch" -ExtensionType "OSPatchingForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.0" -InformationAction SilentlyContinue -Verbose
-		Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "OSPatch"
-		 $LogOut = "Added VM OS Patch Extension"
-		Log-Command -Description $LogOut -LogFile $LogOutFile
-		Write-Results
+				Write-Host "Adding Azure OS Patching Linux"
+				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OSPatch" -ExtensionType "OSPatchingForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.0" -InformationAction SilentlyContinue -Verbose
+				Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "OSPatch"
+				 $LogOut = "Added VM OS Patch Extension"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+				Write-Results
 		}
 		"linuxbackup" {
-		Write-Host "Adding Linux VMBackup to $VMName in the resource group $rg"
-		Set-AzureRmVMBackupExtension -VMName $VMName -ResourceGroupName $rg -Name "VMBackup" -Tag "OSBackup" -WarningAction SilentlyContinue | Out-Null
-		 $LogOut = "Added VM Backup Extension"
-		Log-Command -Description $LogOut -LogFile $LogOutFile
-		Write-Results
+				Write-Host "Adding Linux VMBackup to $VMName in the resource group $rg"
+				Set-AzureRmVMBackupExtension -VMName $VMName -ResourceGroupName $rg -Name "VMBackup" -Tag "OSBackup" -WarningAction SilentlyContinue | Out-Null
+				 $LogOut = "Added VM Backup Extension"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+				Write-Results
 		}
 		"chefAgent" {
-		Write-Host "Adding Chef Agent"
-		$ProtectedSetting = ''
-		$Setting = ''
-		Set-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "ChefStrap" -ExtensionType "ChefClient" -Publisher "Chef.Bootstrap.WindowsAzure" -typeHandlerVersion "1210.12" -Location $Location -Verbose -ProtectedSettingString $ProtectedSetting -SettingString $Setting | Out-Null
-		Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "ChefStrap"
-		 $LogOut = "Added VM Chef Extension"
-		Log-Command -Description $LogOut -LogFile $LogOutFile
-		Write-Results
+				Write-Host "Adding Chef Agent"
+				$ProtectedSetting = ''
+				$Setting = ''
+				Set-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "ChefStrap" -ExtensionType "ChefClient" -Publisher "Chef.Bootstrap.WindowsAzure" -typeHandlerVersion "1210.12" -Location $Location -Verbose -ProtectedSettingString $ProtectedSetting -SettingString $Setting | Out-Null
+				Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "ChefStrap"
+				 $LogOut = "Added VM Chef Extension"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+				Write-Results
 }
 		"opsinsightLinux" {
-		Verify-ExtLinux
-		Write-Host "Adding Linux Insight Agent"
-		Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OperationalInsights" -ExtensionType "OmsAgentForLinux" -Publisher "Microsoft.EnterpriseCloud.Monitoring" -typeHandlerVersion "1.0" -InformationAction SilentlyContinue -Verbose | Out-Null
-		Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "OperationalInsights"
-		 $LogOut = "Added OpsInsight Extension"
-		Log-Command -Description $LogOut -LogFile $LogOutFile
-		Write-Results
+				Verify-ExtLinux
+				Write-Host "Adding Linux Insight Agent"
+				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OperationalInsights" -ExtensionType "OmsAgentForLinux" -Publisher "Microsoft.EnterpriseCloud.Monitoring" -typeHandlerVersion "1.0" -InformationAction SilentlyContinue -Verbose | Out-Null
+				Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "OperationalInsights"
+				 $LogOut = "Added OpsInsight Extension"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+				Write-Results
 }
 		"opsinsightWin" {
-		Verify-ExtWin
-		Write-Host "Adding Windows Insight Agent"
-		Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OperationalInsights" -ExtensionType "MicrosoftMonitoringAgent" -Publisher "Microsoft.EnterpriseCloud.Monitoring" -typeHandlerVersion "1.0" -InformationAction SilentlyContinue -Verbose | Out-Null
-		Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "OperationalInsights"
-		 $LogOut = "Added OpsInsight Extension"
-		Log-Command -Description $LogOut -LogFile $LogOutFile
-		Write-Results
+				Verify-ExtWin
+				Write-Host "Adding Windows Insight Agent"
+				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OperationalInsights" -ExtensionType "MicrosoftMonitoringAgent" -Publisher "Microsoft.EnterpriseCloud.Monitoring" -typeHandlerVersion "1.0" -InformationAction SilentlyContinue -Verbose | Out-Null
+				Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "OperationalInsights"
+				 $LogOut = "Added OpsInsight Extension"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+				Write-Results
 }
 		"ESET" {
-		Verify-ExtWin
-		Write-Host "Setting File Security"
-		Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "ESET" -ExtensionType "FileSecurity" -Publisher "ESET" -typeHandlerVersion "6.0" -InformationAction SilentlyContinue -Verbose | Out-Null
-		Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "ESET"
-		 $LogOut = "Added ESET Extension"
-		Log-Command -Description $LogOut -LogFile $LogOutFile
-		Write-Results
+				Verify-ExtWin
+				Write-Host "Setting File Security"
+				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "ESET" -ExtensionType "FileSecurity" -Publisher "ESET" -typeHandlerVersion "6.0" -InformationAction SilentlyContinue -Verbose | Out-Null
+				Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "ESET"
+				 $LogOut = "Added ESET Extension"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+				Write-Results
 }
 		"PushDSC" {
-		Verify-StorageExists
-		Configure-DSC
-		Write-Host "Pushing DSC to $VMName in the $rg Resource Group"
-		$LogOut = "Added DSC Configuration"
-		Log-Command -Description $LogOut -LogFile $LogOutFile
-		Write-Results
+				Verify-StorageExists
+				Configure-DSC
+				Write-Host "Pushing DSC to $VMName in the $rg Resource Group"
+				$LogOut = "Added DSC Configuration"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+				Write-Results
 }
 		"RegisterAzDSC" {
-		Write-Host "Registering with Azure Automation DSC"
-		$ActionAfterReboot = 'ContinueConfiguration'
-		$configmode = 'ApplyAndAutocorrect'
-		$AutoAcctName = $Azautoacct
-		$NodeName = -join $VMNAME+".node"
-		$ConfigurationName = -join $VMNAME+".node"
-		Register-AzureRmAutomationDscNode -AutomationAccountName $AutoAcctName -AzureVMName $VMName -ActionAfterReboot $ActionAfterReboot -ConfigurationMode $configmode -RebootNodeIfNeeded $True -ResourceGroupName $rg -NodeConfigurationName $ConfigurationName -AzureVMLocation $Location -AzureVMResourceGroup $rg -Verbose | Out-Null
-		 $LogOut = "Registered with Azure Automation DSC"
-		Log-Command -Description $LogOut -LogFile $LogOutFile
-		Write-Results
+				Write-Host "Registering with Azure Automation DSC"
+				$ActionAfterReboot = 'ContinueConfiguration'
+				$configmode = 'ApplyAndAutocorrect'
+				$AutoAcctName = $Azautoacct
+				$NodeName = -join $VMNAME+".node"
+				$ConfigurationName = -join $VMNAME+".node"
+				Register-AzureRmAutomationDscNode -AutomationAccountName $AutoAcctName -AzureVMName $VMName -ActionAfterReboot $ActionAfterReboot -ConfigurationMode $configmode -RebootNodeIfNeeded $True -ResourceGroupName $rg -NodeConfigurationName $ConfigurationName -AzureVMLocation $Location -AzureVMResourceGroup $rg -Verbose | Out-Null
+				 $LogOut = "Registered with Azure Automation DSC"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+				Write-Results
 }
 		"WinPuppet" {
-		Verify-ExtWin
-		Write-Host "Deploying Puppet Extension"
-		Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "PuppetEnterpriseAgent" -ExtensionType "PuppetEnterpriseAgent" -Publisher "PuppetLabs" -typeHandlerVersion "3.2" -InformationAction SilentlyContinue -Verbose | Out-Null
-		Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "PuppetEnterpriseAgent"
-		 $LogOut = "Added Puppet Agent Extension"
-		Log-Command -Description $LogOut -LogFile $LogOutFile
-		Write-Results
+				Verify-ExtWin
+				Write-Host "Deploying Puppet Extension"
+				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "PuppetEnterpriseAgent" -ExtensionType "PuppetEnterpriseAgent" -Publisher "PuppetLabs" -typeHandlerVersion "3.2" -InformationAction SilentlyContinue -Verbose | Out-Null
+				Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "PuppetEnterpriseAgent"
+				 $LogOut = "Added Puppet Agent Extension"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+				Write-Results
 }
 		default{"An unsupported Extension command was used"}
 	}
@@ -3685,77 +3726,89 @@ Function Action-Type {
 		$ActionType = $ActionType
 	)
 
-switch ($ActionType)
+	Try
 	{
-		"create" {
-				Check-NSGName # Verifies required fields have data
-				Check-AvailabilitySet # Verifies required fields have data
-				Check-FQDN # Verifies required fields have data
-				Check-NullValues # Verifies required fields have data
-				Check-Orphans # Verifies no left overs
-				Verify-NIC # Verifies required fields have data
-				Check-StorageName # Verifies Storage Account Name does not exist
+	switch ($ActionType)
+		{
+			"create" {
+					Check-NSGName # Verifies required fields have data
+					Check-AvailabilitySet # Verifies required fields have data
+					Check-FQDN # Verifies required fields have data
+					Check-NullValues # Verifies required fields have data
+					Check-Orphans # Verifies no left overs
+					Verify-NIC # Verifies required fields have data
+					Check-StorageName # Verifies Storage Account Name does not exist
 
-				Write-Output "Steps will be tracked in the log file : [ $LogOutFile ]"
-				Create-ResourceGroup
-				if($AddVnet -or $BatchAddVnet -eq 'True')
-				{
-					Create-Vnet
-				} # Creates VNET
+					Write-Output "Steps will be tracked in the log file : [ $LogOutFile ]"
+					Create-ResourceGroup
+					if($AddVnet -or $BatchAddVnet -eq 'True')
+					{
+						Create-Vnet
+					} # Creates VNET
 
-				if($NSGEnabled -or $BatchAddNSG -eq 'True')
-				{
-					Create-NSG
-				} # Creates NSG and Security Groups
+					if($NSGEnabled -or $BatchAddNSG -eq 'True')
+					{
+						Create-NSG
+					} # Creates NSG and Security Groups
+					Check-Vnet
+					Create-VM # Configure Image
+					if($NSGEnabled -or $BatchAddNSG -eq 'True')
+					{
+						Configure-NSGEnabled
+					} #Adds NSG to NIC
 
-				Create-VM # Configure Image
-				if($NSGEnabled -or $BatchAddNSG -eq 'True')
-				{
-					Configure-NSGEnabled
-				} #Adds NSG to NIC
+					if($AddExtension -or $BatchAddExtension -eq 'True')
+					{ Install-Ext }
+					else
+					{ Write-Results }
 
-				if($AddExtension -or $BatchAddExtension -eq 'True')
-				{ Install-Ext }
-				else
-				{ Write-Results }
-
-				if($AddVPN -eq 'True'){
-				Create-VPN
-				Connect-VPN
-				} #Creates VPN
-}
-		"update" {
-			if($UpdateExtension -or $BatchAddExtension -eq 'True')
-{
-				Verify-StorageExists
-				Install-Ext
-				exit
-}
-			if($AddNSG -or $BatchAddNSG -eq 'True')
-				{
-				Check-NSGName
-				Configure-NSGEnabled
-				}
-}
-		"remove" {
-				if($RemoveObject)
-				{
-					Remove-Component
-				}
-
-				if($RemoveExtension)
-				 {
-					 Check-ExtensionUnInstall
-					 UnInstall-Ext
-				 }
-}
-		"info" {
-					Check-getinfo
-					 Get-Azinfo
-}
-
-		default{"An unsupported uninstall Extension command was used"}
+					if($AddVPN -eq 'True'){
+					Create-VPN
+					Connect-VPN
+					} #Creates VPN
 	}
+			"update" {
+				if($UpdateExtension -or $BatchAddExtension -eq 'True')
+	{
+					Verify-StorageExists
+					Install-Ext
+					exit
+	}
+				if($AddNSG -or $BatchAddNSG -eq 'True')
+					{
+					Check-NSGName
+					Configure-NSGEnabled
+					}
+	}
+			"remove" {
+					if($RemoveObject)
+					{
+						Remove-Component
+					}
+
+					if($RemoveExtension)
+					 {
+						 Check-ExtensionUnInstall
+						 UnInstall-Ext
+					 }
+	}
+			"info" {
+						Check-getinfo
+						 Get-Azinfo
+	}
+
+			default{"An unsupported uninstall Extension command was used"}
+		}
+	}
+	Catch
+	{
+	Write-Host -foregroundcolor Yellow `
+	"$($_.Exception.Message)"; `
+	$LogOut = "$($_.Exception.Message)"
+	Log-Command -Description $LogOut -LogFile $LogOutFile
+	break
+	}
+
 	exit
 }
 
