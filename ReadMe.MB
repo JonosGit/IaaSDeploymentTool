@@ -13,21 +13,26 @@ Runtime named parameters examples:
 .EXAMPLE
 \.AZRM-VMDeploy.ps1 -csvimport -csvfile C:\temp\iaasdeployment.csv
 .EXAMPLE
-\.AZRM-VMDeploy.ps1 -vm pf001 -image pfsense -rg ResGroup1 -vnetrg ResGroup2 -addvnet -vnet VNET -sub1 3 -sub2 4 -ConfigIPs DualPvtNoPub -Nic1 10.120.2.7 -Nic2 10.120.3.7
+\.AZRM-VMDeploy.ps1 -ActionType Create -vm pf001 -image pfsense -rg ResGroup1 -vnetrg ResGroup2 -addvnet -vnet VNET -sub1 3 -sub2 4 -ConfigIPs DualPvtNoPub -Nic1 10.120.2.7 -Nic2 10.120.3.7
 .EXAMPLE
-\.AZRM-VMDeploy.ps1 -vm red76 -image red67 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -sub1 7 -ConfigIPs SinglePvtNoPub -Nic1 10.120.6.124 -Ext linuxbackup
+\.AZRM-VMDeploy.ps1 -ActionType Create -vm red76 -image red67 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -sub1 7 -ConfigIPs SinglePvtNoPub -Nic1 10.120.6.124 -Ext linuxbackup
 .EXAMPLE
-\.AZRM-VMDeploy.ps1 -vm win006 -image w2k12 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -sub1 2 -ConfigIPs Single -AvSet -NSGEnabled -NSGName NSG
+\.AZRM-VMDeploy.ps1 -ActionType Create -vm win006 -image w2k12 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -sub1 2 -ConfigIPs Single -AvSet -CreateNSG -NSGName NSG
 .EXAMPLE
-\.AZRM-VMDeploy.ps1 -vm win008 -image w2k16 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -sub1 5 -ConfigIPs PvtSingleStat -Nic1 10.120.4.169 -AddFQDN -fqdn mydns1
+\.AZRM-VMDeploy.ps1 -ActionType Create -vm win008 -image w2k16 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -sub1 5 -ConfigIPs PvtSingleStat -Nic1 10.120.4.169 -AddFQDN -fqdn mydns1
 .EXAMPLE
-\.AZRM-VMDeploy.ps1 -vm ubu001 -image ubuntu -RG ResGroup1 -vnetrg ResGroup2 -VNet VNET -sub1 6 -ConfigIPs PvtSingleStat -Nic1 10.120.5.169 -AddFQDN fqdn mydns2
+\.AZRM-VMDeploy.ps1 -ActionType Create -vm ubu001 -image ubuntu -RG ResGroup1 -vnetrg ResGroup2 -VNet VNET -sub1 6 -ConfigIPs PvtSingleStat -Nic1 10.120.5.169 -AddFQDN fqdn mydns2
 .EXAMPLE
-\.AZRM-VMDeploy.ps1 -vm ubu001 -RG ResGroup1 -RemoveObject VM
+\.AZRM-VMDeploy.ps1 -ActionType remove -vm ubu001 -RG ResGroup1 -RemoveObject VM
 .EXAMPLE
-\.AZRM-VMDeploy.ps1 -RG ResGroup1 -RemoveObject rg
+\.AZRM-VMDeploy.ps1 -ActionType remove -RG ResGroup1 -RemoveObject rg
 
-Available Image Short Codes
+-ConfigIps  <Configuration>
+			PvtSingleStat & PvtDualStat – Deploys the server with a Public IP and the private IP(s) specified by the user.
+			NoPubSingle & NoPubDual - Deploys the server without Public IP using automatically generated private IP(s).
+			Single & Dual – Deploys the default configuration of a Public IP and automatically generated private IP(s).
+			StatPvtNoPubDual & StatPvtNoPubSingle – Deploys the server without a Public IP using the private IP(s) specified by the user.
+-VMMarketImage <Image ShortName>
 
 			Windows 2012 R2 – w2k12
 			Windows 2008 R2 – w2k8
@@ -47,7 +52,6 @@ Available Image Short Codes
 			Ubuntu 14.04 – ubuntu
 			Redhat 6.7 – Red67
 			Redhat 7.2 – Red72
-			MySql – mysql
 			CheckPoint AppFirewall – check
 			Chef Server v12 - 100 Client - chef
 			Bitnami LampStack - lamp
@@ -80,7 +84,7 @@ Available Image Short Codes
 			Tableau Desktop - tableau
 			metavistech O365 Suite - O365-suite
 
-Available Azure Extensions
+-AzExtConfig <Extension Type>
 			access – Adds Azure Access Extension – Added by default during VM creation
 			msav – Adds Azure Antivirus Extension
 			custScript – Adds Custom Script for Execution (Requires Table Storage Configuration first)

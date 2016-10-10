@@ -2,13 +2,14 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 6.9
+Ver 7.0
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerous Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
 The script supports deploying Availability Sets as well as adding new servers to existing Availability Sets through the -AvailabilitySet and -AvailSetName switches.
 The script supports deploying Azure Extensions through the -AddExtensions switch.
 The script will create three directories if they do not exist in the runtime directory, Log, Scripts, DSC.
 
+v7.0 updates - Updates for Azure PowerShell 3.0
 v6.9 updates - Exception Handling generates to log file
 v6.8 updates - Added Core parameters for -Action-Type Update, Create and Remove
 v6.7 updates - Created -updateextension swith for OOB deployments of extensions to existing Azure VMs
@@ -41,7 +42,7 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 
 .PARAMETER ConfigIPs
 
-.PARAMETER NSGEnabled
+.PARAMETER CreateNSG
 
 .PARAMETER BatchAddNSG
 
@@ -176,7 +177,7 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 .EXAMPLE
 \.AZRM-VMDeploy.ps1 -ActionType Create -vm red76 -image red67 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -sub1 7 -ConfigIPs SinglePvtNoPub -Nic1 10.120.6.124 -Ext linuxbackup
 .EXAMPLE
-\.AZRM-VMDeploy.ps1 -ActionType Create -vm win006 -image w2k12 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -sub1 2 -ConfigIPs Single -AvSet -NSGEnabled -NSGName NSG
+\.AZRM-VMDeploy.ps1 -ActionType Create -vm win006 -image w2k12 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -sub1 2 -ConfigIPs Single -AvSet -CreateNSG -NSGName NSG
 .EXAMPLE
 \.AZRM-VMDeploy.ps1 -ActionType Create -vm win008 -image w2k16 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -sub1 5 -ConfigIPs PvtSingleStat -Nic1 10.120.4.169 -AddFQDN -fqdn mydns1
 .EXAMPLE
@@ -306,7 +307,7 @@ $ConfigIPs = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("nsg")]
 [switch]
-$NSGEnabled,
+$CreateNSG,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $BatchAddNSG = 'False',
@@ -483,6 +484,9 @@ $UpdateExtension,
 [string]
 $BatchAddExtension = 'False',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$BatchUpdateNSG = 'False',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("removeext")]
 [switch]
 $RemoveExtension,
@@ -560,6 +564,27 @@ $fileexist = Test-Path $ProfileFile -NewerThan $comparedate
 }
 #endregion
 
+Function WriteLog-Command([string]$Description, [ScriptBlock]$Command, [string]$LogFile, [string]$VMName ){
+Try{
+$Output = $Description+'  ... '
+Write-Host $Output -ForegroundColor Blue
+((Get-Date -UFormat "[%d-%m-%Y %H:%M:%S] ") + $Output) | Out-File -FilePath $LogFile -Append –Confirm:$false -Force
+$Result = Invoke-Command -ScriptBlock $Command
+}
+Catch {
+$ErrorMessage = $_.Exception.Message
+$Output = 'Error '+$ErrorMessage
+((Get-Date -UFormat "[%d-%m-%Y %H:%M:%S] ") + $Output) | Out-File -FilePath $LogFile -Append –Confirm:$false -Force
+$Result = ""
+}
+Finally
+{
+if ($ErrorMessage -eq $null) {$Output = "[Completed]  $Description  ... "} else {$Output = "[Failed]  $Description  ... "}
+((Get-Date -UFormat "[%d-%m-%Y %H:%M:%S] ") + $Output) | Out-File -FilePath $LogFile -Append –Confirm:$false -Force
+}
+Return $Result
+}
+
 #region User Help
 Function Help-User {
 Write-Host "Don't know where to start? Here are some examples:"
@@ -569,7 +594,7 @@ Write-Host "azurerm_deploy.ps1 -vm pf001 -image pfsense -rg ResGroup1 -vnetrg Re
 Write-Host "Deploy RedHat"
 Write-Host "azurerm_deploy.ps1 -vm red76 -image red67 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -ConfigIPs SinglePvtNoPub -Nic1 10.120.6.124 -Ext linuxbackup"
 Write-Host "Deploy Windows 2012"
-Write-Host "azurerm_deploy.ps1 -vm win006 -image w2k12 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -ConfigIPs Single -AvSet -NSGEnabled -NSGName NSG"
+Write-Host "azurerm_deploy.ps1 -vm win006 -image w2k12 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -ConfigIPs Single -AvSet -CreateNSG -NSGName NSG"
 Write-Host "Deploy Windows 2016"
 Write-Host "azurerm_deploy.ps1 -vm win008 -image w2k16 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -ConfigIPs PvtSingleStat -Nic1 10.120.4.169"
 Write-Host "Deploy Ubuntu"
@@ -589,7 +614,7 @@ Write-Host "              -vnetname - VNET Name"
 Write-Host "                                                       "
 Write-Host "Important command switches"
 Write-Host "             -addvnet - adds new VNET"
-Write-Host "             -nsgenabled - adds new NSG/Configures VM to use existing NSG"
+Write-Host "             -CreateNSG - adds new NSG/Configures VM to use existing NSG"
 Write-Host "             -addavailabilityset - adds new Availability Set"
 Write-Host "             -addfqdn - adds FQDN to Public IP address of VM"
 Write-Host "             -addextension - adds VM extension"
@@ -616,12 +641,14 @@ try {
 	{exit}
 	else {
 	Write-Host $GetPath "File Exists"
-		import-csv -Path $csvin -Delimiter ',' | ForEach-Object{.\AZRM-VMDeploy.ps1 -ActionType $_.ActionType -VMName $_.VMName -vmMarketImage $_.Image -rg $_.rg -vNetrg $_.vnetrg -VNetName $_.VNetName -ConfigIPs $_.ConfigIPs -subnet1 $_.Subnet1 -subnet2 $_.Subnet2 -PvtIPNic1 $_.PvtIPNic1 -PvtIPNic2 $_.PvtIPNic2 -BatchAddVnet $_.BatchAddVnet -BatchAddNSG $_.BatchAddNSG -NSGName $_.NSGName -AzExtConfig $_.AzExtConfig -BatchAddExtension $_.BatchAddExtension -BatchAddAvSet $_.BatchAddAvSet -BatchAddFqdn $_.BatchAddFqdn -CustomScriptUpload $_.CustomScriptUpload -scriptname $_.scriptname -containername $_.containername -scriptfolder $_.scriptfolder -customextname $_.customextname }
+		import-csv -Path $csvin -Delimiter ',' | ForEach-Object{.\AZRM-VMDeploy.ps1 -ActionType $_.ActionType -VMName $_.VMName -vmMarketImage $_.Image -rg $_.rg -vNetrg $_.vnetrg -VNetName $_.VNetName -ConfigIPs $_.ConfigIPs -subnet1 $_.Subnet1 -subnet2 $_.Subnet2 -PvtIPNic1 $_.PvtIPNic1 -PvtIPNic2 $_.PvtIPNic2 -DNLabel $_.DNLabel  -BatchAddVnet $_.BatchAddVnet -BatchAddNSG $_.BatchAddNSG -BatchUpdateNSG $_.BatchUpdateNSG -NSGName $_.NSGName -AzExtConfig $_.AzExtConfig -BatchAddExtension $_.BatchAddExtension -BatchAddAvSet $_.BatchAddAvSet -BatchAddFqdn $_.BatchAddFqdn -CustomScriptUpload $_.CustomScriptUpload -scriptname $_.scriptname -containername $_.containername -scriptfolder $_.scriptfolder -customextname $_.customextname }
 	}
 }
 catch {
 	Write-Host -foregroundcolor Yellow `
 	"$($_.Exception.Message)"; `
+	$LogOut = "$($_.Exception.Message)"
+	Log-Command -Description $LogOut -LogFile $LogOutFile
 	break
 }
 }
@@ -761,7 +788,7 @@ exit
 }
 
 function Check-NSGName {
-if($NSGEnabled -and !$NSGName) {
+if($CreateNSG -and !$NSGName) {
 Write-Host "Please Enter NSG Name"
 exit
  }
@@ -807,8 +834,9 @@ if($AddFQDN -or $BatchAddFQDN -eq 'True')
 	Catch
 	{
 	Write-Host -foregroundcolor Yellow `
-	"$($_.Exception.Message)"; `
-	$LogOut = "$($_.Exception.Message)"
+	"Exception Encountered"; `
+	$ErrorMessage = $_.Exception.Message
+	$LogOut  = 'Error '+$ErrorMessage
 	Log-Command -Description $LogOut -LogFile $LogOutFile
 	break
 	}
@@ -924,8 +952,9 @@ switch ($ConfigIPs)
 	Catch
 		{
 		Write-Host -foregroundcolor Yellow `
-		"$($_.Exception.Message)"; `
-		$LogOut = "$($_.Exception.Message)"
+		"Exception Encountered"; `
+		$ErrorMessage = $_.Exception.Message
+		$LogOut  = 'Error '+$ErrorMessage
 		Log-Command -Description $LogOut -LogFile $LogOutFile
 		break
 		}
@@ -987,7 +1016,7 @@ Add-NICs
 #endregion
 
 #region Enable NSG
-Function Configure-NSGEnabled
+Function Configure-CreateNSG
 {
 	param(
 		$NSGName = $NSGName,
@@ -1024,8 +1053,9 @@ Function Configure-NSGEnabled
 	Catch
 	{
 	Write-Host -foregroundcolor Yellow `
-	"$($_.Exception.Message)"; `
-	$LogOut = "$($_.Exception.Message)"
+	"Exception Encountered"; `
+	$ErrorMessage = $_.Exception.Message
+	$LogOut  = 'Error '+$ErrorMessage
 	Log-Command -Description $LogOut -LogFile $LogOutFile
 	break
 	}
@@ -1050,9 +1080,10 @@ Function Create-VPN {
 	}
 	Catch
 	{
-		Write-Host -foregroundcolor Yellow `
-		"$($_.Exception.Message)"; `
-			$LogOut = "$($_.Exception.Message)"
+	Write-Host -foregroundcolor Yellow `
+	"Exception Encountered"; `
+	$ErrorMessage = $_.Exception.Message
+	$LogOut  = 'Error '+$ErrorMessage
 			Log-Command -Description $LogOut -LogFile $LogOutFile
 		break
 	}
@@ -1123,8 +1154,9 @@ else
 
 catch {
 	Write-Host -foregroundcolor Yellow `
-	"$($_.Exception.Message)"; `
-	$LogOut = "$($_.Exception.Message)"
+	"Exception Encountered"; `
+	$ErrorMessage = $_.Exception.Message
+	$LogOut  = 'Error '+$ErrorMessage
 	Log-Command -Description $LogOut -LogFile $LogOutFile
 	break
 }
@@ -1148,7 +1180,8 @@ try {
 catch {
 	Write-Host -foregroundcolor Yellow `
 	"Exception Encountered"; `
-	$LogOut = "$($_.Exception.Message)"
+	$ErrorMessage = $_.Exception.Message
+	$LogOut  = 'Error '+$ErrorMessage
 	Log-Command -Description $LogOut -LogFile $LogOutFile
 	break
 }
@@ -1168,8 +1201,9 @@ Function Configure-Image {
 	Catch
 	{
 	Write-Host -foregroundcolor Yellow `
-	"$($_.Exception.Message)"; `
-	$LogOut = "$($_.Exception.Message)"
+	"Exception Encountered"; `
+	$ErrorMessage = $_.Exception.Message
+	$LogOut  = 'Error '+$ErrorMessage
 	Log-Command -Description $LogOut -LogFile $LogOutFile
 	break
 	}
@@ -1665,8 +1699,9 @@ param(
 	Catch
 	{
 	Write-Host -foregroundcolor Yellow `
-	"$($_.Exception.Message)"; `
-	$LogOut = "$($_.Exception.Message)"
+	"Exception Encountered"; `
+	$ErrorMessage = $_.Exception.Message
+	$LogOut  = 'Error '+$ErrorMessage
 	Log-Command -Description $LogOut -LogFile $LogOutFile
 	break
 	}
@@ -2267,8 +2302,9 @@ param(
 	Catch
 	{
 	Write-Host -foregroundcolor Yellow `
-	"$($_.Exception.Message)"; `
-	$LogOut = "$($_.Exception.Message)"
+	"Exception Encountered"; `
+	$ErrorMessage = $_.Exception.Message
+	$LogOut  = 'Error '+$ErrorMessage
 	Log-Command -Description $LogOut -LogFile $LogOutFile
 	break
 	}
@@ -2377,7 +2413,7 @@ Write-Host "Geo Location: $Location"
 Write-Host "VNET Name: $vNetName"
 Write-Host "VNET Resource Group Name: $vnetrg"
 Write-Host "Address Range:  $AddRange"
-if($NSGEnabled -or $BatchAddNSG -eq 'True')
+if($CreateNSG -or $BatchAddNSG -eq 'True')
 {
 Write-Host "NSG Name: $NSGName"
 }
@@ -2456,7 +2492,7 @@ Write-Host "                                                               "
 Write-Host "Storage Accounts for $rg" -NoNewLine
 Get-AzurermStorageAccount -ResourceGroupName $rg -WarningAction SilentlyContinue | ft StorageAccountName,Location,ResourceGroupname -Wrap
 
-if($AddAvailabilitySet){
+if($AddAvailabilitySet -or $BatchAddAvset -eq 'True'){
 Write-Host "Availability Sets for $rg"
 Get-AzurermAvailabilitySet -ResourceGroupName $rg -WarningAction SilentlyContinue | ft Name,ResourceGroupName -Wrap
 }
@@ -2518,7 +2554,7 @@ Function Create-VM {
 	[string]
 	$rg = $rg,
 	[switch]
-	$NSGEnabled = $NSGEnabled,
+	$CreateNSG = $CreateNSG,
 	[string]
 	$NSGName = $NSGName,
 	[string]
@@ -3121,20 +3157,20 @@ Function Configure-DSC {
 param(
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
- [ValidateSet("WIN_MSUpdate","WIN_IIS")]
+ [ValidateSet("WIN_MSUpdate","WIN_IIS","SharePoint2013_CU")]
  [string]
- $DSCConfig = 'WIN_MSUpdate',
+ $DSCConfig = 'SharePoint2013_CU',
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
- $ConfigurationName = "MuSecurityImportant",
+ $ConfigurationName = "SharePoint2013_CU",
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
- $ArchiveBlobName = "WindowsUpdate.ps1.zip",
+ $ArchiveBlobName = "SharePoint2013_CU.ps1.zip",
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
- $ConfigurationPath = $dscdir + '\WindowsUpdate.ps1',
+ $ConfigurationPath = $dscdir + '\SharePoint2013_CU.ps1',
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
@@ -3153,6 +3189,12 @@ param(
 		Set-AzureRmVMDscExtension -ResourceGroupName $rg -VMName $VMName -ArchiveBlobName $IISArchiveBlobName -ArchiveStorageAccountName $storageAccountName -ConfigurationName $IISConfigurationName -Version 2.19
 }
 		"*WIN_MSUpdate*" {
+		Publish-AzureRmVMDscConfiguration -ResourceGroupName $rg -ConfigurationPath $ConfigurationPath -StorageAccountName $storageAccountName -Force
+		Set-AzureRmVMDscExtension -ResourceGroupName $rg -VMName $VMName -ArchiveBlobName $ArchiveBlobName -ArchiveStorageAccountName $storageAccountName -ConfigurationName $ConfigurationName -Version 2.19
+		$LogOut = "Added VM DSC to Storage Account $storageAccountName from file $ConfigurationPath"
+		Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+		"*SharePoint2013_CU*" {
 		Publish-AzureRmVMDscConfiguration -ResourceGroupName $rg -ConfigurationPath $ConfigurationPath -StorageAccountName $storageAccountName -Force
 		Set-AzureRmVMDscExtension -ResourceGroupName $rg -VMName $VMName -ArchiveBlobName $ArchiveBlobName -ArchiveStorageAccountName $storageAccountName -ConfigurationName $ConfigurationName -Version 2.19
 		$LogOut = "Added VM DSC to Storage Account $storageAccountName from file $ConfigurationPath"
@@ -3187,21 +3229,21 @@ Function Upload-CustomScript {
 	$rg = $rg,
 	$localFolder = $localFolder
 	)
-$Keys = Get-AzureRmStorageAccountKey -ResourceGroupName $rg -Name $StorageName;
-$StorageContext = New-AzureStorageContext -StorageAccountName $StorageName -StorageAccountKey $Keys[0].Value;
-New-AzureStorageContainer -Context $StorageContext -Name $containerName;
-$storageAccountKey = Get-AzureRmStorageAccountKey -ResourceGroupName $rg -Name $StorageName;
-$blobContext = New-AzureStorageContext -StorageAccountName $StorageName -StorageAccountKey $Keys[0].Value;
-$files = Get-ChildItem $localFolder
-foreach($file in $files)
-{
-  $fileName = "$localFolder\$file"
-  $blobName = "$file"
-  write-host "copying $fileName to $blobName"
-  Set-AzureStorageBlobContent -File $filename -Container $containerName -Blob $blobName -Context $blobContext -Force -BlobType Append -WarningAction SilentlyContinue | Out-Null
-  Get-AzureStorageBlob -Container $containerName -Context $blobContext -Blob $blobName -WarningAction SilentlyContinue | Out-Null
-}
-write-host "All files in $localFolder uploaded to $containerName!"
+		$Keys = Get-AzureRmStorageAccountKey -ResourceGroupName $rg -Name $StorageName;
+		$StorageContext = New-AzureStorageContext -StorageAccountName $StorageName -StorageAccountKey $Keys[0].Value;
+		New-AzureStorageContainer -Context $StorageContext -Name $containerName;
+		$storageAccountKey = Get-AzureRmStorageAccountKey -ResourceGroupName $rg -Name $StorageName;
+		$blobContext = New-AzureStorageContext -StorageAccountName $StorageName -StorageAccountKey $Keys[0].Value;
+		$files = Get-ChildItem $localFolder
+		foreach($file in $files)
+		{
+		  $fileName = "$localFolder\$file"
+		  $blobName = "$file"
+		  write-host "copying $fileName to $blobName"
+		  Set-AzureStorageBlobContent -File $filename -Container $containerName -Blob $blobName -Context $blobContext -Force -BlobType Append -WarningAction SilentlyContinue | Out-Null
+		  Get-AzureStorageBlob -Container $containerName -Context $blobContext -Blob $blobName -WarningAction SilentlyContinue | Out-Null
+		}
+		write-host "All files in $localFolder uploaded to $containerName!"
 }
 #endregion
 
@@ -3218,68 +3260,68 @@ Function UnInstall-Ext {
 switch ($AzExtConfig)
 	{
 		"access" {
-Write-Host "VM Access Agent VM Image Removal in Process"
-Remove-AzureRmVMAccessExtension -ResourceGroupName $rg -VMName $VMName -Name "VMAccess" -Force -Confirm:$false
+				Write-Host "VM Access Agent VM Image Removal in Process"
+				Remove-AzureRmVMAccessExtension -ResourceGroupName $rg -VMName $VMName -Name "VMAccess" -Force -Confirm:$false
 exit
 }
 		"msav" {
-Write-Host "MSAV Agent VM Image Removal in Process"
-Remove-AzureRmVMExtension -Name "MSAVExtension" -ResourceGroupName $rg -VMName $VMName -Force -Confirm:$false
+				Write-Host "MSAV Agent VM Image Removal in Process"
+				Remove-AzureRmVMExtension -Name "MSAVExtension" -ResourceGroupName $rg -VMName $VMName -Force -Confirm:$false
 exit
 		}
 		"customscript" {
-Write-Host "Removing custom script"
+				Write-Host "Removing custom script"
 			exit
 		}
 		"diag" {
-Write-Host "Removing Azure Enhanced Diagnostics"
-Remove-AzureRmVMAEMExtension -ResourceGroupName $rg -VMName $VMName
+				Write-Host "Removing Azure Enhanced Diagnostics"
+				Remove-AzureRmVMAEMExtension -ResourceGroupName $rg -VMName $VMName
 			exit
 		}
 		"domjoin" {
-Write-Host "Removing Domain Join"
+				Write-Host "Removing Domain Join"
 		}
 		"linuxOsPatch" {
-Write-Host "Removing Azure OS Patching Linux"
+				Write-Host "Removing Azure OS Patching Linux"
 			exit
 				}
 		"linuxbackup" {
-Write-Host "Removing Linux VMBackup"
-Remove-AzureRmVMBackup -ResourceGroupName $rg -VMName $VMName -Tag 'OSBackup'
+				Write-Host "Removing Linux VMBackup"
+				Remove-AzureRmVMBackup -ResourceGroupName $rg -VMName $VMName -Tag 'OSBackup'
 			exit
 				}
 		"chefAgent" {
-Write-Host "Removing Chef Agent"
+				Write-Host "Removing Chef Agent"
 			exit
 				}
 		"opsinsightLinux" {
-Write-Host "Removing Linux Insight Agent"
+				Write-Host "Removing Linux Insight Agent"
 			exit
 				}
 		"opsinsightWin" {
-Write-Host "Removing Windows Insight Agent"
+				Write-Host "Removing Windows Insight Agent"
 			exit
 				}
 		"ESET" {
-Write-Host "Removing File Security"
+				Write-Host "Removing File Security"
 			exit
 				}
 		"RegisterAzDSC" {
-Write-Host "Removing Azure Automation DSC"
+				Write-Host "Removing Azure Automation DSC"
 			exit
 				}
 		"WinPuppet" {
-Write-Host "Removing Puppet Extension"
+				Write-Host "Removing Puppet Extension"
 			exit
 				}
 		"PushDSC" {
-Write-Host "Removing DSC Extension"
-Remove-DscExt
+				Write-Host "Removing DSC Extension"
+				Remove-DscExt
 			exit
 				}
 		"Bginfo" {
-Write-Host "Removing BgInfo Extension"
-Remove-AzureVMBGInfoExtension -VM $VMName
+				Write-Host "Removing BgInfo Extension"
+				Remove-AzureVMBGInfoExtension -VM $VMName
 			exit
 				}
 		default{"An unsupported uninstall Extension command was used"}
@@ -3746,15 +3788,15 @@ Function Action-Type {
 						Create-Vnet
 					} # Creates VNET
 
-					if($NSGEnabled -or $BatchAddNSG -eq 'True')
+					if($CreateNSG -or $BatchAddNSG -eq 'True')
 					{
 						Create-NSG
 					} # Creates NSG and Security Groups
 					Check-Vnet
 					Create-VM # Configure Image
-					if($NSGEnabled -or $BatchAddNSG -eq 'True')
+					if($AddNSG -or $BatchUpdateNSG -eq 'True')
 					{
-						Configure-NSGEnabled
+						Configure-CreateNSG
 					} #Adds NSG to NIC
 
 					if($AddExtension -or $BatchAddExtension -eq 'True')
@@ -3774,10 +3816,10 @@ Function Action-Type {
 					Install-Ext
 					exit
 	}
-				if($AddNSG -or $BatchAddNSG -eq 'True')
+				if($AddNSG -or $BatchUpdateNSG -eq 'True')
 					{
 					Check-NSGName
-					Configure-NSGEnabled
+					Configure-CreateNSG
 					}
 	}
 			"remove" {
@@ -3792,19 +3834,15 @@ Function Action-Type {
 						 UnInstall-Ext
 					 }
 	}
-			"info" {
-						Check-getinfo
-						 Get-Azinfo
-	}
-
 			default{"An unsupported uninstall Extension command was used"}
 		}
 	}
 	Catch
 	{
 	Write-Host -foregroundcolor Yellow `
-	"$($_.Exception.Message)"; `
-	$LogOut = "$($_.Exception.Message)"
+	"Exception Encountered"; `
+	$ErrorMessage = $_.Exception.Message
+	$LogOut  = 'Error '+$ErrorMessage
 	Log-Command -Description $LogOut -LogFile $LogOutFile
 	break
 	}
@@ -3822,7 +3860,7 @@ if(Get-Module -ListAvailable |
 		select version -ExpandProperty version
 		Write-Host "current Azure PowerShell Version:" $ver
 	$currentver = $ver
-		if($currentver-le '2.0.0'){
+		if($currentver-le '3.0.0'){
 		Write-Host "expected version 2.0.1 found $ver" -ForegroundColor DarkRed
 		exit
 			}
