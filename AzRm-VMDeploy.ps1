@@ -365,13 +365,13 @@ $NSGName = '',
 [ValidateRange(1,8)]
 [Alias("sub1")]
 [Int]
-$Subnet1 = $script:Subnet1,
+$Subnet1 = 5,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateRange(1,8)]
 [ValidateNotNullorEmpty()]
 [Alias("sub2")]
 [int]
-$Subnet2 = $script:Subnet2,
+$Subnet2 = 6,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateSet("True","False")]
 [Alias("avset")]
@@ -3860,8 +3860,8 @@ if(Get-Module -ListAvailable |
 		select version -ExpandProperty version
 		Write-Host "current Azure PowerShell Version:" $ver
 	$currentver = $ver
-		if($currentver-le '3.0.0'){
-		Write-Host "expected version 2.0.1 found $ver" -ForegroundColor DarkRed
+		if($currentver-le '2.0.0'){
+		Write-Host "expected version 3.0.0 found $ver" -ForegroundColor DarkRed
 		exit
 			}
 }
