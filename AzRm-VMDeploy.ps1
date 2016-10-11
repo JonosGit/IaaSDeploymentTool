@@ -2,13 +2,14 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 7.0
+Ver 7.1
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerous Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
 The script supports deploying Availability Sets as well as adding new servers to existing Availability Sets through the -AvailabilitySet and -AvailSetName switches.
 The script supports deploying Azure Extensions through the -AddExtensions switch.
 The script will create three directories if they do not exist in the runtime directory, Log, Scripts, DSC.
 
+v7.1 updates - RTM Windows 2016 Support
 v7.0 updates - Updates for Azure PowerShell 3.0
 v6.9 updates - Exception Handling generates to log file
 v6.8 updates - Added Core parameters for -Action-Type Update, Create and Remove
@@ -196,7 +197,8 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 
 			Windows 2012 R2 – w2k12
 			Windows 2008 R2 – w2k8
-			Windows 2016 – w2k16
+			Windows Ent 2016 – w2k16
+			Windows Nano 2016 – nano-w2k16
 			SharePoint 2016 - Share2016
 			SharePoint 2013 - share2013
 			Biztalk 2013 Ent - biztalk2013
@@ -272,7 +274,7 @@ Param(
 $ActionType = 'create',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=2)]
 [ValidateNotNullorEmpty()]
-[ValidateSet("w2k12","w2k8","w2k16","sql2016","biztalk2013","tfs","biztalk2016","vs2015","dev15","incredibuild","msnav2016","red67","red72","suse","free","ubuntu","centos","chef","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","horton-dp","serverr","horton-hdp","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack","hadoop","neos","tomcat","redis","gitlab","jruby","tableau","cloudera","datastax","O365-suite","ads-linuxdatascience","ads-datascience","cloud-conn")]
+[ValidateSet("w2k12","w2k8","w2k16","nano-w2k16","sql2016","biztalk2013","tfs","biztalk2016","vs2015","dev15","incredibuild","puppet","msnav2016","red67","red72","suse","free","ubuntu","centos","chef","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","horton-dp","serverr","horton-hdp","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack","hadoop","neos","tomcat","redis","gitlab","jruby","tableau","cloudera","datastax","O365-suite","ads-linuxdatascience","ads-datascience","cloud-conn")]
 [Alias("image")]
 [string]
 $vmMarketImage = 'w2k12',
@@ -1468,19 +1470,18 @@ param(
 Function MakeImagePlanInfo_puppet_puppetent {
 param(
 	[string]$VMName = $VMName,
-	[string]$Publisher = 'Puppet',
-	[string]$offer = 'Puppet-Enterprise',
+	[string]$Publisher = 'puppet',
+	[string]$offer = 'puppet-Enterprise',
 	[string]$Skus = '2016-1',
 	[string]$version = 'latest',
 	[string]$Product = '2016-1',
-	[string]$name = 'Puppet-Enterprise'
-)
-Write-Host "Image Creation in Process - Plan Info - Puppet Enterprise" -ForegroundColor White
-Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+	[string]$name = 'puppet-Enterprise'
+	)
+Write-Host "Image Creation in Process - Plan Info - puppet | 2016-1"
+$script:VirtualMachine = Set-AzureRmVMPlan -VM $VirtualMachine -Name 2016-1 -Publisher puppet -Product puppet-enterprise
 $script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
-$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
-$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName puppet -Offer puppet-enterprise -Skus 2016-1 -Version latest
+$LogOut = "Completed image prep Publisher:$Publisher Offer:$offer Sku:$Skus Version:$version"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
@@ -2040,10 +2041,25 @@ param(
 	[string]$VMName = $VMName,
 	[string]$Publisher = "MicrosoftWindowsServer",
 	[string]$offer = "WindowsServer",
-	[string]$Skus = "Windows-Server-Technical-Preview",
+	[string]$Skus = "2016-Datacenter",
 	[string]$version = "latest"
 )
 Write-Host "Image Creation in Process - No Plan Info - W2k16 server" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -Windows -ComputerName $VMName -Credential $Credential1 -ProvisionVMAgent -EnableAutoUpdate -WinRMHttp -Verbose
+$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+Function MakeImageNoPlanInfo_w2k16Nano {
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = "MicrosoftWindowsServer",
+	[string]$offer = "WindowsServer",
+	[string]$Skus = "2016-Nano-Server",
+	[string]$version = "latest"
+)
+Write-Host "Image Creation in Process - No Plan Info - W2k16 Nano server" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
 $script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -Windows -ComputerName $VMName -Credential $Credential1 -ProvisionVMAgent -EnableAutoUpdate -WinRMHttp -Verbose
 $script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
@@ -2722,6 +2738,16 @@ Function Create-VM {
 			Create-AvailabilitySet
 			Configure-Nics  #Sets network connection info
 			MakeImageNoPlanInfo_w2k16  # Begins Image Creation
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
+}
+		"*nano-w2k16*" {
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
+			MakeImageNoPlanInfo_w2k16Nano  # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
 			Provision-Vm
