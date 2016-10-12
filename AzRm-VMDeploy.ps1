@@ -2,13 +2,14 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 7.1
+Ver 7.2
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerous Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
 The script supports deploying Availability Sets as well as adding new servers to existing Availability Sets through the -AvailabilitySet and -AvailSetName switches.
 The script supports deploying Azure Extensions through the -AddExtensions switch.
 The script will create three directories if they do not exist in the runtime directory, Log, Scripts, DSC.
 
+v7.2 updates - added support for Cisco, Citrix, Nessus and Debian
 v7.1 updates - RTM Windows 2016 Support
 v7.0 updates - Updates for Azure PowerShell 3.0
 v6.9 updates - Exception Handling generates to log file
@@ -24,8 +25,10 @@ v6.0 updates - Added Remove Functions to script, added subnet correction validat
 v5.9 updates - Moved -add parameters to [switch]
 
 .DESCRIPTION
-Deploys 45 different Market Images on a new or existing VNET. Supports post deployment configuration through Azure Extensions.
+Deploys 55 different Market Images on a new or existing VNET. Supports post deployment configuration through Azure Extensions.
 Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windows 2012 R2, Ubuntu 14.04, CentOs 7.2, SUSE, SQL 2016 (on W2K12R2), R Server on Windows, Windows 2016 (Preview), Checkpoint Firewall, FreeBsd, Puppet, Splunk, Bitnami Lamp, Bitnami PostGresSql, Bitnami nodejs, Bitnami Elastics, Bitnami MySql, SharePoint 2013/2016, Barracuda NG, Barracuda SPAM, F5 BigIP, F5 App Firewall, Bitnami JRuby, Bitnami Neos, Bitnami TomCat, Bitnami redis, Bitnami hadoop, Incredibuild, VS 2015, Dev15 Preview, Tableau, MS NAV, TFS, Ads Data Science Server, Biztalk 2013/2016, HortonWorks, Cloudera, DataStax
+
+.PARAMETER ActionType
 
 .PARAMETER vmMarketImage
 
@@ -161,10 +164,6 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 
 .PARAMETER localfolder
 
-.PARAMETER infoset
-
-.PARAMETER getinfo
-
 .PARAMETER csvimport
 
 .PARAMETER csvfile
@@ -211,7 +210,8 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 			Free BSD – free
 			Suse – suse
 			CentOs 7.2 – centos
-			Ubuntu 14.04 – ubuntu
+			Ubuntu 14.04 – ubuntu-14
+			Ubuntu Server 15 – ubuntu-15
 			Redhat 6.7 – Red67
 			Redhat 7.2 – Red72
 			CheckPoint AppFirewall – check
@@ -245,6 +245,12 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 			Cloud-connector - cloud-conn
 			Tableau Desktop - tableau
 			metavistech O365 Suite - O365-suite
+			Splunk - splunk
+			Tenable Nessus BYOL - Nessus
+			Debian 8 - debian
+			Cloudbee Jenkins Ops Center - jenk-opcenter
+			Cisco waas 750 - cisco750
+			Citrix Netscaler - netscaler
 
 -AzExtConfig <Extension Type>
 			access – Adds Azure Access Extension – Added by default during VM creation
@@ -274,7 +280,7 @@ Param(
 $ActionType = 'create',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=2)]
 [ValidateNotNullorEmpty()]
-[ValidateSet("w2k12","w2k8","w2k16","nano-w2k16","sql2016","biztalk2013","tfs","biztalk2016","vs2015","dev15","incredibuild","puppet","msnav2016","red67","red72","suse","free","ubuntu","centos","chef","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","horton-dp","serverr","horton-hdp","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack","hadoop","neos","tomcat","redis","gitlab","jruby","tableau","cloudera","datastax","O365-suite","ads-linuxdatascience","ads-datascience","cloud-conn")]
+[ValidateSet("w2k12","w2k8","w2k16","nano-w2k16","sql2016","biztalk2013","tfs","biztalk2016","vs2015","dev15","jenk-opcenter","incredibuild","debian","puppet","msnav2016","red67","red72","suse","free","ubuntu","centos","chef","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","horton-dp","serverr","horton-hdp","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack","hadoop","neos","tomcat","redis","gitlab","jruby","tableau","cloudera","datastax","O365-suite","ads-linuxdatascience","ads-datascience","cloud-conn","cisco750")]
 [Alias("image")]
 [string]
 $vmMarketImage = 'w2k12',
@@ -522,13 +528,6 @@ $scriptfolder = $workfolder,
 [string]
 $localfolder = "$scriptfolder\scripts",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[ValidateSet("network","vm","summary","storage")]
-[string]
-$infoset = 'network',
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[switch]
-$getinfo,
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [switch]
 $csvimport,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
@@ -566,47 +565,27 @@ $fileexist = Test-Path $ProfileFile -NewerThan $comparedate
 }
 #endregion
 
-Function WriteLog-Command([string]$Description, [ScriptBlock]$Command, [string]$LogFile, [string]$VMName ){
-Try{
-$Output = $Description+'  ... '
-Write-Host $Output -ForegroundColor Blue
-((Get-Date -UFormat "[%d-%m-%Y %H:%M:%S] ") + $Output) | Out-File -FilePath $LogFile -Append –Confirm:$false -Force
-$Result = Invoke-Command -ScriptBlock $Command
-}
-Catch {
-$ErrorMessage = $_.Exception.Message
-$Output = 'Error '+$ErrorMessage
-((Get-Date -UFormat "[%d-%m-%Y %H:%M:%S] ") + $Output) | Out-File -FilePath $LogFile -Append –Confirm:$false -Force
-$Result = ""
-}
-Finally
-{
-if ($ErrorMessage -eq $null) {$Output = "[Completed]  $Description  ... "} else {$Output = "[Failed]  $Description  ... "}
-((Get-Date -UFormat "[%d-%m-%Y %H:%M:%S] ") + $Output) | Out-File -FilePath $LogFile -Append –Confirm:$false -Force
-}
-Return $Result
-}
-
 #region User Help
 Function Help-User {
 Write-Host "Don't know where to start? Here are some examples:"
 Write-Host "                                                       "
 Write-Host "Deploy PFSense"
-Write-Host "azurerm_deploy.ps1 -vm pf001 -image pfsense -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -ConfigIPs DualPvtNoPub -Nic1 10.120.2.7 -Nic2 10.120.3.7"
+Write-Host "azurerm_vmdeploy.ps1 -ActionType Create -vm pf001 -image pfsense -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -ConfigIPs DualPvtNoPub -Nic1 10.120.2.7 -Nic2 10.120.3.7"
 Write-Host "Deploy RedHat"
-Write-Host "azurerm_deploy.ps1 -vm red76 -image red67 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -ConfigIPs SinglePvtNoPub -Nic1 10.120.6.124 -Ext linuxbackup"
+Write-Host "azurerm_vmdeploy.ps1 -ActionType Create -vm red76 -image red67 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -ConfigIPs SinglePvtNoPub -Nic1 10.120.6.124 -Ext linuxbackup"
 Write-Host "Deploy Windows 2012"
-Write-Host "azurerm_deploy.ps1 -vm win006 -image w2k12 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -ConfigIPs Single -AvSet -CreateNSG -NSGName NSG"
+Write-Host "azurerm_vmdeploy.ps1  -ActionType Create -vm win006 -image w2k12 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -ConfigIPs Single -AvSet -CreateNSG -NSGName NSG"
 Write-Host "Deploy Windows 2016"
-Write-Host "azurerm_deploy.ps1 -vm win008 -image w2k16 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -ConfigIPs PvtSingleStat -Nic1 10.120.4.169"
+Write-Host "azurerm_vmdeploy.ps1 -ActionType Create -vm win008 -image w2k16 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -ConfigIPs PvtSingleStat -Nic1 10.120.4.169"
 Write-Host "Deploy Ubuntu"
-Write-Host "azurerm_deploy.ps1 -vm ubu001 -image ubuntu -RG ResGroup1 -vnetrg ResGroup2 -VNet VNET -ConfigIPs PvtSingleStat -Nic1 10.120.5.169 -AddFQDN fqdn mydns2"
+Write-Host "azurerm_vmdeploy.ps1 -ActionType Create -vm ubu001 -image ubuntu -RG ResGroup1 -vnetrg ResGroup2 -VNet VNET -ConfigIPs PvtSingleStat -Nic1 10.120.5.169 -AddFQDN fqdn mydns2"
 Write-Host "Remove VM:"
-Write-Host "azurerm_deploy.ps1 -vm ubu001 -RG ResGroup1 -RemoveObject VM"
+Write-Host "azurerm_vmdeploy.ps1 -ActionType Remove -vm ubu001 -RG ResGroup1 -RemoveObject VM"
 Write-Host "Remove RG:"
-Write-Host "azurerm_deploy.ps1 -RG ResGroup1 -RemoveObject rg"
+Write-Host "azurerm_vmdeploy.ps1 -ActionType Remove -RG ResGroup1 -RemoveObject rg"
 Write-Host "                                                       "
 Write-Host "Required command switches"
+Write-Host "              -actiontype - type of action to perform"
 Write-Host "              -vmname - Name of VM to create"
 Write-Host "              -configips - configures network interfaces"
 Write-Host "              -VMMarketImage - Image type to deploy"
@@ -756,42 +735,57 @@ Write-Host "Please Enter Resource Group Name"
 exit
 }
 	elseif(!$VMName) {
-	Write-Host "Please Enter vmName"
+	Write-Host "Please Enter -vmName"
 	exit
 	}
 				elseif(!$Location) {
-				Write-Host "Please Enter Location"
+				Write-Host "Please Enter -Location"
 				exit
 				}
 }
 
+function Check-RemoveAction {
+if($ActionType -eq 'Remove' -and !$RemoveObject -and !$RemoveExtension)
+	 {
+		 Write-Host "Please enter object -RemoveObject or extension -RemoveExtension to remove"
+		exit
+		 }
+ }
+
+function Check-RemoveObject {
+if($RemoveObject -and !$rg) {
+	Write-Host "Please Enter -rg RG Name"
+	exit
+	}
+}
+
 function Check-ExtensionUnInstall {
 if($RemoveExtension -and !$rg) {
-	Write-Host "Please Enter RG Name"
+	Write-Host "Please Enter -rg RG Name"
 	exit
 	}
 	elseif($RemoveExtension -and !$VMName) {
-	Write-Host "Please Enter VM Name"
+	Write-Host "Please Enter -vmname VM Name"
 	exit
 	}
 }
 
 function Check-AvailabilitySet {
 if($AddAvailabilitySet -and !$AvailSetName) {
-Write-Host "Please Enter AvailabilitySet Name"
+Write-Host "Please Enter AvailabilitySet Name -availset"
 exit
  }
 }
 function Check-FQDN {
 if($AddFQDN -and !$DNLabel) {
-Write-Host "Please Enter Public FQDN"
+Write-Host "Please Enter Public FQDN -fqdn"
 exit
  }
 }
 
 function Check-NSGName {
 if($CreateNSG -and !$NSGName) {
-Write-Host "Please Enter NSG Name"
+Write-Host "Please Enter NSG Name -nsgname"
 exit
  }
 }
@@ -1553,34 +1547,23 @@ $LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Sku
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
-Function MakeImagePlanInfo_cloudera {
+Function MakeImagePlanInfo_cloudera
+{
 param(
 	[string]$VMName = $VMName,
 	[string]$Publisher = 'cloudera',
-	[string]$offer = 'cloudera-centos-os',
+	[string]$Offer = 'cloudera-centos-os',
 	[string]$Skus = '7_2',
-	[string]$version = 'latest',
+	[string]$version =  'latest',
 	[string]$Product = 'cloudera-centos-os',
 	[string]$name = '7_2'
 )
-	Try
-	{
-		Write-Host "Image Creation in Process - Plan Info - cloudera" -ForegroundColor White
-		Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-		$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
-		$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
-		$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
-		$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
-		Log-Command -Description $LogOut -LogFile $LogOutFile
-	}
-	Catch
-	{
-	Write-Host -foregroundcolor Yellow `
-	"$($_.Exception.Message)"; `
-	$LogOut = "$($_.Exception.Message)"
-	Log-Command -Description $LogOut -LogFile $LogOutFile
-	break
-	}
+Write-Host "Image Creation in Process - Plan Info - cloudera | 7_2"
+$script:VirtualMachine = Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep Publisher: cloudera Offer:cloudera-centos-os Sku:7_2 Version:latest"
+Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
 Function MakeImagePlanInfo_datastax {
@@ -1602,6 +1585,62 @@ $LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Sku
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
+Function makeimage_withinfo_cl-je-jenkins-operations-center
+{
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'cloudbees',
+	[string]$Offer = 'jenkins-operations-center',
+	[string]$Skus = 'jenkins-operations-center',
+	[string]$version =  'latest',
+	[string]$Product = 'jenkins-operations-center',
+	[string]$name = 'jenkins-operations-center'
+)
+Write-Host "Image Creation in Process - Plan Info - cloudbees | jenkins-operations-center"
+$script:VirtualMachine = Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep Publisher: cloudbees Offer:jenkins-operations-center Sku:jenkins-operations-center Version:latest"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function makeimage_withinfo_ci-ne-netscalervpx
+{
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'citrix',
+	[string]$Offer = 'netscaler-vpx',
+	[string]$Skus = 'netscalervpx',
+	[string]$version =  'latest',
+	[string]$Product = 'netscaler-vpx',
+	[string]$name = 'netscalervpx'
+)
+Write-Host "Image Creation in Process - Plan Info - citrix | netscalervpx"
+$script:VirtualMachine = Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep Publisher: citrix Offer:netscaler-vpx Sku:netscalervpx Version:latest"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function makeimage_withinfo_ci-vw-vwaas-azure-750
+{
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'cisco',
+	[string]$Offer = 'vwaas-azure',
+	[string]$Skus = 'vwaas-azure-750',
+	[string]$version =  'latest',
+	[string]$Product = 'vwaas-azure',
+	[string]$name = 'vwaas-azure-750'
+)
+Write-Host "Image Creation in Process - Plan Info - cisco | vwaas-azure-750"
+$script:VirtualMachine = Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep Publisher: cisco Offer:vwaas-azure Sku:vwaas-azure-750 Version:latest"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
 Function MakeImagePlanInfo_cloudconnector {
 param(
 	[string]$VMName = $VMName,
@@ -1618,6 +1657,63 @@ $script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publi
 $script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
 $script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
 $LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function makeimage_withinfo_ch-ch-azure_marketplace_100
+{
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'chef-software',
+	[string]$Offer = 'chef-compliance',
+	[string]$Skus = 'azure_marketplace_100',
+	[string]$version =  'latest',
+	[string]$Product = 'chef-compliance',
+	[string]$name = 'azure_marketplace_100'
+)
+Write-Host "Image Creation in Process - Plan Info - chef-software | azure_marketplace_100"
+$script:VirtualMachine = Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep Publisher: chef-software Offer:chef-compliance Sku:azure_marketplace_100 Version:latest"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function makeimage_withinfo_Ca-Ub-15.10
+{
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'Canonical',
+	[string]$Offer = 'UbuntuServer',
+	[string]$Skus = '15.10',
+	[string]$version =  'latest',
+	[string]$Product = 'UbuntuServer',
+	[string]$name = '15.10'
+)
+Write-Host "Image Creation in Process - Plan Info - Canonical | 15.10"
+$script:VirtualMachine = Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep Publisher: Canonical Offer:UbuntuServer Sku:15.10 Version:latest"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function makeimage_withinfo_te-te-serv-nes-byol-azure
+{
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'tenable',
+	[string]$Offer = 'tenable-nessus-byol',
+	[string]$Skus = 'serv-nes-byol-azure',
+	[string]$version =  'latest',
+	[string]$Product = 'tenable-nessus-byol',
+	[string]$name = 'serv-nes-byol-azure'
+)
+Write-Host "Image Creation in Process - Plan Info - tenable | serv-nes-byol-azure"
+$script:VirtualMachine = Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep Publisher: tenable Offer:tenable-nessus-byol Sku:serv-nes-byol-azure Version:latest"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
@@ -1657,6 +1753,24 @@ $script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -Publisher
 $LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
+Function makeimage_withinfo_cr-De-8
+{
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'credativ',
+	[string]$Offer = 'Debian',
+	[string]$Skus = '8',
+	[string]$version =  'latest',
+	[string]$Product = 'Debian',
+	[string]$name = '8'
+)
+Write-Host "Image Creation in Process - Plan Info - credativ | 8"
+$script:VirtualMachine = Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep Publisher: credativ Offer:Debian Sku:8 Version:latest"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
 
 Function MakeImagePlanInfo_f5_bigip_good_byol {
 param(
@@ -1677,35 +1791,23 @@ $LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Sku
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
-Function MakeImagePlanInfo_f5_webappfire_byol {
+Function MakeImagePlanInfo_f5_webappfire_byol
+{
 param(
 	[string]$VMName = $VMName,
-	[string]$Publisher = 'F5-networks',
-	[string]$offer = 'f5-web-application-firewall',
+	[string]$Publisher = 'f5-networks',
+	[string]$Offer = 'f5-web-application-firewall',
 	[string]$Skus = 'f5-waf-solution-byol',
-	[string]$version = 'latest',
+	[string]$version =  'latest',
 	[string]$Product = 'f5-web-application-firewall',
 	[string]$name = 'f5-waf-solution-byol'
 )
-	Try
-	{
-		Write-Host "Image Creation in Process - Plan Info - F5 WebApp Firewall- BYOL" -ForegroundColor White
-		Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-		$script:VirtualMachine= Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
-		$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
-		$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
-		$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
-		Log-Command -Description $LogOut -LogFile $LogOutFile
-	}
-	Catch
-	{
-	Write-Host -foregroundcolor Yellow `
-	"Exception Encountered"; `
-	$ErrorMessage = $_.Exception.Message
-	$LogOut  = 'Error '+$ErrorMessage
-	Log-Command -Description $LogOut -LogFile $LogOutFile
-	break
-	}
+Write-Host "Image Creation in Process - Plan Info - f5-networks | f5-waf-solution-byol"
+$script:VirtualMachine = Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep Publisher: f5-networks Offer:f5-web-application-firewall Sku:f5-waf-solution-byol Version:latest"
+Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
 Function MakeImagePlanInfo_Pfsense {
@@ -2033,6 +2135,24 @@ Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
 $script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -Windows -ComputerName $VMName -Credential $Credential1 -ProvisionVMAgent -EnableAutoUpdate -WinRMHttp -Verbose
 $script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
 $LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+Function makeimage_withinfo_sp-sp-splunk-on-ubuntu-14-04-lts
+{
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'splunk',
+	[string]$Offer = 'splunk-enterprise-base-image',
+	[string]$Skus = 'splunk-on-ubuntu-14-04-lts',
+	[string]$version =  'latest',
+	[string]$Product = 'splunk-enterprise-base-image',
+	[string]$name = 'splunk-on-ubuntu-14-04-lts'
+)
+Write-Host "Image Creation in Process - Plan Info - splunk | splunk-on-ubuntu-14-04-lts"
+$script:VirtualMachine = Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep Publisher: splunk Offer:splunk-enterprise-base-image Sku:splunk-on-ubuntu-14-04-lts Version:latest"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
@@ -3003,12 +3123,52 @@ Function Create-VM {
 			Configure-Image # Completes Image Creation
 			Provision-Vm
 }
-		"*ubuntu*" {
+		"*ubuntu-14*" {
 			Write-ConfigVM
 			Create-Storage
 			Create-AvailabilitySet
 			Configure-Nics  #Sets network connection info
 			MakeImageNoPlanInfo_Ubuntu # Begins Image Creation
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
+}
+		"*ubuntu-15*" {
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
+			makeimage_withinfo_Ca-Ub-15.10 # Begins Image Creation
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
+}
+		"*nessus*" {
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
+			makeimage_withinfo_te-te-serv-nes-byol-azure0 # Begins Image Creation
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
+}
+		"*netscaler*" {
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
+			makeimage_withinfo_ci-ne-netscalervpx # Begins Image Creation
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
+}
+		"*debian*" {
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
+			makeimage_withinfo_cr-De-8 # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
 			Provision-Vm
@@ -3103,6 +3263,16 @@ Function Create-VM {
 			Configure-Image # Completes Image Creation
 			Provision-Vm
 }
+		"*splunk*" {
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
+			makeimage_withinfo_sp-sp-splunk-on-ubuntu-14-04-lts # Begins Image Creation
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
+}
 		"*redis*" {
 			Write-ConfigVM
 			Create-Storage
@@ -3119,6 +3289,26 @@ Function Create-VM {
 			Create-AvailabilitySet
 			Configure-Nics  #Sets network connection info
 			MakeImagePlanInfo_Bitnami_neos # Begins Image Creation
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
+}
+		"*cisco750*" {
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
+			makeimage_withinfo_ci-vw-vwaas-azure-750 # Begins Image Creation
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
+}
+		"*jenk-opcenter" {
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
+			makeimage_withinfo_cl-je-jenkins-operations-center # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
 			Provision-Vm
@@ -3288,36 +3478,53 @@ switch ($AzExtConfig)
 		"access" {
 				Write-Host "VM Access Agent VM Image Removal in Process"
 				Remove-AzureRmVMAccessExtension -ResourceGroupName $rg -VMName $VMName -Name "VMAccess" -Force -Confirm:$false
-exit
+				$LogOut = "Removed VM Access Extension"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+						exit
 }
 		"msav" {
 				Write-Host "MSAV Agent VM Image Removal in Process"
-				Remove-AzureRmVMExtension -Name "MSAVExtension" -ResourceGroupName $rg -VMName $VMName -Force -Confirm:$false
-exit
+				Remove-AzureRmVMExtension -Name "MSAVExtension" -ResourceGroupName $rg -VMName $VMName -Confirm:$false -Force
+				$LogOut = "Removed MSAV Extension"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+						exit
 		}
 		"customscript" {
 				Write-Host "Removing custom script"
-			exit
+				Remove-AzureRmVMCustomScriptExtension -ResourceGroupName $rg -VMName $VMName -Name $customextname -Confirm:$false -Force
+				$LogOut = "Removed Custom Script Extension"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+					exit
 		}
 		"diag" {
 				Write-Host "Removing Azure Enhanced Diagnostics"
 				Remove-AzureRmVMAEMExtension -ResourceGroupName $rg -VMName $VMName
-			exit
+				$LogOut = "Removed Custom Script Extension"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+						exit
 		}
 		"domjoin" {
 				Write-Host "Removing Domain Join"
 		}
 		"linuxOsPatch" {
 				Write-Host "Removing Azure OS Patching Linux"
-			exit
+				Remove-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "OSPatch"
+				$LogOut = "Removed Linux OS Patch Extension"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+						exit
 				}
 		"linuxbackup" {
 				Write-Host "Removing Linux VMBackup"
 				Remove-AzureRmVMBackup -ResourceGroupName $rg -VMName $VMName -Tag 'OSBackup'
-			exit
+				$LogOut = "Removed Linux OS Backup Extension"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+						exit
 				}
 		"chefAgent" {
-				Write-Host "Removing Chef Agent"
+			Write-Host "Removing Chef Agent"
+			Remove-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "ChefStrap" -Force -Confirm:$false
+			$LogOut = "Removed Chef Extension"
+			Log-Command -Description $LogOut -LogFile $LogOutFile
 			exit
 				}
 		"opsinsightLinux" {
@@ -3330,6 +3537,9 @@ exit
 				}
 		"ESET" {
 				Write-Host "Removing File Security"
+				Remove-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "ESET" -Force -Confirm:$false
+				$LogOut = "Removed File Security Extension"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
 			exit
 				}
 		"RegisterAzDSC" {
@@ -3341,13 +3551,16 @@ exit
 			exit
 				}
 		"PushDSC" {
-				Write-Host "Removing DSC Extension"
 				Remove-DscExt
-			exit
+				$LogOut = "Removed DSC Extension"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+						exit
 				}
 		"Bginfo" {
 				Write-Host "Removing BgInfo Extension"
 				Remove-AzureVMBGInfoExtension -VM $VMName
+				$LogOut = "Removed BGInfo Extension"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
 			exit
 				}
 		default{"An unsupported uninstall Extension command was used"}
@@ -3849,8 +4062,10 @@ Function Action-Type {
 					}
 	}
 			"remove" {
+					Check-RemoveAction
 					if($RemoveObject)
 					{
+						Check-RemoveObject
 						Remove-Component
 					}
 
