@@ -2,27 +2,16 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 7.2
+Ver 7.4
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerous Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
 The script supports deploying Availability Sets as well as adding new servers to existing Availability Sets through the -AvailabilitySet and -AvailSetName switches.
 The script supports deploying Azure Extensions through the -AddExtensions switch.
 The script will create three directories if they do not exist in the runtime directory, Log, Scripts, DSC.
 
+v7.4 updates - fixes for Debian image deployment
+v7.3 udates - added support for Chef Compliance and Tig Backup Services
 v7.2 updates - added support for Cisco, Citrix, Nessus and Debian
-v7.1 updates - RTM Windows 2016 Support
-v7.0 updates - Updates for Azure PowerShell 3.0
-v6.9 updates - Exception Handling generates to log file
-v6.8 updates - Added Core parameters for -Action-Type Update, Create and Remove
-v6.7 updates - Created -updateextension swith for OOB deployments of extensions to existing Azure VMs
-v6.6 updates - Added CSV Import command and csv file name parameter, script now supports csv execution.
-v6.5 updates - Custom Scripts directory and logs directory will now be created in the scripts execution directory.
-v6.4 updates - Added Cloudera, cloud-connector, datastax to image offerings
-v6.3 updates - DSC Push Configuration added to Extensions
-v6.2 updates - Added 12 new images including Biztalk, Visual Studio, TFS, Incredibuild, HortonWorks, Dev15, ASR (Azure Site Recovery) Images
-v6.11 updates - Modified Profile to save to script execution directory, added -help switch.
-v6.0 updates - Added Remove Functions to script, added subnet correction validation for static IPs and Storage
-v5.9 updates - Moved -add parameters to [switch]
 
 .DESCRIPTION
 Deploys 55 different Market Images on a new or existing VNET. Supports post deployment configuration through Azure Extensions.
@@ -197,7 +186,7 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 			Windows 2012 R2 – w2k12
 			Windows 2008 R2 – w2k8
 			Windows Ent 2016 – w2k16
-			Windows Nano 2016 – nano-w2k16
+			Windows Nano 2016 – nano
 			SharePoint 2016 - Share2016
 			SharePoint 2013 - share2013
 			Biztalk 2013 Ent - biztalk2013
@@ -215,7 +204,8 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 			Redhat 6.7 – Red67
 			Redhat 7.2 – Red72
 			CheckPoint AppFirewall – check
-			Chef Server v12 - 100 Client - chef
+			Chef Server v12 - 100 Client - chef-server
+			Chef Compliance - 100 Client - chef-compliance
 			Bitnami LampStack - lamp
 			Bitnami MySql - mysql
 			Bitnami NodeJs - node
@@ -251,6 +241,8 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 			Cloudbee Jenkins Ops Center - jenk-opcenter
 			Cisco waas 750 - cisco750
 			Citrix Netscaler - netscaler
+			Tig Backup as a Service (Windows) - tig-windows
+			Tig Backup as a Service (Linux) - tig-linux
 
 -AzExtConfig <Extension Type>
 			access – Adds Azure Access Extension – Added by default during VM creation
@@ -274,13 +266,14 @@ https://github.com/JonosGit/IaaSDeploymentTool/blob/master/The%20IaaS%20Deployme
 [CmdletBinding(DefaultParameterSetName = 'default')]
 Param(
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateNotNullorEmpty()]
 [ValidateSet("remove","create","update")]
 [Alias("action")]
 [string]
 $ActionType = 'create',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=2)]
 [ValidateNotNullorEmpty()]
-[ValidateSet("w2k12","w2k8","w2k16","nano-w2k16","sql2016","biztalk2013","tfs","biztalk2016","vs2015","dev15","jenk-opcenter","incredibuild","debian","puppet","msnav2016","red67","red72","suse","free","ubuntu","centos","chef","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","horton-dp","serverr","horton-hdp","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack","hadoop","neos","tomcat","redis","gitlab","jruby","tableau","cloudera","datastax","O365-suite","ads-linuxdatascience","ads-datascience","cloud-conn","cisco750")]
+[ValidateSet("w2k12","w2k8","w2k16","nano","sql2016","biztalk2013","tfs","biztalk2016","vs2015","dev15","jenk-opcenter","chef-compliance","incredibuild","debian","puppet","msnav2016","red67","red72","suse","free","ubuntu14","ubuntu15","centos","chef-server","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","horton-dp","serverr","horton-hdp","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack","hadoop","neos","tomcat","redis","gitlab","jruby","tableau","cloudera","datastax","O365-suite","ads-linuxdatascience","ads-datascience","cloud-conn","cisco750")]
 [Alias("image")]
 [string]
 $vmMarketImage = 'w2k12',
@@ -301,9 +294,6 @@ $vnetrg = '',
 [switch]
 $AddVnet,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[string]
-$BatchAddVnet = 'False',
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("vnet")]
 [string]
 $VNetName = '',
@@ -316,9 +306,6 @@ $ConfigIPs = '',
 [Alias("nsg")]
 [switch]
 $CreateNSG,
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[string]
-$BatchAddNSG = 'False',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateSet("vm","vnet","rg","nsg","storage","availabilityset")]
 [string]
@@ -370,12 +357,12 @@ $InterfaceName2 = $VMName + "_nic2",
 [string]
 $NSGName = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[ValidateRange(1,8)]
+[ValidateRange(0,8)]
 [Alias("sub1")]
 [Int]
 $Subnet1 = 5,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[ValidateRange(1,8)]
+[ValidateRange(0,8)]
 [ValidateNotNullorEmpty()]
 [Alias("sub2")]
 [int]
@@ -385,9 +372,6 @@ $Subnet2 = 6,
 [Alias("avset")]
 [switch]
 $AddAvailabilitySet,
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[string]
-$BatchAddAvSet = 'False',
 [Parameter(Mandatory=$False)]
 [string]
 $AvailSetName = $GenerateName,
@@ -398,9 +382,6 @@ $DNLabel = 'mytesr1',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [switch]
 $AddFQDN,
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[string]
-$BatchAddFQDN,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [Alias("nic1")]
@@ -423,49 +404,49 @@ $LocalAddPrefix = "10.10.0.0/24",
 $AddRange = '10.120.0.0/21',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$SubnetAddPrefix1 = "10.120.0.0/25",
+$SubnetAddPrefix1 = "10.120.0.0/24",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $SubnetNameAddPrefix1 = "gatewaysubnet",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$SubnetAddPrefix2 = "10.120.0.128/25",
+$SubnetAddPrefix2 = "10.120.1.0/25",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $SubnetNameAddPrefix2 = 'perimeter',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$SubnetAddPrefix3 = "10.120.1.0/24",
+$SubnetAddPrefix3 = "10.120.2.0/24",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $SubnetNameAddPrefix3 = "data",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$SubnetAddPrefix4 = "10.120.2.0/24",
+$SubnetAddPrefix4 = "10.120.3.0/24",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $SubnetNameAddPrefix4 = "monitor",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$SubnetAddPrefix5 = "10.120.3.0/24",
+$SubnetAddPrefix5 = "10.120.4.0/24",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $SubnetNameAddPrefix5 = "reporting",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$SubnetAddPrefix6 = "10.120.4.0/24",
+$SubnetAddPrefix6 = "10.120.5.0/24",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $SubnetNameAddPrefix6 = "analytics",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$SubnetAddPrefix7 = "10.120.5.0/24",
+$SubnetAddPrefix7 = "10.120.6.0/24",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $SubnetNameAddPrefix7 = "management",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$SubnetAddPrefix8 = "10.120.6.0/24",
+$SubnetAddPrefix8 = "10.120.7.0/24",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $SubnetNameAddPrefix8 = "deployment",
@@ -493,6 +474,18 @@ $UpdateExtension,
 $BatchAddExtension = 'False',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
+$BatchAddFQDN,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$BatchAddNSG = 'False',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$BatchAddVnet = 'False',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$BatchAddAvSet = 'False',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
 $BatchUpdateNSG = 'False',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("removeext")]
@@ -510,7 +503,7 @@ $AddNSG,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("dscscriptname")]
 [string]
-$DSCConfig = 'WIN_MSUpdate',
+$DSCConfig = 'WindowsUpdate',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("customscriptname")]
 [string]
@@ -527,6 +520,9 @@ $scriptfolder = $workfolder,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $localfolder = "$scriptfolder\scripts",
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$localsoftwarefolder = "$scriptfolder\software",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [switch]
 $csvimport,
@@ -553,6 +549,7 @@ $fileexist = Test-Path $ProfileFile -NewerThan $comparedate
   if($fileexist)
   {
   Select-AzureRmProfile -Path $ProfileFile | Out-Null
+	    Write-Host "Using $ProfileFile"
   }
   else
   {
@@ -643,7 +640,7 @@ Function Verify-PvtIp {
 			$ip = $PvtIPNic1
 			$array = $ip.Split(".")
 			[int]$subnetint = $array[2]
-			[int]$subnetcalc = ($subnetint + 1)
+			[int]$subnetcalc = ($subnetint)
 				if($subnetcalc -ne $subnet){
 					$script:Subnet1 = $subnetcalc
 					Write-Host "Updating Subnet1 to correct subnet"
@@ -664,7 +661,7 @@ if($PvtIPNic2)
 			$ip = $PvtIPNic2
 			$array = $ip.Split(".")
 			[int]$subnetint = $array[2]
-			[int]$subnetcalc = ($subnetint + 1)
+			[int]$subnetcalc = ($subnetint)
 				if($subnetcalc -ne $subnet){
 					$script:Subnet2 = $subnetcalc
 					Write-Host "Updating Subnet2 to correct subnet"
@@ -693,16 +690,16 @@ Function Verify-NIC {
 	If ($ConfigIPs -eq "Single")
 	{
 		Write-Host "Skipping Subnet IP Validation"
-		if($Subnet1 -le 2)
-		{$subnet1 = 2}
+		if($Subnet1 -le 0)
+		{$subnet1 = 1}
 		$script:Subnet1 = $Subnet1
 	}
 
 	If ($ConfigIPs -eq "Dual")
 	{
 		Write-Host "Skipping Subnet IP Validation"
-		if($Subnet1 -le 2){$subnet1 = 2}
-		if($Subnet2 -le 2){$subnet2 = 2}
+		if($Subnet1 -le 1){$subnet1 = 1}
+		if($Subnet2 -le 1){$subnet2 = 2}
 		$script:Subnet1 = $Subnet1
 		$script:Subnet2 = $Subnet2
 	}
@@ -753,11 +750,11 @@ if($ActionType -eq 'Remove' -and !$RemoveObject -and !$RemoveExtension)
  }
 
 function Check-RemoveObject {
-if($RemoveObject -and !$rg) {
+if($RemoveObject -eq 'rg' -and !$rg) {
 	Write-Host "Please Enter -rg RG Name"
 	exit
 	}
-}
+	}
 
 function Check-ExtensionUnInstall {
 if($RemoveExtension -and !$rg) {
@@ -786,13 +783,6 @@ exit
 function Check-NSGName {
 if($CreateNSG -and !$NSGName) {
 Write-Host "Please Enter NSG Name -nsgname"
-exit
- }
-}
-
-function Check-getinfo {
-if($ActionType -eq 'info' -and !$rg) {
-Write-Host "Please Enter Resource Group Name"
 exit
  }
 }
@@ -1258,6 +1248,44 @@ param(
 	$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
 }
 
+Function makeimage_withinfo_ti-ba-linuxbackupasaservice
+{
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'tig',
+	[string]$Offer = 'backup-as-a-service',
+	[string]$Skus = 'linuxbackupasaservice',
+	[string]$version =  'latest',
+	[string]$Product = 'backup-as-a-service',
+	[string]$name = 'linuxbackupasaservice'
+)
+Write-Host "Image Creation in Process - Plan Info - tig | linuxbackupasaservice"
+$script:VirtualMachine = Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep Publisher: tig Offer:backup-as-a-service Sku:linuxbackupasaservice Version:latest"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function makeimage_withinfo_ti-ba-windowsbackupasaservice
+{
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = 'tig',
+	[string]$Offer = 'backup-as-a-service',
+	[string]$Skus = 'windowsbackupasaservice',
+	[string]$version =  'latest',
+	[string]$Product = 'backup-as-a-service',
+	[string]$name = 'windowsbackupasaservice'
+)
+Write-Host "Image Creation in Process - Plan Info - tig | windowsbackupasaservice"
+$script:VirtualMachine = Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
+$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep Publisher: tig Offer:backup-as-a-service Sku:windowsbackupasaservice Version:latest"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
 Function MakeImagePlanInfo_Microsoft_ServerR {
 param(
 	[string]$VMName = $VMName,
@@ -1688,7 +1716,7 @@ param(
 	[string]$Skus = '15.10',
 	[string]$version =  'latest',
 	[string]$Product = 'UbuntuServer',
-	[string]$name = '15.10'
+	[string]$name = '15.1'
 )
 Write-Host "Image Creation in Process - Plan Info - Canonical | 15.10"
 $script:VirtualMachine = Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
@@ -1765,7 +1793,6 @@ param(
 	[string]$name = '8'
 )
 Write-Host "Image Creation in Process - Plan Info - credativ | 8"
-$script:VirtualMachine = Set-AzureRmVMPlan -VM $VirtualMachine -Name $name -Publisher $Publisher -Product $Product
 $script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
 $script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
 $LogOut = "Completed image prep Publisher: credativ Offer:Debian Sku:8 Version:latest"
@@ -2454,16 +2481,15 @@ Function Subnet-Match {
 	)
 switch ($Subnet)
 {
-0 {Write-Host "Deploying to Subnet 10.120.0.0/25"}
-1 {Write-Host "Deploying to Subnet 10.120.1.128/25"}
-2 {Write-Host "Deploying to Subnet 10.120.1.0/24"}
-3 {Write-Host "Deploying to Subnet 10.120.2.0/24"}
-4 {Write-Host "Deploying to Subnet 10.120.3.0/24"}
-5 {Write-Host "Deploying to Subnet 10.120.4.0/24"}
-6 {Write-Host "Deploying to Subnet 10.120.5.0/24"}
-7 {Write-Host "Deploying to Subnet 10.120.6.0/24"}
-8 {Write-Host "Deploying to Subnet 10.120.7.0/24"}
-9 {Write-Host "Deploying to Subnet 10.120.8.0/24"}
+0 {Write-Host "Deploying to Subnet 10.120.0.0/24"}
+1 {Write-Host "Deploying to Subnet 10.120.1.0/24"}
+2 {Write-Host "Deploying to Subnet 10.120.2.0/24"}
+3 {Write-Host "Deploying to Subnet 10.120.3.0/24"}
+4 {Write-Host "Deploying to Subnet 10.120.4.0/24"}
+5 {Write-Host "Deploying to Subnet 10.120.5.0/24"}
+6 {Write-Host "Deploying to Subnet 10.120.6.0/24"}
+7 {Write-Host "Deploying to Subnet 10.120.7.0/24"}
+8 {Write-Host "Deploying to Subnet 10.120.8.0/24"}
 default {No Subnet Found}
 }
 }
@@ -2679,7 +2705,7 @@ Function Create-Storage {
 Function Create-VM {
 	param(
 	[string]$VMName = $VMName,
-	[ValidateSet("w2k12","w2k8","w2k16","sql2016","biztalk2013","tfs","biztalk2016","vs2015","dev15","incredibuild","msnav2016","red67","red72","suse","free","ubuntu","centos","chef","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","horton-dp","serverr","horton-hdp","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack","hadoop","neos","tomcat","redis","gitlab","jruby","tableau","cloudera","datastax","O365-suite","ads-linuxdatascience","ads-datascience","cloud-conn")]
+	[ValidateSet("w2k12","w2k8","w2k16","nano","sql2016","biztalk2013","tfs","biztalk2016","vs2015","dev15","incredibuild","msnav2016","red67","red72","suse","free","ubuntu","centos","chef","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","horton-dp","serverr","horton-hdp","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack","hadoop","neos","tomcat","redis","gitlab","jruby","tableau","cloudera","datastax","O365-suite","ads-linuxdatascience","ads-datascience","cloud-conn")]
 	[string]
 	$vmMarketImage = $vmMarketImage,
 	[string]
@@ -2862,7 +2888,7 @@ Function Create-VM {
 			Configure-Image # Completes Image Creation
 			Provision-Vm
 }
-		"*nano-w2k16*" {
+		"*nano" {
 			Write-ConfigVM
 			Create-Storage
 			Create-AvailabilitySet
@@ -2872,7 +2898,7 @@ Function Create-VM {
 			Configure-Image # Completes Image Creation
 			Provision-Vm
 }
-		"*chef*" {
+		"*chef-server*" {
 			Write-ConfigVM
 			Create-Storage
 			Create-AvailabilitySet
@@ -3123,7 +3149,7 @@ Function Create-VM {
 			Configure-Image # Completes Image Creation
 			Provision-Vm
 }
-		"*ubuntu-14*" {
+		"*ubuntu14*" {
 			Write-ConfigVM
 			Create-Storage
 			Create-AvailabilitySet
@@ -3133,7 +3159,7 @@ Function Create-VM {
 			Configure-Image # Completes Image Creation
 			Provision-Vm
 }
-		"*ubuntu-15*" {
+		"*ubuntu15*" {
 			Write-ConfigVM
 			Create-Storage
 			Create-AvailabilitySet
@@ -3323,6 +3349,36 @@ Function Create-VM {
 			Configure-Image # Completes Image Creation
 			Provision-Vm
 }
+		"*tig-windows*" {
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
+			makeimage_withinfo_ti-ba-windowsbackupasaservice # Begins Image Creation
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
+}
+		"*tig-linux*" {
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
+			makeimage_withinfo_ti-ba-linuxbackupasaservice # Begins Image Creation
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
+}
+		"*chef-compliance*" {
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
+			makeimage_withinfo_ch-ch-azure_marketplace_100 # Begins Image Creation
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
+}
 		"*jenkins*" {
 			Write-ConfigVM
 			Create-Storage
@@ -3373,20 +3429,20 @@ Function Configure-DSC {
 param(
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
- [ValidateSet("WIN_MSUpdate","WIN_IIS","SharePoint2013_CU")]
+ [ValidateSet("WIN_MSUpdate","WIN_IIS","SharePoint2013_CU","StorageDownload")]
  [string]
- $DSCConfig = 'SharePoint2013_CU',
+ $DSCConfig = 'WIN_MSUpdate',
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
- $ConfigurationName = "SharePoint2013_CU",
+ $ConfigurationName = "WindowsUpdate",
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
- $ArchiveBlobName = "SharePoint2013_CU.ps1.zip",
+ $ArchiveBlobName = "WindowsUpdate.ps1.zip",
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
- $ConfigurationPath = $dscdir + '\SharePoint2013_CU.ps1',
+ $ConfigurationPath = $dscdir + '\WindowsUpdate.ps1',
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
@@ -3403,6 +3459,11 @@ param(
 		"*WIN_IIS*" {
 		Publish-AzureRmVMDscConfiguration -ResourceGroupName $rg -ConfigurationPath $IISConfigurationPath -StorageAccountName $storageAccountName -Force
 		Set-AzureRmVMDscExtension -ResourceGroupName $rg -VMName $VMName -ArchiveBlobName $IISArchiveBlobName -ArchiveStorageAccountName $storageAccountName -ConfigurationName $IISConfigurationName -Version 2.19
+}
+		"*StorageDownload*" {
+		$storageAccountKey = Get-AzureRmStorageAccountKey -ResourceGroupName $rg -Name $StorageName;
+		Publish-AzureRmVMDscConfiguration -ResourceGroupName $rg -ConfigurationPath $ConfigurationPath -StorageAccountName $storageAccountName -Force
+		Set-AzureRmVMDscExtension -ResourceGroupName $rg -VMName $VMName -ArchiveBlobName $ArchiveBlobName -ArchiveStorageAccountName $storageAccountName -ConfigurationName $ConfigurationName -Version 2.19 -ConfigurationArgument @{ storageCredential=$storageAccountKey }
 }
 		"*WIN_MSUpdate*" {
 		Publish-AzureRmVMDscConfiguration -ResourceGroupName $rg -ConfigurationPath $ConfigurationPath -StorageAccountName $storageAccountName -Force
@@ -3440,7 +3501,7 @@ else
 #region Upload Custom Script
 Function Upload-CustomScript {
 	param(
-	$StorageName = $script:StorageNameVerified,
+	$StorageName = $StorageName,
 	$containerName = $containerName,
 	$rg = $rg,
 	$localFolder = $localFolder
@@ -3458,6 +3519,31 @@ Function Upload-CustomScript {
 		  write-host "copying $fileName to $blobName"
 		  Set-AzureStorageBlobContent -File $filename -Container $containerName -Blob $blobName -Context $blobContext -Force -BlobType Append -WarningAction SilentlyContinue | Out-Null
 		  Get-AzureStorageBlob -Container $containerName -Context $blobContext -Blob $blobName -WarningAction SilentlyContinue | Out-Null
+		}
+		write-host "All files in $localFolder uploaded to $containerName!"
+}
+#endregion
+
+#region Upload Custom Script
+Function Upload-CustomSoftware {
+	param(
+	$StorageName = $StorageName,
+	$ShareName = 'software',
+	$rg = $rg,
+	$localsoftwareFolder = $localSoftwareFolder
+	)
+		$Keys = Get-AzureRmStorageAccountKey -ResourceGroupName $rg -Name $StorageName;
+		$StorageContext = New-AzureStorageContext -StorageAccountName $StorageName -StorageAccountKey $Keys[0].Value;
+		$sh = New-AzureStorageShare -Name 'software' -Context $StorageContext -WarningAction SilentlyContinue -ErrorAction SilentlyContinue;
+		New-AzureStorageDirectory -Share $sh -Path installations -Context $StorageContext -WarningAction SilentlyContinue
+		$files = Get-ChildItem $localsoftwareFolder
+		foreach($file in $files)
+		{
+		  $fileName = "$localsoftwareFolder\$file"
+		  $blobName = "$file"
+		  write-host "copying $fileName to $blobName"
+		  Set-AzureStorageFileContent -Directory installations -Source $filename -Confirm
+#		  Get-AzureStorageFile -Share $sh -Path installations | Get-AzureStorageFile
 		}
 		write-host "All files in $localFolder uploaded to $containerName!"
 }
@@ -3521,11 +3607,11 @@ switch ($AzExtConfig)
 						exit
 				}
 		"chefAgent" {
-			Write-Host "Removing Chef Agent"
-			Remove-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "ChefStrap" -Force -Confirm:$false
-			$LogOut = "Removed Chef Extension"
-			Log-Command -Description $LogOut -LogFile $LogOutFile
-			exit
+				Write-Host "Removing Chef Agent"
+				Remove-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "ChefStrap" -Force -Confirm:$false
+				$LogOut = "Removed Chef Extension"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+				exit
 				}
 		"opsinsightLinux" {
 				Write-Host "Removing Linux Insight Agent"
@@ -4039,7 +4125,9 @@ Function Action-Type {
 					} #Adds NSG to NIC
 
 					if($AddExtension -or $BatchAddExtension -eq 'True')
-					{ Install-Ext }
+					{ Install-Ext
+										Upload-CustomSoftware
+					}
 					else
 					{ Write-Results }
 
@@ -4049,7 +4137,7 @@ Function Action-Type {
 					} #Creates VPN
 	}
 			"update" {
-				if($UpdateExtension -or $BatchAddExtension -eq 'True')
+				if($UpdateExtension -or $AddExtension -or $BatchAddExtension -eq 'True')
 	{
 					Verify-StorageExists
 					Install-Ext
