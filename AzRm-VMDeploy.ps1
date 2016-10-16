@@ -2,13 +2,14 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 7.4
+Ver 7.5
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerous Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
 The script supports deploying Availability Sets as well as adding new servers to existing Availability Sets through the -AvailabilitySet and -AvailSetName switches.
 The script supports deploying Azure Extensions through the -AddExtensions switch.
 The script will create three directories if they do not exist in the runtime directory, Log, Scripts, DSC.
 
+v7.5 updates - Added ability to create storage share in table storage and upload files to the share -UploadSharedFiles. The shares can be mapped via NET USE commands
 v7.4 updates - fixes for Debian image deployment
 v7.3 udates - added support for Chef Compliance and Tig Backup Services
 v7.2 updates - added support for Cisco, Citrix, Nessus and Debian
@@ -147,6 +148,10 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 
 .PARAMETER containername
 
+.PARAMETER sharename
+
+.PARAMETER sharedirectory
+
 .PARAMETER customextname
 
 .PARAMETER scriptfolder
@@ -175,6 +180,8 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 \.AZRM-VMDeploy.ps1 -ActionType remove -vm ubu001 -RG ResGroup1 -RemoveObject VM
 .EXAMPLE
 \.AZRM-VMDeploy.ps1 -ActionType remove -RG ResGroup1 -RemoveObject rg
+.EXAMPLE
+.\AZRM-VMDeploy.ps1 -ActionType update -UploadSharedFiles -StorageName test001str -rg resx
 .NOTES
 -ConfigIps  <Configuration>
 			PvtSingleStat & PvtDualStat – Deploys the server with a Public IP and the private IP(s) specified by the user.
@@ -282,8 +289,8 @@ $vmMarketImage = 'w2k12',
 [Alias("vm")]
 [string]
 $VMName = '',
-[ValidateNotNullorEmpty()]
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
+[ValidateNotNullorEmpty()]
 [string]
 $rg = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
@@ -466,6 +473,10 @@ $AzExtConfig = 'diag',
 [switch]
 $AddExtension,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[Alias("uploadshare")]
+[switch]
+$UploadSharedFiles,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("oobaddext")]
 [switch]
 $UpdateExtension,
@@ -513,6 +524,12 @@ $scriptname = 'WFirewall.ps1',
 $containername = 'scripts',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
+$sharename = 'software',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$sharedirectory = 'apps',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
 $customextname = 'customscript',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
@@ -549,7 +566,7 @@ $fileexist = Test-Path $ProfileFile -NewerThan $comparedate
   if($fileexist)
   {
   Select-AzureRmProfile -Path $ProfileFile | Out-Null
-	    Write-Host "Using $ProfileFile"
+		Write-Host "Using $ProfileFile"
   }
   else
   {
@@ -3524,28 +3541,28 @@ Function Upload-CustomScript {
 }
 #endregion
 
-#region Upload Custom Script
-Function Upload-CustomSoftware {
+#region Upload Custom Software
+Function Upload-sharefiles {
 	param(
 	$StorageName = $StorageName,
-	$ShareName = 'software',
+	$ShareName = $ShareName,
 	$rg = $rg,
-	$localsoftwareFolder = $localSoftwareFolder
+	$localsoftwareFolder = $localSoftwareFolder,
+	$Directory = $sharedirectory
 	)
-		$Keys = Get-AzureRmStorageAccountKey -ResourceGroupName $rg -Name $StorageName;
-		$StorageContext = New-AzureStorageContext -StorageAccountName $StorageName -StorageAccountKey $Keys[0].Value;
-		$sh = New-AzureStorageShare -Name 'software' -Context $StorageContext -WarningAction SilentlyContinue -ErrorAction SilentlyContinue;
-		New-AzureStorageDirectory -Share $sh -Path installations -Context $StorageContext -WarningAction SilentlyContinue
+			$Keys = Get-AzureRmStorageAccountKey -ResourceGroupName $rg -Name $StorageName
+			$StorageContext = New-AzureStorageContext -StorageAccountName $StorageName -StorageAccountKey $Keys[0].Value
+			$s = New-AzureStorageShare -Name $ShareName -Context $StorageContext
+			New-AzureStorageDirectory -Share $s -Path $Directory
 		$files = Get-ChildItem $localsoftwareFolder
 		foreach($file in $files)
 		{
 		  $fileName = "$localsoftwareFolder\$file"
 		  $blobName = "$file"
 		  write-host "copying $fileName to $blobName"
-		  Set-AzureStorageFileContent -Directory installations -Source $filename -Confirm
-#		  Get-AzureStorageFile -Share $sh -Path installations | Get-AzureStorageFile
+			Set-AzureStorageFileContent -Share $s -Source $filename -Path $Directory
 		}
-		write-host "All files in $localFolder uploaded to $containerName!"
+		write-host "All files in $localSoftwareFolder uploaded to $Directory!"
 }
 #endregion
 
@@ -4124,9 +4141,12 @@ Function Action-Type {
 						Configure-CreateNSG
 					} #Adds NSG to NIC
 
+					if($UploadSharedFiles)
+					{
+						Upload-sharefiles
+					}
 					if($AddExtension -or $BatchAddExtension -eq 'True')
 					{ Install-Ext
-										Upload-CustomSoftware
 					}
 					else
 					{ Write-Results }
@@ -4148,6 +4168,9 @@ Function Action-Type {
 					Check-NSGName
 					Configure-CreateNSG
 					}
+				if($UploadSharedFiles) {
+					Upload-sharefiles
+				}
 	}
 			"remove" {
 					Check-RemoveAction
@@ -4215,12 +4238,17 @@ if(!$logdirexists)
 	elseif(!$direxists)
 	{
 	New-Item -Path $customscriptsdir -ItemType Directory -Force | Out-Null
-	Write-Host "Created directory" $logdir
+	Write-Host "Created directory" $customscriptsdir
 }
 		elseif(!$dscdirexists)
 {
 		New-Item -Path $dscdir -ItemType Directory -Force | Out-Null
-		Write-Host "Created directory" $logdir
+		Write-Host "Created directory" $dscdir
+}
+			elseif(!$dscdirexists)
+{
+		New-Item -Path $localSoftwareFolder -ItemType Directory -Force | Out-Null
+		Write-Host "Created directory" $localSoftwareFolder
 }
 }
 #endregion
@@ -4242,6 +4270,7 @@ $workfolder = Split-Path $script:MyInvocation.MyCommand.Path
 $logdir = $workfolder+'\'+'log'+'\'
 $customscriptsdir = $workfolder+'\'+'customscripts'+'\'
 $dscdir = $workfolder+'\'+'dsc'+'\'
+$localSoftwareFolder = $workfolder+'\'+'software'+'\'
 $LogOutFile = $logdir+$vmname+'-'+$date+'.log'
 $ProfileFile = $workfolder+'\'+$profile+'.json'
 
