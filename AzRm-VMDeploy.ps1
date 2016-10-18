@@ -2,14 +2,15 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 7.6
+Ver 7.7
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerous Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
 The script supports deploying Availability Sets as well as adding new servers to existing Availability Sets through the -AvailabilitySet and -AvailSetName switches.
 The script supports deploying Azure Extensions through the -AddExtensions switch.
 The script will create three directories if they do not exist in the runtime directory, Log, Scripts, DSC.
 
-v7.6 updates - Now able to deploy new Azure RM external load balancers as well as add/update VM NICs to provision to LB Back End Pool
+v7.7 updates - added internal load balancer creation option -CreateIntLoadBalancer
+v7.6 updates - Now able to deploy new Azure RM external load balancers as well as add/update VM NICs to provision to LB Back End Pool -createextloadbalancer
 v7.5 updates - Added ability to create storage share in table storage and upload files to the share -UploadSharedFiles. The shares can be mapped via NET USE commands
 v7.4 updates - fixes for Debian image deployment
 v7.3 udates - added support for Chef Compliance and Tig Backup Services
@@ -133,9 +134,15 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 
 .PARAMETER LBName
 
+.PARAMETER LBSubnet
+
+.PARAMETER LBPvtIp
+
 .PARAMETER AddLB
 
-.PARAMETER CreateLB
+.PARAMETER CreateIntLoadBalancer
+
+.PARAMETER CreateExtLoadBalancer
 
 .PARAMETER AzExtConfig
 
@@ -321,16 +328,26 @@ $ConfigIPs = '',
 [switch]
 $CreateNSG,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[Alias("lb")]
+[Alias("extlb")]
 [switch]
-$CreateLoadBalancer,
+$CreateExtLoadBalancer,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[Alias("intlb")]
+[switch]
+$CreateIntLoadBalancer,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("addloadb")]
 [switch]
 $AddLB,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$LBName = 'extlb',
+$LBName = '',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[int]
+$LBSubnet = '3',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ipaddress]
+$LBPvtIp = '10.120.4.10',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateSet("vm","vnet","rg","nsg","storage","availabilityset")]
 [string]
@@ -827,9 +844,41 @@ exit
 function Check-Extension {
 if($AddExtension -and !$AzExtConfig) {
 Write-Host "Please Enter Extension Name"
- }
+ exit
+}
 }
 #endregion
+
+function Check-ConfigureLB {
+if($AddLB -and !$LBName) {
+Write-Host "Please Enter LB Name"
+exit
+ }
+}
+
+function Check-CreateLB {
+if($CreateExtLoadBalancer -and !$LBName) {
+Write-Host "Please Enter LB Name"
+exit
+ }
+}
+
+function Check-CreateIntLB {
+if($CreateIntLoadBalancer -and !$LBName) {
+Write-Host "Please Enter LB Name"
+exit
+ }
+	elseif($CreateIntLoadBalancer -and !$LBPvtIp)
+			{
+		Write-Host "Please Enter LB Pvt IP"
+		exit
+		 }
+		elseif($CreateIntLoadBalancer -and !$LBSubnet)
+				{
+			Write-Host "Please Enter LB Subnet"
+			exit
+			 }
+}
 
 #region Show DNS
 Function Configure-PubIpDNS {
@@ -1098,29 +1147,40 @@ Function Configure-NSG
 }
 #endregion
 
-Function Configure-LB {
+Function Configure-LB
+{
 	param(
-		[string]$LBName = $LBName
-
+		[string]$LBName = $LBName,
+		[string]$frtendpool = 'frontend',
+		[string]$backpool = 'backend'
 	)
+
+	Try
+	{
 	$nic1 = Get-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -ErrorAction SilentlyContinue
 	$nic2 = Get-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -ErrorAction SilentlyContinue
 
 		if($nic1)
 	{
-		$lb = Get-AzureRmLoadBalancer -Name $LBName -ResourceGroupName $rg -WarningAction SilentlyContinue
-		$backend = Get-AzureRmLoadBalancerBackendAddressPoolConfig -Name 'bckend' -LoadBalancer $lb
+				Write-Host "Configuring NIC for Load Balancer"
+		$lb = Get-AzureRmLoadBalancer -Name $LBName -ResourceGroupName $rg -WarningAction SilentlyContinue -ErrorAction Stop
+		$backend = Get-AzureRmLoadBalancerBackendAddressPoolConfig -Name $backpool -LoadBalancer $lb -WarningAction SilentlyContinue
 		$nic = $nic1
-		$nic1.IpConfigurations[0].LoadBalancerBackendAddressPools = $backend
-		Set-AzureRmNetworkInterface -NetworkInterface $nic
+		$nic.IpConfigurations[0].LoadBalancerBackendAddressPools = $backend
+		Set-AzureRmNetworkInterface -NetworkInterface $nic -WarningAction SilentlyContinue -ErrorAction Stop | Out-Null
+		$LogOut = "Completed Image Load Balancer Post Configuration. Added $InterfaceName1 to $LBName"
+		Log-Command -Description $LogOut -LogFile $LogOutFile
 		}
-			if($nic2) {
-		$lb = Get-AzureRmLoadBalancer -Name $LBName -ResourceGroupName $rg -WarningAction SilentlyContinue
-		$backend = Get-AzureRmLoadBalancerBackendAddressPoolConfig -Name 'bckend' -LoadBalancer $lb
-		$nic = $nic2
-		$nic1.IpConfigurations[0].LoadBalancerBackendAddressPools = $backend
-		Set-AzureRmNetworkInterface -NetworkInterface $nic
-			}
+	}
+	Catch
+	{
+	Write-Host -foregroundcolor Yellow `
+	"Exception Encountered"; `
+	$ErrorMessage = $_.Exception.Message
+	$LogOut  = 'Error '+$ErrorMessage
+	Log-Command -Description $LogOut -LogFile $LogOutFile
+	break
+	}
 }
 
 #region Create VPN
@@ -2513,25 +2573,80 @@ Write-ConfigVNet
 }
 #endregion
 
-Function Create-LB {
+Function Create-LB
+{
 	param(
-[string]$LBName = 'extlb',
+[string]$LBName = $LBName,
 [string]$Location = $Location,
-[string]$rg = $vnetrg
+[string]$rg = $vnetrg,
+[string]$frtpool = 'frontend',
+[string]$backpool = 'backend'
+	)
+
+	Try
+	{
+	$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
+	Write-Host "Creating Public Ip, Pools, Probe and Inbound NAT Rules"
+		$lbpublicip = New-AzureRmPublicIpAddress -Name 'lbip' -ResourceGroupName $rg -Location $Location -AllocationMethod Dynamic -WarningAction SilentlyContinue
+		$frtend = New-AzureRmLoadBalancerFrontendIpConfig -Name $frtpool -PublicIpAddress $lbpublicip -WarningAction SilentlyContinue
+		$backendpool = New-AzureRmLoadBalancerBackendAddressPoolConfig -Name $backpool  -WarningAction SilentlyContinue
+		$probecfg = New-AzureRmLoadBalancerProbeConfig -Name 'probecfg' -Protocol Http -Port 80 -IntervalInSeconds 30 -ProbeCount 2 -RequestPath 'healthcheck.aspx' -WarningAction SilentlyContinue
+		$inboundnat1 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'inboundnat1' -FrontendIpConfiguration $frtend -Protocol Tcp -FrontendPort 443 -BackendPort 443 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
+		$inboundnat2 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'inboundnat2' -FrontendIpConfiguration $frtend -Protocol Tcp -FrontendPort 3389 -BackendPort 3389 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
+		$lbrule = New-AzureRmLoadBalancerRuleConfig -Name 'lbrules' -FrontendIpConfiguration $frtend -BackendAddressPool $backendpool -Probe $probecfg -Protocol Tcp -FrontendPort '80' -BackendPort '80' -IdleTimeoutInMinutes '20' -EnableFloatingIP -LoadDistribution SourceIP -WarningAction SilentlyContinue
+		$lb = New-AzureRmLoadBalancer -Location $Location -Name $LBName -ResourceGroupName $rg -FrontendIpConfiguration $frtend -BackendAddressPool $backendpool -Probe $probecfg -InboundNatRule $inboundnat1,$inboundnat2 -LoadBalancingRule $lbrule -WarningAction SilentlyContinue -ErrorAction Stop
+		Get-AzureRmLoadBalancer -Name $LBName -ResourceGroupName $rg -WarningAction SilentlyContinue | Out-Null
+			$LogOut = "Completed LB Configuration of $LBName"
+			Log-Command -Description $LogOut -LogFile $LogOutFile
+	}
+	Catch
+	{
+	Write-Host -foregroundcolor Yellow `
+	"Exception Encountered"; `
+	$ErrorMessage = $_.Exception.Message
+	$LogOut  = 'Error '+$ErrorMessage
+	Log-Command -Description $LogOut -LogFile $LogOutFile
+	break
+	}
+}
+
+Function Create-IntLB
+{
+	param(
+[string]$LBName = $LBName,
+[string]$Location = $Location,
+[string]$rg = $vnetrg,
+[ipaddress]$PvtIP = $LBPvtIp,
+[int]$subnet = $LBSubnet,
+[string]$frtpool = 'frontend',
+[string]$backpool = 'backend'
 
 	)
+
+	Try
+	{
 	$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-	$lbpublicip = New-AzureRmPublicIpAddress -Name 'lbip' -ResourceGroupName $rg -Location $Location -AllocationMethod Dynamic -WarningAction SilentlyContinue
-	$frtend = New-AzureRmLoadBalancerFrontendIpConfig -Name 'frntend' -PublicIpAddress $lbpublicip -WarningAction SilentlyContinue
-	$backendpool = New-AzureRmLoadBalancerBackendAddressPoolConfig -Name 'bckend'  -WarningAction SilentlyContinue
-	$probecfg = New-AzureRmLoadBalancerProbeConfig -Name 'probecfg' -Protocol Http -Port 80 -IntervalInSeconds 30 -ProbeCount 2 -RequestPath 'healthcheck.aspx' -WarningAction SilentlyContinue
-	$inboundnat1 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'inboundnat1' -FrontendIpConfiguration $frtend -Protocol Tcp -FrontendPort 443 -BackendPort 443 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
-	$inboundnat2 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'inboundnat2' -FrontendIpConfiguration $frtend -Protocol Tcp -FrontendPort 3389 -BackendPort 3389 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
-	$lbrule = New-AzureRmLoadBalancerRuleConfig -Name 'lbrules' -FrontendIpConfiguration $frtend -BackendAddressPool $backendpool -Probe $probecfg -Protocol Tcp -FrontendPort '80' -BackendPort '80' -IdleTimeoutInMinutes '20' -EnableFloatingIP -LoadDistribution SourceIP -WarningAction SilentlyContinue
-	$lb = New-AzureRmLoadBalancer -Location $Location -Name $LBName -ResourceGroupName $rg -FrontendIpConfiguration $frtend -BackendAddressPool $backendpool -Probe $probecfg -InboundNatRule $inboundnat1,$inboundnat2 -LoadBalancingRule $lbrule
-	Get-AzureRmLoadBalancer -Name $LBName -ResourceGroupName $rg -WarningAction SilentlyContinue
-	$LogOut = "Completed LB Configuration of $LBName"
+	Write-Host "Creating Pools, Probe and Inbound NAT Rules"
+		$frontendIP = New-AzureRmLoadBalancerFrontendIpConfig -Name $frtpool -PrivateIpAddress $PvtIP -SubnetId $vnet.subnets[$subnet].Id -WarningAction SilentlyContinue
+		$backendpool = New-AzureRmLoadBalancerBackendAddressPoolConfig -Name $backpool  -WarningAction SilentlyContinue
+		$probecfg = New-AzureRmLoadBalancerProbeConfig -Name 'probecfg' -Protocol Http -Port 80 -IntervalInSeconds 30 -ProbeCount 2 -RequestPath 'healthcheck.aspx' -WarningAction SilentlyContinue
+		$inboundnat1 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'inboundnat1' -FrontendIpConfiguration $frontendIP -Protocol Tcp -FrontendPort 3391 -BackendPort 3389 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
+		$inboundnat2 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'inboundnat2' -FrontendIpConfiguration $frontendIP -Protocol Tcp -FrontendPort 3389 -BackendPort 3389 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
+		$lbrule = New-AzureRmLoadBalancerRuleConfig -Name 'lbrules' -FrontendIpConfiguration $frontendIP -BackendAddressPool $backendpool -Probe $probecfg -Protocol Tcp -FrontendPort '80' -BackendPort '80' -IdleTimeoutInMinutes '20' -EnableFloatingIP -LoadDistribution SourceIP -WarningAction SilentlyContinue
+		$lb = New-AzureRmLoadBalancer -Location $Location -Name $LBName -ResourceGroupName $rg -FrontendIpConfiguration $frontendIP -BackendAddressPool $backendpool -Probe $probecfg -InboundNatRule $inboundnat1,$inboundnat2 -LoadBalancingRule $lbrule -WarningAction SilentlyContinue -ErrorAction Stop
+		Get-AzureRmLoadBalancer -Name $LBName -ResourceGroupName $rg -WarningAction SilentlyContinue -ErrorAction Stop | Out-Null
+			$LogOut = "Completed LB Configuration of $LBName"
+			Log-Command -Description $LogOut -LogFile $LogOutFile
+	}
+	Catch
+	{
+	Write-Host -foregroundcolor Yellow `
+	"Exception Encountered"; `
+	$ErrorMessage = $_.Exception.Message
+	$LogOut  = 'Error '+$ErrorMessage
 	Log-Command -Description $LogOut -LogFile $LogOutFile
+	break
+	}
 }
 
 #region Create NSG
@@ -2610,6 +2725,11 @@ Write-Host "Geo Location: $Location"
 Write-Host "VNET Name: $vNetName"
 Write-Host "Storage Account Name: $StorageName"
 Write-Host "Storage Account Type: $StorageType"
+if($AddLB)
+	{
+Write-Host "Adding $VMName to Load Balancer"
+Write-Host "LB Name:  '$LBName'"
+	}
 Select-NicDescrtipt
 If ($ConfigIPs -eq "StatPvtNoPubSingle")
 { Write-Host "Public Ip Will not be created" -ForegroundColor White
@@ -2680,6 +2800,17 @@ if($CreateNSG -or $BatchAddNSG -eq 'True')
 {
 Write-Host "NSG Name: $NSGName"
 }
+if($CreateExtLoadBalancer)
+	{
+Write-Host "Creating External Load Balancer"
+Write-Host "LB Name: '$LBName'"
+	}
+if($CreateIntLoadBalancer)
+	{
+Write-Host "Creating Internal Load Balancer"
+Write-Host "LB Name:'$LBName'"
+	}
+
 Write-Host "                                                               "
 }
 
@@ -2711,6 +2842,13 @@ if($UploadSharedFiles -or $BatchAddShare -eq 'True')
 Write-Host "Create storage share to 'True'"
 Write-Host "Share Name:  '$ShareName'"
 	}
+
+if($CreateExtLoadBalancer)
+	{
+Write-Host "Completed creation of external load balancer"
+Write-Host "LB Name:  '$LBName'"
+	}
+
 if($AddAvailabilitySet -or $BatchAddAvset -eq 'True') {
 Write-Host "Availability Set Configured"
 Write-Host "Availability Set Name:  '$AvailSetName'"
@@ -4224,9 +4362,15 @@ Function Action-Type {
 					{
 						Create-NSG
 					} # Creates NSG and Security Groups
-					if($CreateLoadBalancer)
+					if($CreateExtLoadBalancer)
 					{
+					Check-CreateLB
 					Create-LB
+					}
+					if($CreateIntLoadBalancer)
+					{
+					Check-CreateIntLB
+					Create-IntLB
 					}
 
 					Check-Vnet
@@ -4238,6 +4382,7 @@ Function Action-Type {
 
 					if($AddLB -or $Batchaddloadbalancer -eq 'True')
 					{
+						Check-ConfigureLB
 						Configure-LB
 					} #Adds NIC to LB
 
@@ -4271,6 +4416,7 @@ Function Action-Type {
 
 				if($AddLB -or $Batchaddloadbalancer -eq 'True')
 					{
+						Check-ConfigureLB
 						Configure-LB
 					} #Adds NIC to LB
 				if($UploadSharedFiles -or $BatchAddShare -eq 'True') {
@@ -4371,7 +4517,6 @@ $workfolder = Split-Path $script:MyInvocation.MyCommand.Path
 $logdir = $workfolder+'\'+'log'+'\'
 $customscriptsdir = $workfolder+'\'+'customscripts'+'\'
 $dscdir = $workfolder+'\'+'dsc'+'\'
-# $localSoftwareFolder = $workfolder+'\'+'software'+'\'
 $LogOutFile = $logdir+$vmname+'-'+$date+'.log'
 $ProfileFile = $workfolder+'\'+$profile+'.json'
 
