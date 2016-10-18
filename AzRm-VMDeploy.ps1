@@ -2526,7 +2526,7 @@ Function Create-LB {
 	$backendpool = New-AzureRmLoadBalancerBackendAddressPoolConfig -Name 'bckend'  -WarningAction SilentlyContinue
 	$probecfg = New-AzureRmLoadBalancerProbeConfig -Name 'probecfg' -Protocol Http -Port 80 -IntervalInSeconds 30 -ProbeCount 2 -RequestPath 'healthcheck.aspx' -WarningAction SilentlyContinue
 	$inboundnat1 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'inboundnat1' -FrontendIpConfiguration $frtend -Protocol Tcp -FrontendPort 443 -BackendPort 443 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
-	$inboundnat2 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'inboundnat2' -FrontendIpConfiguration $frtend -Protocol Tcp -FrontendPort 80 -BackendPort 80 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
+	$inboundnat2 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'inboundnat2' -FrontendIpConfiguration $frtend -Protocol Tcp -FrontendPort 3389 -BackendPort 3389 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
 	$lbrule = New-AzureRmLoadBalancerRuleConfig -Name 'lbrules' -FrontendIpConfiguration $frtend -BackendAddressPool $backendpool -Probe $probecfg -Protocol Tcp -FrontendPort '80' -BackendPort '80' -IdleTimeoutInMinutes '20' -EnableFloatingIP -LoadDistribution SourceIP -WarningAction SilentlyContinue
 	$lb = New-AzureRmLoadBalancer -Location $Location -Name $LBName -ResourceGroupName $rg -FrontendIpConfiguration $frtend -BackendAddressPool $backendpool -Probe $probecfg -InboundNatRule $inboundnat1,$inboundnat2 -LoadBalancingRule $lbrule
 	Get-AzureRmLoadBalancer -Name $LBName -ResourceGroupName $rg -WarningAction SilentlyContinue
