@@ -2,13 +2,14 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 7.5
+Ver 7.6
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerous Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
 The script supports deploying Availability Sets as well as adding new servers to existing Availability Sets through the -AvailabilitySet and -AvailSetName switches.
 The script supports deploying Azure Extensions through the -AddExtensions switch.
 The script will create three directories if they do not exist in the runtime directory, Log, Scripts, DSC.
 
+v7.6 updates - Now able to deploy new Azure RM external load balancers as well as add/update VM NICs to provision to LB Back End Pool
 v7.5 updates - Added ability to create storage share in table storage and upload files to the share -UploadSharedFiles. The shares can be mapped via NET USE commands
 v7.4 updates - fixes for Debian image deployment
 v7.3 udates - added support for Chef Compliance and Tig Backup Services
@@ -129,6 +130,12 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 .PARAMETER Azautoacct
 
 .PARAMETER Profile
+
+.PARAMETER LBName
+
+.PARAMETER AddLB
+
+.PARAMETER CreateLB
 
 .PARAMETER AzExtConfig
 
@@ -314,6 +321,17 @@ $ConfigIPs = '',
 [switch]
 $CreateNSG,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[Alias("lb")]
+[switch]
+$CreateLoadBalancer,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[Alias("addloadb")]
+[switch]
+$AddLB,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$LBName = 'extlb',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateSet("vm","vnet","rg","nsg","storage","availabilityset")]
 [string]
 $RemoveObject = '',
@@ -375,7 +393,6 @@ $Subnet1 = 5,
 [int]
 $Subnet2 = 6,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[ValidateSet("True","False")]
 [Alias("avset")]
 [switch]
 $AddAvailabilitySet,
@@ -476,6 +493,9 @@ $AddExtension,
 [Alias("uploadshare")]
 [switch]
 $UploadSharedFiles,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$BatchAddShare = 'False',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("oobaddext")]
 [switch]
@@ -636,7 +656,7 @@ try {
 	{exit}
 	else {
 	Write-Host $GetPath "File Exists"
-		import-csv -Path $csvin -Delimiter ',' | ForEach-Object{.\AZRM-VMDeploy.ps1 -ActionType $_.ActionType -VMName $_.VMName -vmMarketImage $_.Image -rg $_.rg -vNetrg $_.vnetrg -VNetName $_.VNetName -ConfigIPs $_.ConfigIPs -subnet1 $_.Subnet1 -subnet2 $_.Subnet2 -PvtIPNic1 $_.PvtIPNic1 -PvtIPNic2 $_.PvtIPNic2 -DNLabel $_.DNLabel  -BatchAddVnet $_.BatchAddVnet -BatchAddNSG $_.BatchAddNSG -BatchUpdateNSG $_.BatchUpdateNSG -NSGName $_.NSGName -AzExtConfig $_.AzExtConfig -BatchAddExtension $_.BatchAddExtension -BatchAddAvSet $_.BatchAddAvSet -BatchAddFqdn $_.BatchAddFqdn -CustomScriptUpload $_.CustomScriptUpload -scriptname $_.scriptname -containername $_.containername -scriptfolder $_.scriptfolder -customextname $_.customextname }
+		import-csv -Path $csvin -Delimiter ',' | ForEach-Object{.\AZRM-VMDeploy.ps1 -ActionType $_.ActionType -VMName $_.VMName -vmMarketImage $_.Image -rg $_.rg -vNetrg $_.vnetrg -VNetName $_.VNetName -ConfigIPs $_.ConfigIPs -subnet1 $_.Subnet1 -subnet2 $_.Subnet2 -PvtIPNic1 $_.PvtIPNic1 -PvtIPNic2 $_.PvtIPNic2 -DNLabel $_.DNLabel  -BatchAddVnet $_.BatchAddVnet -BatchAddNSG $_.BatchAddNSG -BatchUpdateNSG $_.BatchUpdateNSG -NSGName $_.NSGName -AzExtConfig $_.AzExtConfig -BatchAddExtension $_.BatchAddExtension -BatchAddAvSet $_.BatchAddAvSet -BatchAddFqdn $_.BatchAddFqdn -CustomScriptUpload $_.CustomScriptUpload -scriptname $_.scriptname -containername $_.containername -scriptfolder $_.scriptfolder -customextname $_.customextname -batchAddShare $_.BatchAddShare -sharedirectory $_.sharedirectory -sharename $_.sharename -localsoftwarefolder $_.localsoftwarefolder }
 	}
 }
 catch {
@@ -949,6 +969,19 @@ switch ($ConfigIPs)
 			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 			$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 }
+		"LoadBalancedDual" {
+			Write-Host "Dual IP - Load Balanced"
+			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
+			$script:besubnet =	Get-AzureRmVirtualNetworkSubnetConfig -Name $LBName -VirtualNetwork $script:VNet -WarningAction SilentlyContinue
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PrivateIpAddress $PvtIPNic1 -LoadBalancerBackendAddressPool $lb.BackendAddressPools[0] -LoadBalancerInboundNatRule $lb.InboundNatRules[0]
+			$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id -PrivateIpAddress $PvtIPNic2 -LoadBalancerBackendAddressPool $lb.BackendAddressPools[0] -LoadBalancerInboundNatRule $lb.InboundNatRules[0] –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
+}
+		"LoadBalancedSingle" {
+			Write-Host "Single IP - Load Balanced"
+			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
+			$besubnet =	Get-AzureRmVirtualNetworkSubnetConfig -Name $LBName -VirtualNetwork $script:VNet -WarningAction SilentlyContinue
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -Subnet $besubnet -PrivateIpAddress $PvtIPNic1 -LoadBalancerBackendAddressPool $lb.BackendAddressPools[0] -LoadBalancerInboundNatRule $lb.InboundNatRules[0]
+}
 		default{"Nothing matched entry criteria"}
 }
 	}
@@ -1019,7 +1052,7 @@ Add-NICs
 #endregion
 
 #region Enable NSG
-Function Configure-CreateNSG
+Function Configure-NSG
 {
 	param(
 		$NSGName = $NSGName,
@@ -1064,6 +1097,31 @@ Function Configure-CreateNSG
 	}
 }
 #endregion
+
+Function Configure-LB {
+	param(
+		[string]$LBName = $LBName
+
+	)
+	$nic1 = Get-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -ErrorAction SilentlyContinue
+	$nic2 = Get-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -ErrorAction SilentlyContinue
+
+		if($nic1)
+	{
+		$lb = Get-AzureRmLoadBalancer -Name $LBName -ResourceGroupName $rg -WarningAction SilentlyContinue
+		$backend = Get-AzureRmLoadBalancerBackendAddressPoolConfig -Name 'bckend' -LoadBalancer $lb
+		$nic = $nic1
+		$nic1.IpConfigurations[0].LoadBalancerBackendAddressPools = $backend
+		Set-AzureRmNetworkInterface -NetworkInterface $nic
+		}
+			if($nic2) {
+		$lb = Get-AzureRmLoadBalancer -Name $LBName -ResourceGroupName $rg -WarningAction SilentlyContinue
+		$backend = Get-AzureRmLoadBalancerBackendAddressPoolConfig -Name 'bckend' -LoadBalancer $lb
+		$nic = $nic2
+		$nic1.IpConfigurations[0].LoadBalancerBackendAddressPools = $backend
+		Set-AzureRmNetworkInterface -NetworkInterface $nic
+			}
+}
 
 #region Create VPN
 Function Create-VPN {
@@ -2455,6 +2513,27 @@ Write-ConfigVNet
 }
 #endregion
 
+Function Create-LB {
+	param(
+[string]$LBName = 'extlb',
+[string]$Location = $Location,
+[string]$rg = $vnetrg
+
+	)
+	$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
+	$lbpublicip = New-AzureRmPublicIpAddress -Name 'lbip' -ResourceGroupName $rg -Location $Location -AllocationMethod Dynamic -WarningAction SilentlyContinue
+	$frtend = New-AzureRmLoadBalancerFrontendIpConfig -Name 'frntend' -PublicIpAddress $lbpublicip -WarningAction SilentlyContinue
+	$backendpool = New-AzureRmLoadBalancerBackendAddressPoolConfig -Name 'bckend'  -WarningAction SilentlyContinue
+	$probecfg = New-AzureRmLoadBalancerProbeConfig -Name 'probecfg' -Protocol Http -Port 80 -IntervalInSeconds 30 -ProbeCount 2 -RequestPath 'healthcheck.aspx' -WarningAction SilentlyContinue
+	$inboundnat1 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'inboundnat1' -FrontendIpConfiguration $frtend -Protocol Tcp -FrontendPort 443 -BackendPort 443 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
+	$inboundnat2 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'inboundnat2' -FrontendIpConfiguration $frtend -Protocol Tcp -FrontendPort 80 -BackendPort 80 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
+	$lbrule = New-AzureRmLoadBalancerRuleConfig -Name 'lbrules' -FrontendIpConfiguration $frtend -BackendAddressPool $backendpool -Probe $probecfg -Protocol Tcp -FrontendPort '80' -BackendPort '80' -IdleTimeoutInMinutes '20' -EnableFloatingIP -LoadDistribution SourceIP -WarningAction SilentlyContinue
+	$lb = New-AzureRmLoadBalancer -Location $Location -Name $LBName -ResourceGroupName $rg -FrontendIpConfiguration $frtend -BackendAddressPool $backendpool -Probe $probecfg -InboundNatRule $inboundnat1,$inboundnat2 -LoadBalancingRule $lbrule
+	Get-AzureRmLoadBalancer -Name $LBName -ResourceGroupName $rg -WarningAction SilentlyContinue
+	$LogOut = "Completed LB Configuration of $LBName"
+	Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
 #region Create NSG
 Function Create-NSG {
 param(
@@ -2568,6 +2647,11 @@ Write-Host "Nic2: $PvtIPNic2"
 if($AddExtension -or $BatchAddExtension -eq 'True') {
 Write-Host "Extension selected for deployment: $AzExtConfig "
 }
+if($UploadSharedFiles -or $BatchAddShare -eq 'True')
+	{
+Write-Host "Create storage share to 'True'"
+Write-Host "Share Name:  '$ShareName'"
+	}
 if($AddAvailabilitySet -or $BatchAddAvset -eq 'True') {
 Write-Host "Availability Set to 'True'"
 Write-Host "Availability Set Name:  '$AvailSetName'"
@@ -2598,6 +2682,7 @@ Write-Host "NSG Name: $NSGName"
 }
 Write-Host "                                                               "
 }
+
 #endregion
 
 #region Show Final Report
@@ -2621,6 +2706,11 @@ Write-Host "Storage Account Name:  $StorageNameVerified"
 if($AddExtension -or $BatchAddExtension -eq 'True'){
 Write-Host "Extension deployed: $AzExtConfig "
 }
+if($UploadSharedFiles -or $BatchAddShare -eq 'True')
+	{
+Write-Host "Create storage share to 'True'"
+Write-Host "Share Name:  '$ShareName'"
+	}
 if($AddAvailabilitySet -or $BatchAddAvset -eq 'True') {
 Write-Host "Availability Set Configured"
 Write-Host "Availability Set Name:  '$AvailSetName'"
@@ -4134,14 +4224,24 @@ Function Action-Type {
 					{
 						Create-NSG
 					} # Creates NSG and Security Groups
+					if($CreateLoadBalancer)
+					{
+					Create-LB
+					}
+
 					Check-Vnet
 					Create-VM # Configure Image
 					if($AddNSG -or $BatchUpdateNSG -eq 'True')
 					{
-						Configure-CreateNSG
+						Configure-NSG
 					} #Adds NSG to NIC
 
-					if($UploadSharedFiles)
+					if($AddLB -or $Batchaddloadbalancer -eq 'True')
+					{
+						Configure-LB
+					} #Adds NIC to LB
+
+					if($UploadSharedFiles -or $BatchAddShare -eq 'True')
 					{
 						Upload-sharefiles
 					}
@@ -4166,9 +4266,14 @@ Function Action-Type {
 				if($AddNSG -or $BatchUpdateNSG -eq 'True')
 					{
 					Check-NSGName
-					Configure-CreateNSG
+					Configure-NSG
 					}
-				if($UploadSharedFiles) {
+
+				if($AddLB -or $Batchaddloadbalancer -eq 'True')
+					{
+						Configure-LB
+					} #Adds NIC to LB
+				if($UploadSharedFiles -or $BatchAddShare -eq 'True') {
 					Upload-sharefiles
 				}
 	}
@@ -4230,6 +4335,7 @@ Function Create-Dir {
 $logdirexists = Test-Path -Path $logdir
 	$direxists = Test-Path -Path $customscriptsdir
 		$dscdirexists = Test-Path -Path $dscdir
+				$localSoftwareFolderExists = Test-Path -Path $localSoftwareFolder
 if(!$logdirexists)
 	{
 	New-Item -Path $logdir -ItemType Directory -Force | Out-Null
@@ -4244,11 +4350,6 @@ if(!$logdirexists)
 {
 		New-Item -Path $dscdir -ItemType Directory -Force | Out-Null
 		Write-Host "Created directory" $dscdir
-}
-			elseif(!$dscdirexists)
-{
-		New-Item -Path $localSoftwareFolder -ItemType Directory -Force | Out-Null
-		Write-Host "Created directory" $localSoftwareFolder
 }
 }
 #endregion
@@ -4270,7 +4371,7 @@ $workfolder = Split-Path $script:MyInvocation.MyCommand.Path
 $logdir = $workfolder+'\'+'log'+'\'
 $customscriptsdir = $workfolder+'\'+'customscripts'+'\'
 $dscdir = $workfolder+'\'+'dsc'+'\'
-$localSoftwareFolder = $workfolder+'\'+'software'+'\'
+# $localSoftwareFolder = $workfolder+'\'+'software'+'\'
 $LogOutFile = $logdir+$vmname+'-'+$date+'.log'
 $ProfileFile = $workfolder+'\'+$profile+'.json'
 
