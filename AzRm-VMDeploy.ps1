@@ -2,13 +2,17 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 7.7
+Ver 7.8
+
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerous Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
 The script supports deploying Availability Sets as well as adding new servers to existing Availability Sets through the -AvailabilitySet and -AvailSetName switches.
 The script supports deploying Azure Extensions through the -AddExtensions switch.
+This script supports Load Balanced configurations for both internal and external load balancers.
+
 The script will create three directories if they do not exist in the runtime directory, Log, Scripts, DSC.
 
+v7.8 updates - deploy LB from csv functionality added
 v7.7 updates - added internal load balancer creation option -CreateIntLoadBalancer
 v7.6 updates - Now able to deploy new Azure RM external load balancers as well as add/update VM NICs to provision to LB Back End Pool -createextloadbalancer
 v7.5 updates - Added ability to create storage share in table storage and upload files to the share -UploadSharedFiles. The shares can be mapped via NET USE commands
@@ -340,13 +344,19 @@ $CreateIntLoadBalancer,
 [switch]
 $AddLB,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateSet("external","internal")]
 [string]
-$LBName = '',
+$LBType = 'external',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$IntLBName = 'intlb',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$ExtLBName = 'extlb',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [int]
 $LBSubnet = '3',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[ipaddress]
 $LBPvtIp = '10.120.4.10',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateSet("vm","vnet","rg","nsg","storage","availabilityset")]
@@ -498,7 +508,7 @@ $Azautoacct = "DSC-Auto",
 [string]
 $Profile = "profile",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[ValidateSet("diag","msav","access","linuxbackup","chefagent","eset","customscript","opsinsightLinux","opsinsightWin","WinPuppet","domjoin","RegisterAzDSC","PushDSC")]
+[ValidateSet("diag","msav","bginfo","access","linuxbackup","chefagent","eset","customscript","opsinsightLinux","opsinsightWin","WinPuppet","domjoin","RegisterAzDSC","PushDSC")]
 [Alias("ext")]
 [string]
 $AzExtConfig = 'diag',
@@ -535,6 +545,15 @@ $BatchAddAvSet = 'False',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $BatchUpdateNSG = 'False',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$BatchCreateExtLB = 'False',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$BatchCreateIntLB = 'False',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$BatchAddLB = 'False',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("removeext")]
 [switch]
@@ -673,7 +692,7 @@ try {
 	{exit}
 	else {
 	Write-Host $GetPath "File Exists"
-		import-csv -Path $csvin -Delimiter ',' | ForEach-Object{.\AZRM-VMDeploy.ps1 -ActionType $_.ActionType -VMName $_.VMName -vmMarketImage $_.Image -rg $_.rg -vNetrg $_.vnetrg -VNetName $_.VNetName -ConfigIPs $_.ConfigIPs -subnet1 $_.Subnet1 -subnet2 $_.Subnet2 -PvtIPNic1 $_.PvtIPNic1 -PvtIPNic2 $_.PvtIPNic2 -DNLabel $_.DNLabel  -BatchAddVnet $_.BatchAddVnet -BatchAddNSG $_.BatchAddNSG -BatchUpdateNSG $_.BatchUpdateNSG -NSGName $_.NSGName -AzExtConfig $_.AzExtConfig -BatchAddExtension $_.BatchAddExtension -BatchAddAvSet $_.BatchAddAvSet -BatchAddFqdn $_.BatchAddFqdn -CustomScriptUpload $_.CustomScriptUpload -scriptname $_.scriptname -containername $_.containername -scriptfolder $_.scriptfolder -customextname $_.customextname -batchAddShare $_.BatchAddShare -sharedirectory $_.sharedirectory -sharename $_.sharename -localsoftwarefolder $_.localsoftwarefolder }
+		import-csv -Path $csvin -Delimiter ',' | ForEach-Object{.\AZRM-VMDeploy.ps1 -ActionType $_.ActionType -VMName $_.VMName -vmMarketImage $_.Image -rg $_.rg -vNetrg $_.vnetrg -VNetName $_.VNetName -ConfigIPs $_.ConfigIPs -subnet1 $_.Subnet1 -subnet2 $_.Subnet2 -PvtIPNic1 $_.PvtIPNic1 -PvtIPNic2 $_.PvtIPNic2 -DNLabel $_.DNLabel  -BatchAddVnet $_.BatchAddVnet -BatchCreateIntLB $_.BatchCreateIntLB -BatchCreateExtLB $_.BatchCreateExtLB -BatchAddLB $_.BatchAddLB -LBSubnet $_.LBSubnet -LBPvtIp $_.LBPvtIp -IntLBName $_.IntLBName -ExtLBName $_.ExtLBName -LBType $_.LBType -BatchAddNSG $_.BatchAddNSG -BatchUpdateNSG $_.BatchUpdateNSG -NSGName $_.NSGName -AzExtConfig $_.AzExtConfig -BatchAddExtension $_.BatchAddExtension -BatchAddAvSet $_.BatchAddAvSet -AvailSetName $_.AvailSetName -BatchAddFqdn $_.BatchAddFqdn -CustomScriptUpload $_.CustomScriptUpload -scriptname $_.scriptname -containername $_.containername -scriptfolder $_.scriptfolder -customextname $_.customextname -batchAddShare $_.BatchAddShare -sharedirectory $_.sharedirectory -sharename $_.sharename -localsoftwarefolder $_.localsoftwarefolder }
 	}
 }
 catch {
@@ -686,6 +705,15 @@ catch {
 }
 #endregion
 
+Function Lb-type {
+if($AddLB -eq 'external' -or $BatchAddLB -eq 'external'){$LBName = 'extlb'
+Write-Host"Setting LBName to $LBName"
+}
+
+	elseif($AddLB -eq 'internal' -or $BatchAddLB -eq 'internal'){$LBName = 'intlb'
+	Write-Host"Setting LBName to $LBName"
+	}
+}
 #region Verify Private IP
 Function Verify-PvtIp {
 		if($PvtIPNic1)
@@ -725,6 +753,27 @@ if($PvtIPNic2)
 			{
 			Write-Host "correct subnet"
 			$script:Subnet2 = $Subnet2
+			}
+	}
+}
+
+Function Verify-LBSubnet {
+if($PvtIPNic2)
+			{
+			[int]$subnet = $LBSubnet
+			$ip = $LBPvtIp
+			$array = $ip.Split(".")
+			[int]$subnetint = $array[2]
+			[int]$subnetcalc = ($subnetint)
+				if($subnetcalc -ne $subnet){
+					$script:LBSubnet = $subnetcalc
+					Write-Host "Updating LB Subnet to correct subnet"
+					Write-Host "LBSubnet: $script:LBSubnet"
+			}
+			else
+			{
+			Write-Host "correct subnet"
+			$script:LBSubnet = $LBSubnet
 			}
 	}
 }
@@ -857,25 +906,25 @@ exit
 }
 
 function Check-CreateLB {
-if($CreateExtLoadBalancer -and !$LBName) {
-Write-Host "Please Enter LB Name"
+if($CreateExtLoadBalancer -and !$ExtLBName) {
+Write-Host "Please Enter External LB Name"
 exit
  }
 }
 
 function Check-CreateIntLB {
-if($CreateIntLoadBalancer -and !$LBName) {
-Write-Host "Please Enter LB Name"
+if($CreateIntLoadBalancer -and !$IntLBName) {
+Write-Host "Please Enter Internal LB Name"
 exit
  }
 	elseif($CreateIntLoadBalancer -and !$LBPvtIp)
 			{
-		Write-Host "Please Enter LB Pvt IP"
+		Write-Host "Please Enter Internal LB Pvt IP"
 		exit
 		 }
 		elseif($CreateIntLoadBalancer -and !$LBSubnet)
 				{
-			Write-Host "Please Enter LB Subnet"
+			Write-Host "Please Enter Internal LB Subnet"
 			exit
 			 }
 }
@@ -932,6 +981,7 @@ Write-Host "No DNS Name Specified"
 Function Check-StorageName
 {
 	param(
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 		[string]$StorageName  = $StorageName
 	)
 $extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $rg -ErrorAction SilentlyContinue
@@ -954,15 +1004,25 @@ if($checkname -ne 'True') {
 #region Configure NICs
 Function Configure-Nics {
 	param(
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 	[string]$vnetrg = $vnetrg,
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 	[string]$Location = $Location,
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 	[string]$rg = $rg,
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 	[string]$InterfaceName1 = $InterfaceName1,
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 	[string]$InterfaceName2 = $InterfaceName2,
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 	[int]$Subnet1 = $script:Subnet1,
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 	[int]$Subnet2 = $script:Subnet2,
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 	[ipaddress]$PvtIPNic1 = $PvtIPNic1,
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 	[ipaddress]$PvtIPNic2 = $PvtIPNic2,
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 	[string]$ConfigIps = $ConfigIps
 	)
 
@@ -1147,10 +1207,46 @@ Function Configure-NSG
 }
 #endregion
 
-Function Configure-LB
+Function Configure-extLB
 {
 	param(
-		[string]$LBName = $LBName,
+		[string]$LBName = $ExtLBName,
+		[string]$frtendpool = 'frontend',
+		[string]$backpool = 'backend'
+	)
+
+	Try
+	{
+	$nic1 = Get-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -ErrorAction SilentlyContinue
+	$nic2 = Get-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -ErrorAction SilentlyContinue
+
+		if($nic1)
+	{
+				Write-Host "Configuring NIC for Load Balancer"
+		$lb = Get-AzureRmLoadBalancer -Name $LBName -ResourceGroupName $rg -WarningAction SilentlyContinue -ErrorAction Stop
+		$backend = Get-AzureRmLoadBalancerBackendAddressPoolConfig -Name $backpool -LoadBalancer $lb -WarningAction SilentlyContinue
+		$nic = $nic1
+		$nic.IpConfigurations[0].LoadBalancerBackendAddressPools = $backend
+		Set-AzureRmNetworkInterface -NetworkInterface $nic -WarningAction SilentlyContinue -ErrorAction Stop | Out-Null
+		$LogOut = "Completed Image Load Balancer Post Configuration. Added $InterfaceName1 to $LBName"
+		Log-Command -Description $LogOut -LogFile $LogOutFile
+		}
+	}
+	Catch
+	{
+	Write-Host -foregroundcolor Yellow `
+	"Exception Encountered"; `
+	$ErrorMessage = $_.Exception.Message
+	$LogOut  = 'Error '+$ErrorMessage
+	Log-Command -Description $LogOut -LogFile $LogOutFile
+	break
+	}
+}
+
+Function Configure-IntLB
+{
+	param(
+		[string]$LBName = $IntLBName,
 		[string]$frtendpool = 'frontend',
 		[string]$backpool = 'backend'
 	)
@@ -1283,6 +1379,42 @@ catch {
 }
  }
  #endregion
+
+Function Add-AvailabilitySet {
+	param(
+		[string]$rg = $rg,
+		[string]$Location = $Location,
+		[string]$AvailSetName = $AvailSetName
+)
+ try {
+ If ($AddAvailabilitySet -or $BatchAddAvset -eq 'True')
+ {
+	Write-Host "Adding Availability Set.." -ForegroundColor White
+	Get-AzureRmAvailabilitySet -ResourceGroupName $rg -Name $AvailSetName -WarningAction SilentlyContinue
+	$AddAvailabilitySet = (Get-AzureRmAvailabilitySet -ResourceGroupName $rg -Name $AvailSetName).Id
+	$script:VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AddAvailabilitySet -WarningAction SilentlyContinue
+	Write-Host "Availability Set has been configured" -ForegroundColor White
+	$LogOut = "Completed Availability Set configuration $AvailSetName"
+	Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+else
+{
+	Write-Host "Skipping Availability Set configuration" -ForegroundColor White
+	$script:VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -WarningAction SilentlyContinue -ErrorAction Stop
+	$LogOut = "Skipped Availability Set Configuration"
+	Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+	}
+
+catch {
+	Write-Host -foregroundcolor Yellow `
+	"Exception Encountered"; `
+	$ErrorMessage = $_.Exception.Message
+	$LogOut  = 'Error '+$ErrorMessage
+	Log-Command -Description $LogOut -LogFile $LogOutFile
+	break
+}
+ }
 
 #region Deploy VM
  function Provision-Vm {
@@ -2523,25 +2655,45 @@ Log-Command -Description $LogOut -LogFile $LogOutFile
 #region Create VNET
 Function Create-Vnet {
 param(
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]$VNETName = $VNetName,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]$vnetrg = $vnetrg,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]$AddRange = $AddRange,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]$Location = $Location,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]$SubnetAddPrefix1 = $SubnetAddPrefix1,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]$SubnetNameAddPrefix1 = $SubnetNameAddPrefix1,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]$SubnetAddPrefix2 = $SubnetAddPrefix2,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]$SubnetNameAddPrefix2 = $SubnetNameAddPrefix2,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]$SubnetAddPrefix3 = $SubnetAddPrefix3,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]$SubnetNameAddPrefix3 = $SubnetNameAddPrefix3,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]$SubnetAddPrefix4 = $SubnetAddPrefix4,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]$SubnetNameAddPrefix4 = $SubnetNameAddPrefix4,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]$SubnetAddPrefix5 = $SubnetAddPrefix5,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]$SubnetNameAddPrefix5 = $SubnetNameAddPrefix5,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]$SubnetAddPrefix6 = $SubnetAddPrefix6,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]$SubnetNameAddPrefix6 = $SubnetNameAddPrefix6,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]$SubnetAddPrefix7 = $SubnetAddPrefix7,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]$SubnetNameAddPrefix7 = $SubnetNameAddPrefix7,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]$SubnetAddPrefix8 = $SubnetAddPrefix8,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]$SubnetNameAddPrefix8 = $SubnetNameAddPrefix8
 )
 Write-ConfigVNet
@@ -2576,11 +2728,21 @@ Write-ConfigVNet
 Function Create-LB
 {
 	param(
-[string]$LBName = $LBName,
-[string]$Location = $Location,
-[string]$rg = $vnetrg,
-[string]$frtpool = 'frontend',
-[string]$backpool = 'backend'
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+		[string]
+		$LBName = $ExtLBName,
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+		[string]
+		$Location = $Location,
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+		[string]
+		$rg = $vnetrg,
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+		[string]
+		$frtpool = 'frontend',
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+		[string]
+		$backpool = 'backend'
 	)
 
 	Try
@@ -2613,14 +2775,20 @@ Function Create-LB
 Function Create-IntLB
 {
 	param(
-[string]$LBName = $LBName,
-[string]$Location = $Location,
-[string]$rg = $vnetrg,
-[ipaddress]$PvtIP = $LBPvtIp,
-[int]$subnet = $LBSubnet,
-[string]$frtpool = 'frontend',
-[string]$backpool = 'backend'
-
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+		[string]$LBName = $IntLBName,
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+		[string]$Location = $Location,
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+		[string]$rg = $vnetrg,
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+		[ipaddress]$PvtIP = $LBPvtIp,
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+		[int]$subnet = $script:LBSubnet,
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+		[string]$frtpool = 'frontend',
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+		[string]$backpool = 'backend'
 	)
 
 	Try
@@ -3672,31 +3840,25 @@ exit
 #region Configure DSC
 Function Configure-DSC {
 param(
-
- [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
- [ValidateSet("WIN_MSUpdate","WIN_IIS","SharePoint2013_CU","StorageDownload")]
- [string]
- $DSCConfig = 'WIN_MSUpdate',
-
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
- [string]
- $ConfigurationName = "WindowsUpdate",
- [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
- [string]
- $ArchiveBlobName = "WindowsUpdate.ps1.zip",
-
- [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
- [string]
- $ConfigurationPath = $dscdir + '\WindowsUpdate.ps1',
-
- [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
- [string]
- $storageAccountName = $script:StorageNameVerified,
-
- [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
- [string]
- $StorageType = "Standard_GRS"
-
+	 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+	 [ValidateSet("WIN_MSUpdate","WIN_IIS","SharePoint2013_CU","StorageDownload")]
+	 [string]
+	 $DSCConfig = 'WIN_MSUpdate',
+	 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+	 [string]
+	 $ConfigurationName = "WindowsUpdate",
+	 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+	 [string]
+	 $ArchiveBlobName = "WindowsUpdate.ps1.zip",
+	 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+	 [string]
+	 $ConfigurationPath = $dscdir + '\WindowsUpdate.ps1',
+	 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+	 [string]
+	 $storageAccountName = $script:StorageNameVerified,
+	 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+	 [string]
+	 $StorageType = "Standard_GRS"
 )
 
 	 switch -Wildcard ($DSCConfig)
@@ -3746,9 +3908,17 @@ else
 #region Upload Custom Script
 Function Upload-CustomScript {
 	param(
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+	[string]
 	$StorageName = $StorageName,
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+	[string]
 	$containerName = $containerName,
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+	[string]
 	$rg = $rg,
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+	[string]
 	$localFolder = $localFolder
 	)
 		$Keys = Get-AzureRmStorageAccountKey -ResourceGroupName $rg -Name $StorageName;
@@ -3772,12 +3942,28 @@ Function Upload-CustomScript {
 #region Upload Custom Software
 Function Upload-sharefiles {
 	param(
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+	[string]
 	$StorageName = $StorageName,
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+	[string]
 	$ShareName = $ShareName,
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+	[string]
 	$rg = $rg,
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+	[string]
 	$localsoftwareFolder = $localSoftwareFolder,
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+	[string]
 	$Directory = $sharedirectory
 	)
+			$softwareexists = Test-Path -Path $localSoftwareFolder
+	if(!$softwareexists)
+	{
+	Write-Host "Local Software Directory does not exist $localSoftwareFolder"
+		exit
+	}
 			$Keys = Get-AzureRmStorageAccountKey -ResourceGroupName $rg -Name $StorageName
 			$StorageContext = New-AzureStorageContext -StorageAccountName $StorageName -StorageAccountKey $Keys[0].Value
 			$s = New-AzureStorageShare -Name $ShareName -Context $StorageContext
@@ -3797,11 +3983,21 @@ Function Upload-sharefiles {
 #region Uninstall Extension
 Function UnInstall-Ext {
 	param(
-		[string]$Location = $Location,
-		[string]$rg = $rg,
-		[string]$VMName = $VMName,
-		[string]$customextname = $customextname,
-		[string]$AzExtConfig = $AzExtConfig
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+		[string]
+		$Location = $Location,
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+		[string]
+		$rg = $rg,
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+		[string]
+		$VMName = $VMName,
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+		[string]
+		$customextname = $customextname,
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+		[string]
+		$AzExtConfig = $AzExtConfig
 
 	)
 switch ($AzExtConfig)
@@ -3902,6 +4098,8 @@ switch ($AzExtConfig)
 
 Function Verify-StorageExists {
 	param(
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+		[string]
 		$StorageName = $StorageName
 
 	)
@@ -3920,15 +4118,25 @@ if(!$strexists)
 #region Install Extension
 Function Install-Ext {
 	param(
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 		[string]$AzExtConfig = $AzExtConfig,
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 		[string]$NSGName = $NSGName,
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 		[string]$Location = $Location,
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 		[string]$rg = $rg,
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 		[string]$StorageName = $script:StorageNameVerified,
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 		[string]$VMName = $VMName,
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 		[string]$containerNameScripts = 'scripts',
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 		[string]$DomName =  'aip.local',
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 		[string]$customextname = $customextname,
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 		[string]$localfolderscripts = $customscriptsdir
 	)
 switch ($AzExtConfig)
@@ -4078,8 +4286,11 @@ Function Remove-Orphans {
 	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 	[string]
 	$InterfaceName2 = $VMName + "_nic2",
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 	[string]$Location = $Location,
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 	[string]$rg = $rg,
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 	[string]$VMName = $VMName
 	)
 	$extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $rg -ErrorAction SilentlyContinue
@@ -4126,9 +4337,15 @@ Function Check-Orphans {
 	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 	[string]
 	$InterfaceName2 = $VMName + "_nic2",
-	[string]$Location = $Location,
-	[string]$rg = $rg,
-	[string]$VMName = $VMName
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+	[string]
+	$Location = $Location,
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+	[string]
+	$rg = $rg,
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+	[string]
+	$VMName = $VMName
 	)
 	$extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $rg -ErrorAction SilentlyContinue
 	$nic1 = Get-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -ErrorAction SilentlyContinue
@@ -4350,93 +4567,96 @@ Function Action-Type {
 					Check-Orphans # Verifies no left overs
 					Verify-NIC # Verifies required fields have data
 					Check-StorageName # Verifies Storage Account Name does not exist
-
 					Write-Output "Steps will be tracked in the log file : [ $LogOutFile ]"
 					Create-ResourceGroup
 					if($AddVnet -or $BatchAddVnet -eq 'True')
-					{
-						Create-Vnet
-					} # Creates VNET
+							{
+								Create-Vnet
+							} # Creates VNET
 
 					if($CreateNSG -or $BatchAddNSG -eq 'True')
-					{
-						Create-NSG
-					} # Creates NSG and Security Groups
-					if($CreateExtLoadBalancer)
-					{
-					Check-CreateLB
-					Create-LB
-					}
-					if($CreateIntLoadBalancer)
-					{
-					Check-CreateIntLB
-					Create-IntLB
-					}
+							{
+								Create-NSG
+							} # Creates NSG and Security Groups
+					if($CreateExtLoadBalancer -or $BatchCreateExtLB -eq 'True')
+							{
+							Check-CreateLB
+							Create-LB
+							}
+					if($CreateIntLoadBalancer -or $BatchCreateIntLB -eq 'True')
+							{
+							Verify-LBSubnet
+							Check-CreateIntLB
+							Create-IntLB
+							}
 
 					Check-Vnet
 					Create-VM # Configure Image
 					if($AddNSG -or $BatchUpdateNSG -eq 'True')
-					{
-						Configure-NSG
-					} #Adds NSG to NIC
+							{
+								Configure-NSG
+							} #Adds NSG to NIC
 
-					if($AddLB -or $Batchaddloadbalancer -eq 'True')
-					{
-						Check-ConfigureLB
-						Configure-LB
-					} #Adds NIC to LB
+					if($AddLB -or $BatchAddLB -eq 'True') {
+						if($LBType -eq 'internal'){Configure-IntLB}
+							 elseif($LBType -eq 'external') {Configure-ExtLB}
+								}
+
+				#Adds NIC to LB
 
 					if($UploadSharedFiles -or $BatchAddShare -eq 'True')
-					{
-						Upload-sharefiles
-					}
+							{
+								Upload-sharefiles
+							}
 					if($AddExtension -or $BatchAddExtension -eq 'True')
-					{ Install-Ext
-					}
-					else
-					{ Write-Results }
+							{ Install-Ext
+							}
+							else
+							{ Write-Results }
 
-					if($AddVPN -eq 'True'){
-					Create-VPN
-					Connect-VPN
-					} #Creates VPN
+					if($AddVPN -eq 'True')
+							{
+							Create-VPN
+							Connect-VPN
+							} #Creates VPN
 	}
 			"update" {
 				if($UpdateExtension -or $AddExtension -or $BatchAddExtension -eq 'True')
-	{
-					Verify-StorageExists
-					Install-Ext
-					exit
-	}
+						{
+						Verify-StorageExists
+						Install-Ext
+						exit
+						}
 				if($AddNSG -or $BatchUpdateNSG -eq 'True')
-					{
-					Check-NSGName
-					Configure-NSG
-					}
+						{
+						Check-NSGName
+						Configure-NSG
+						}
 
-				if($AddLB -or $Batchaddloadbalancer -eq 'True')
-					{
-						Check-ConfigureLB
-						Configure-LB
-					} #Adds NIC to LB
-				if($UploadSharedFiles -or $BatchAddShare -eq 'True') {
-					Upload-sharefiles
-				}
+				if($AddLB -or $BatchAddLB -eq 'True') {
+						if($LBType -eq 'internal'){Configure-IntLB}
+							 elseif($LBType -eq 'external') {Configure-ExtLB}
+								}
+
+				if($UploadSharedFiles -or $BatchAddShare -eq 'True')
+						{
+						Upload-sharefiles
+						}
 	}
 			"remove" {
 					Check-RemoveAction
 					if($RemoveObject)
-					{
+						{
 						Check-RemoveObject
 						Remove-Component
-					}
+						}
 
 					if($RemoveExtension)
-					 {
+						 {
 						 Check-ExtensionUnInstall
 						 UnInstall-Ext
-					 }
-	}
+						 }
+		}
 			default{"An unsupported uninstall Extension command was used"}
 		}
 	}
