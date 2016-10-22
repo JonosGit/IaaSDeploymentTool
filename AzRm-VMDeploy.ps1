@@ -2,7 +2,7 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 7.8
+Ver 7.9
 
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerous Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
@@ -12,6 +12,7 @@ This script supports Load Balanced configurations for both internal and external
 
 The script will create three directories if they do not exist in the runtime directory, Log, Scripts, DSC.
 
+v7.9 updates - Vnet Peering added under -vnetpeering switch
 v7.8 updates - deploy LB from csv functionality added
 v7.7 updates - added internal load balancer creation option -CreateIntLoadBalancer
 v7.6 updates - Now able to deploy new Azure RM external load balancers as well as add/update VM NICs to provision to LB Back End Pool -createextloadbalancer
@@ -316,12 +317,24 @@ $rg = '',
 [string]
 $vnetrg = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateNotNullorEmpty()]
+[string]
+$vnet2rg = '',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [switch]
 $AddVnet,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("vnet")]
 [string]
 $VNetName = '',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[Alias("vnet2")]
+[string]
+$VNetName2 = 'vnet2',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[Alias("addpeer")]
+[switch]
+$VnetPeering,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateSet("Single","Dual","NoPubDual","PvtDualStat","StatPvtNoPubSingle","PvtSingleStat","StatPvtNoPubDual","NoPubSingle")]
 [ValidateNotNullorEmpty()]
@@ -449,55 +462,55 @@ $AddVPN = $False,
 $LocalNetPip = "207.21.2.1",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$LocalAddPrefix = "10.10.0.0/24",
+$LocalAddPrefix = "10.0.0.0/24",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$AddRange = '10.120.0.0/21',
+$AddRange = '10.20.0.0/21',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$SubnetAddPrefix1 = "10.120.0.0/24",
+$SubnetAddPrefix1 = "10.20.0.0/24",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $SubnetNameAddPrefix1 = "gatewaysubnet",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$SubnetAddPrefix2 = "10.120.1.0/25",
+$SubnetAddPrefix2 = "10.20.1.0/25",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $SubnetNameAddPrefix2 = 'perimeter',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$SubnetAddPrefix3 = "10.120.2.0/24",
+$SubnetAddPrefix3 = "10.20.2.0/24",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $SubnetNameAddPrefix3 = "data",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$SubnetAddPrefix4 = "10.120.3.0/24",
+$SubnetAddPrefix4 = "10.20.3.0/24",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $SubnetNameAddPrefix4 = "monitor",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$SubnetAddPrefix5 = "10.120.4.0/24",
+$SubnetAddPrefix5 = "10.20.4.0/24",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $SubnetNameAddPrefix5 = "reporting",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$SubnetAddPrefix6 = "10.120.5.0/24",
+$SubnetAddPrefix6 = "10.20.5.0/24",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $SubnetNameAddPrefix6 = "analytics",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$SubnetAddPrefix7 = "10.120.6.0/24",
+$SubnetAddPrefix7 = "10.20.6.0/24",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $SubnetNameAddPrefix7 = "management",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$SubnetAddPrefix8 = "10.120.7.0/24",
+$SubnetAddPrefix8 = "10.20.7.0/24",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $SubnetNameAddPrefix8 = "deployment",
@@ -714,7 +727,7 @@ Write-Host"Setting LBName to $LBName"
 	Write-Host"Setting LBName to $LBName"
 	}
 }
-#region Verify Private IP
+#region Verify IP
 Function Verify-PvtIp {
 		if($PvtIPNic1)
 			{
@@ -758,7 +771,7 @@ if($PvtIPNic2)
 }
 
 Function Verify-LBSubnet {
-if($PvtIPNic2)
+if($CreateIntLoadBalancer -or $BatchCreateIntLB -eq 'True')
 			{
 			[int]$subnet = $LBSubnet
 			$ip = $LBPvtIp
@@ -819,6 +832,65 @@ Function Verify-NIC {
 	}
 }
 #endregion
+
+Function Create-VnetPeering {
+	param(
+[string]$vnetName_1 = $VNetName,
+[string]$vnetName_2 = $VNetName2,
+[string]$vnetrg = $vnetrg
+	)
+
+	Try
+	{
+if($VnetPeering)
+{
+Register-AzureRmProviderFeature -FeatureName AllowVnetPeering -ProviderNamespace Microsoft.Network -Confirm:$false -WarningAction SilentlyContinue | Out-Null
+Register-AzureRmResourceProvider -ProviderNamespace Microsoft.Network -Confirm:$false -WarningAction SilentlyContinue | Out-Null
+
+# Get vnet properties
+$vnet1 = Get-AzureRmVirtualNetwork -ResourceGroupName $vnetrg -Name $vnetName_1 -WarningAction SilentlyContinue -ErrorAction Stop
+$vnet2 = Get-AzureRmVirtualNetwork -ResourceGroupName $vnetrg -Name $vnetName_2 -WarningAction SilentlyContinue -ErrorAction Stop
+
+# Create link between vnets
+Add-AzureRmVirtualNetworkPeering -name peer1 -VirtualNetwork $vnet1 -RemoteVirtualNetworkId $vnet2.id
+Add-AzureRmVirtualNetworkPeering -name peer2 -VirtualNetwork $vnet2 -RemoteVirtualNetworkId $vnet1.id
+
+$LogOut = "Completed Network Peering Configuration of $VNetName and $VnetName2"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+	}
+}
+	Catch
+	{
+	Write-Host -foregroundcolor Yellow `
+	"Exception Encountered"; `
+	$ErrorMessage = $_.Exception.Message
+	$LogOut  = 'Error '+$ErrorMessage
+	Log-Command -Description $LogOut -LogFile $LogOutFile
+	break
+	}
+}
+
+Function Vnet-Peering {
+	param(
+[string]$vnetName_1 = $VNetName,
+[string]$vnetName_2 = $VNetName2,
+[string]$vnetrg = $vnetrg
+	)
+# Enable vnet peering
+Register-AzureRmProviderFeature -FeatureName AllowVnetPeering -ProviderNamespace Microsoft.Network -Confirm:$false -WarningAction SilentlyContinue
+Register-AzureRmResourceProvider -ProviderNamespace Microsoft.Network -Confirm:$false -WarningAction SilentlyContinue
+
+# Get vnet properties
+$vnet1 = Get-AzureRmVirtualNetwork -ResourceGroupName $vnetrg -Name $vnetName_1
+$vnet2 = Get-AzureRmVirtualNetwork -ResourceGroupName $vnetrg -Name $vnetName_2
+
+# Create link between vnets
+Add-AzureRmVirtualNetworkPeering -name peer1 -VirtualNetwork $vnet1 -RemoteVirtualNetworkId $vnet2.id
+Add-AzureRmVirtualNetworkPeering -name peer2 -VirtualNetwork $vnet2 -RemoteVirtualNetworkId $vnet1.id
+
+$LogOut = "Completed Network Peering Configuration of $VNetName and $VnetName2"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
 
 Function Check-Vnet {
 $vnetexists = Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
@@ -896,7 +968,6 @@ Write-Host "Please Enter Extension Name"
  exit
 }
 }
-#endregion
 
 function Check-ConfigureLB {
 if($AddLB -and !$LBName) {
@@ -928,7 +999,7 @@ exit
 			exit
 			 }
 }
-
+#endregion
 #region Show DNS
 Function Configure-PubIpDNS {
 	param(
@@ -1207,6 +1278,7 @@ Function Configure-NSG
 }
 #endregion
 
+#region Configure LB Ext
 Function Configure-extLB
 {
 	param(
@@ -1242,7 +1314,9 @@ Function Configure-extLB
 	break
 	}
 }
+#endregion
 
+#region Configure Internal LB
 Function Configure-IntLB
 {
 	param(
@@ -1278,6 +1352,7 @@ Function Configure-IntLB
 	break
 	}
 }
+#endregion
 
 #region Create VPN
 Function Create-VPN {
@@ -1379,42 +1454,6 @@ catch {
 }
  }
  #endregion
-
-Function Add-AvailabilitySet {
-	param(
-		[string]$rg = $rg,
-		[string]$Location = $Location,
-		[string]$AvailSetName = $AvailSetName
-)
- try {
- If ($AddAvailabilitySet -or $BatchAddAvset -eq 'True')
- {
-	Write-Host "Adding Availability Set.." -ForegroundColor White
-	Get-AzureRmAvailabilitySet -ResourceGroupName $rg -Name $AvailSetName -WarningAction SilentlyContinue
-	$AddAvailabilitySet = (Get-AzureRmAvailabilitySet -ResourceGroupName $rg -Name $AvailSetName).Id
-	$script:VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AddAvailabilitySet -WarningAction SilentlyContinue
-	Write-Host "Availability Set has been configured" -ForegroundColor White
-	$LogOut = "Completed Availability Set configuration $AvailSetName"
-	Log-Command -Description $LogOut -LogFile $LogOutFile
-}
-else
-{
-	Write-Host "Skipping Availability Set configuration" -ForegroundColor White
-	$script:VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -WarningAction SilentlyContinue -ErrorAction Stop
-	$LogOut = "Skipped Availability Set Configuration"
-	Log-Command -Description $LogOut -LogFile $LogOutFile
-}
-	}
-
-catch {
-	Write-Host -foregroundcolor Yellow `
-	"Exception Encountered"; `
-	$ErrorMessage = $_.Exception.Message
-	$LogOut  = 'Error '+$ErrorMessage
-	Log-Command -Description $LogOut -LogFile $LogOutFile
-	break
-}
- }
 
 #region Deploy VM
  function Provision-Vm {
@@ -2756,7 +2795,7 @@ Function Create-LB
 		$inboundnat1 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'inboundnat1' -FrontendIpConfiguration $frtend -Protocol Tcp -FrontendPort 443 -BackendPort 443 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
 		$inboundnat2 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'inboundnat2' -FrontendIpConfiguration $frtend -Protocol Tcp -FrontendPort 3389 -BackendPort 3389 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
 		$lbrule = New-AzureRmLoadBalancerRuleConfig -Name 'lbrules' -FrontendIpConfiguration $frtend -BackendAddressPool $backendpool -Probe $probecfg -Protocol Tcp -FrontendPort '80' -BackendPort '80' -IdleTimeoutInMinutes '20' -EnableFloatingIP -LoadDistribution SourceIP -WarningAction SilentlyContinue
-		$lb = New-AzureRmLoadBalancer -Location $Location -Name $LBName -ResourceGroupName $rg -FrontendIpConfiguration $frtend -BackendAddressPool $backendpool -Probe $probecfg -InboundNatRule $inboundnat1,$inboundnat2 -LoadBalancingRule $lbrule -WarningAction SilentlyContinue -ErrorAction Stop
+		$lb = New-AzureRmLoadBalancer -Location $Location -Name $LBName -ResourceGroupName $rg -FrontendIpConfiguration $frtend -BackendAddressPool $backendpool -Probe $probecfg -InboundNatRule $inboundnat1,$inboundnat2 -LoadBalancingRule $lbrule -WarningAction SilentlyContinue -ErrorAction Stop -Force -Confirm:$false
 		Get-AzureRmLoadBalancer -Name $LBName -ResourceGroupName $rg -WarningAction SilentlyContinue | Out-Null
 			$LogOut = "Completed LB Configuration of $LBName"
 			Log-Command -Description $LogOut -LogFile $LogOutFile
@@ -2801,7 +2840,7 @@ Function Create-IntLB
 		$inboundnat1 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'inboundnat1' -FrontendIpConfiguration $frontendIP -Protocol Tcp -FrontendPort 3391 -BackendPort 3389 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
 		$inboundnat2 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'inboundnat2' -FrontendIpConfiguration $frontendIP -Protocol Tcp -FrontendPort 3389 -BackendPort 3389 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
 		$lbrule = New-AzureRmLoadBalancerRuleConfig -Name 'lbrules' -FrontendIpConfiguration $frontendIP -BackendAddressPool $backendpool -Probe $probecfg -Protocol Tcp -FrontendPort '80' -BackendPort '80' -IdleTimeoutInMinutes '20' -EnableFloatingIP -LoadDistribution SourceIP -WarningAction SilentlyContinue
-		$lb = New-AzureRmLoadBalancer -Location $Location -Name $LBName -ResourceGroupName $rg -FrontendIpConfiguration $frontendIP -BackendAddressPool $backendpool -Probe $probecfg -InboundNatRule $inboundnat1,$inboundnat2 -LoadBalancingRule $lbrule -WarningAction SilentlyContinue -ErrorAction Stop
+		$lb = New-AzureRmLoadBalancer -Location $Location -Name $LBName -ResourceGroupName $rg -FrontendIpConfiguration $frontendIP -BackendAddressPool $backendpool -Probe $probecfg -InboundNatRule $inboundnat1,$inboundnat2 -LoadBalancingRule $lbrule -WarningAction SilentlyContinue -ErrorAction Stop -Force -Confirm:$false
 		Get-AzureRmLoadBalancer -Name $LBName -ResourceGroupName $rg -WarningAction SilentlyContinue -ErrorAction Stop | Out-Null
 			$LogOut = "Completed LB Configuration of $LBName"
 			Log-Command -Description $LogOut -LogFile $LogOutFile
@@ -2860,15 +2899,15 @@ Function Subnet-Match {
 	)
 switch ($Subnet)
 {
-0 {Write-Host "Deploying to Subnet 10.120.0.0/24"}
-1 {Write-Host "Deploying to Subnet 10.120.1.0/24"}
-2 {Write-Host "Deploying to Subnet 10.120.2.0/24"}
-3 {Write-Host "Deploying to Subnet 10.120.3.0/24"}
-4 {Write-Host "Deploying to Subnet 10.120.4.0/24"}
-5 {Write-Host "Deploying to Subnet 10.120.5.0/24"}
-6 {Write-Host "Deploying to Subnet 10.120.6.0/24"}
-7 {Write-Host "Deploying to Subnet 10.120.7.0/24"}
-8 {Write-Host "Deploying to Subnet 10.120.8.0/24"}
+0 {Write-Host "Deploying to Subnet $SubnetAddPrefix1"}
+1 {Write-Host "Deploying to Subnet $SubnetAddPrefix2"}
+2 {Write-Host "Deploying to Subnet $SubnetAddPrefix3"}
+3 {Write-Host "Deploying to Subnet $SubnetAddPrefix4"}
+4 {Write-Host "Deploying to Subnet $SubnetAddPrefix5"}
+5 {Write-Host "Deploying to Subnet $SubnetAddPrefix6"}
+6 {Write-Host "Deploying to Subnet $SubnetAddPrefix7"}
+7 {Write-Host "Deploying to Subnet $SubnetAddPrefix8"}
+8 {Write-Host "Deploying to Subnet $SubnetAddPrefix9"}
 default {No Subnet Found}
 }
 }
@@ -4093,7 +4132,7 @@ switch ($AzExtConfig)
 		default{"An unsupported uninstall Extension command was used"}
 	}
 	exit
-} # Deploys Azure Extensions
+}
 #endregion
 
 Function Verify-StorageExists {
@@ -4274,7 +4313,7 @@ switch ($AzExtConfig)
 		default{"An unsupported Extension command was used"}
 	}
 	exit
-} # Deploys Azure Extensions
+}
 #endregion
 
 #region Remove Orphans
@@ -4550,6 +4589,7 @@ switch ($RemoveObject)
 }
 #endregion
 
+#region Action Type
 Function Action-Type {
 	param(
 		$ActionType = $ActionType
@@ -4601,9 +4641,6 @@ Function Action-Type {
 						if($LBType -eq 'internal'){Configure-IntLB}
 							 elseif($LBType -eq 'external') {Configure-ExtLB}
 								}
-
-				#Adds NIC to LB
-
 					if($UploadSharedFiles -or $BatchAddShare -eq 'True')
 							{
 								Upload-sharefiles
@@ -4619,6 +4656,10 @@ Function Action-Type {
 							Create-VPN
 							Connect-VPN
 							} #Creates VPN
+					if($VNETPeering)
+							{
+Create-VnetPeering
+							} #Creates Peering
 	}
 			"update" {
 				if($UpdateExtension -or $AddExtension -or $BatchAddExtension -eq 'True')
@@ -4642,6 +4683,10 @@ Function Action-Type {
 						{
 						Upload-sharefiles
 						}
+				if($VNETPeering)
+							{
+Vnet-Peering
+							} #Creates Peering
 	}
 			"remove" {
 					Check-RemoveAction
@@ -4672,6 +4717,7 @@ Function Action-Type {
 
 	exit
 }
+#endregion
 
 #region Azure Version
 Function Verify-AzureVersion {
