@@ -2,7 +2,7 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 7.9
+Ver 8.1
 
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerous Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
@@ -12,6 +12,8 @@ This script supports Load Balanced configurations for both internal and external
 
 The script will create three directories if they do not exist in the runtime directory, Log, Scripts, DSC.
 
+v8.1 updates - Additional removal functions moved to AZRM-RemoveResource.ps1, final release 2016.
+v8.0 updates - Added - override switch to use Add-AzureRmAccount instead of Profile file
 v7.9 updates - Vnet Peering added under -vnetpeering switch
 v7.8 updates - deploy LB from csv functionality added
 v7.7 updates - added internal load balancer creation option -CreateIntLoadBalancer
@@ -26,161 +28,157 @@ Deploys 55 different Market Images on a new or existing VNET. Supports post depl
 Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windows 2012 R2, Ubuntu 14.04, CentOs 7.2, SUSE, SQL 2016 (on W2K12R2), R Server on Windows, Windows 2016 (Preview), Checkpoint Firewall, FreeBsd, Puppet, Splunk, Bitnami Lamp, Bitnami PostGresSql, Bitnami nodejs, Bitnami Elastics, Bitnami MySql, SharePoint 2013/2016, Barracuda NG, Barracuda SPAM, F5 BigIP, F5 App Firewall, Bitnami JRuby, Bitnami Neos, Bitnami TomCat, Bitnami redis, Bitnami hadoop, Incredibuild, VS 2015, Dev15 Preview, Tableau, MS NAV, TFS, Ads Data Science Server, Biztalk 2013/2016, HortonWorks, Cloudera, DataStax
 
 .PARAMETER ActionType
-
+Sets the type of action for the script to execute
 .PARAMETER vmMarketImage
-
+Sets the type of image to be deloyed.
 .PARAMETER VMName
-
+Sets the name of the VM to deploy
 .PARAMETER rg
-
+The name of the resource group to deploy too.
 .PARAMETER vnetrg
-
+The name of the resource group the Vnet is deployed too.
 .PARAMETER AddVnet
-
+Adds a mew Vnet.
 .PARAMETER BatchAddVnet
-
+Adds a new Vnet based on CSV field.
 .PARAMETER VNetName
-
+Name of new or existing vnet to deploy too.
 .PARAMETER ConfigIPs
-
+Type of network configuration to use for the VM NIC
 .PARAMETER CreateNSG
-
+Adds a mew NSG to the vnet resource group.
 .PARAMETER BatchAddNSG
-
+Adds a new NSG based on csv field.
 .PARAMETER RemoveObject
-
+Selects type of object to remove.
 .PARAMETER VMSize
-
+Selects size of VM to deploy.
 .PARAMETER locadmin
-
+User account name used in creating local administrator account.
 .PARAMETER locpassword
-
+Password used for local administrator account
 .PARAMETER Location
-
-.PARAMETER SubscriptionID
-
-.PARAMETER TenantID
-
+Azure Region to deploy too.
 .PARAMETER GenerateName
-
+Generates random name for Availability set if no name specified.
 .PARAMETER StorageName
-
+Generates name based on VMName if no name specified
 .PARAMETER StorageType
-
+Type of Storage Used for VM
 .PARAMETER InterfaceName1
-
+Name of Network Interface One (generated if not specified)
 .PARAMETER InterfaceName2
-
+Name of Network Interface Two (generated if not specified)
 .PARAMETER NSGName
-
+Name of new of existing NSG
 .PARAMETER Subnet1
-
+Subnet to use for NIC1
 .PARAMETER Subnet2
-
+Subnet to use for Nic2
 .PARAMETER AddAvailabilitySet
-
+Create and Add Availability Set
 .PARAMETER BatchAddAvSet
-
+Create and Add Availability Set based on Csv input
 .PARAMETER AvailSetName
-
+Availability Set Name
 .PARAMETER DNLabel
-
+Domain Name Label to use for FQDN
 .PARAMETER AddFQDN
-
+Adds Fully Qualified Domain Namne to Public IP
 .PARAMETER BatchAddFQDN
-
+Based on csv input adds FQDN to public Ip
 .PARAMETER PvtIPNic1
-
+Private Ip Address Nic1
 .PARAMETER PvtIPNic2
-
+Private Ip Address Nic2
 .PARAMETER AddVPN
-
+Creates and Adds a Site to site VPN
 .PARAMETER LocalNetPip
-
+Local Network PIP for Site to Site VPN
 .PARAMETER LocalAddPrefix
-
+Local Network Address Range
 .PARAMETER AddRange
-
+vNET Address Range
 .PARAMETER SubnetAddPrefix1
-
+VNET Subnet1
 .PARAMETER SubnetNameAddPrefix1
-
+VNET Subnet1 Name
 .PARAMETER SubnetAddPrefix2
-
+VNET Subnet2
 .PARAMETER SubnetNameAddPrefix2
-
+VNET Subnet2 Name
 .PARAMETER SubnetAddPrefix3
-
+VNET Subnet3
 .PARAMETER SubnetNameAddPrefix3
-
+VNET Subnet3 Name
 .PARAMETER SubnetAddPrefix4
-
+VNET Subnet4
 .PARAMETER SubnetNameAddPrefix4
-
+VNET Subnet4 Name
 .PARAMETER SubnetAddPrefix5
-
+VNET Subnet5
 .PARAMETER SubnetNameAddPrefix5
-
+VNET Subnet5 Name
 .PARAMETER SubnetAddPrefix6
-
+VNET Subnet6
 .PARAMETER SubnetNameAddPrefix6
-
+VNET Subnet6 Name
 .PARAMETER SubnetAddPrefix7
-
+VNET Subnet7
 .PARAMETER SubnetNameAddPrefix7
-
+VNET Subnet7 Name
 .PARAMETER SubnetAddPrefix8
-
+VNET Subnet8
 .PARAMETER SubnetNameAddPrefix8
-
+VNET Subnet8 Name
 .PARAMETER Azautoacct
-
+Azure Automation Account (Extension Deloyemnt)
 .PARAMETER Profile
-
-.PARAMETER LBName
-
+Name of local json file to store profile in
+.PARAMETER LBType
+Load Balancer Type
+.PARAMETER IntLBName
+Load Balancer Name
+.PARAMETER ExtLBName
+Load Balancer Name
 .PARAMETER LBSubnet
-
+Internal Local Balancer Subnet
 .PARAMETER LBPvtIp
-
+Internal Local Balancer IP
 .PARAMETER AddLB
-
+Adds Load Balancer to VM NIC
 .PARAMETER CreateIntLoadBalancer
-
+Creates a new Internal Load Balancer
 .PARAMETER CreateExtLoadBalancer
-
+Creates a new external Load Balancer
 .PARAMETER AzExtConfig
-
+Configures Extension Type to Remove or Deploy
 .PARAMETER AddExtension
-
-.PARAMETER UpdateExtension
-
+Adds Extension
 .PARAMETER BatchAddExtension
-
+Based on csv adds extension
 .PARAMETER RemoveExtension
-
+Removes Extension
 .PARAMETER CustomScriptUpload
-
+Name of custom script to upload and deploy
 .PARAMETER dscname
-
+Name of DSC to deploy
 .PARAMETER scriptname
-
+Name of custom script to execute
 .PARAMETER containername
-
+Name of container to create in storage for custom scripts
 .PARAMETER sharename
-
+Name of Storage Share to Create
 .PARAMETER sharedirectory
-
+Name of storage share directory to create
 .PARAMETER customextname
-
+Name of script to execute
 .PARAMETER scriptfolder
-
-.PARAMETER localfolder
-
+Name of local script folder to upload
 .PARAMETER csvimport
-
+Imports runtime parameters based on CSV
 .PARAMETER csvfile
-
+csvfile to reference
 .PARAMETER help
 
 .EXAMPLE
@@ -195,10 +193,6 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 \.AZRM-VMDeploy.ps1 -ActionType Create -vm win008 -image w2k16 -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -sub1 5 -ConfigIPs PvtSingleStat -Nic1 10.120.4.169 -AddFQDN -fqdn mydns1
 .EXAMPLE
 \.AZRM-VMDeploy.ps1 -ActionType Create -vm ubu001 -image ubuntu -RG ResGroup1 -vnetrg ResGroup2 -VNet VNET -sub1 6 -ConfigIPs PvtSingleStat -Nic1 10.120.5.169 -AddFQDN fqdn mydns2
-.EXAMPLE
-\.AZRM-VMDeploy.ps1 -ActionType remove -vm ubu001 -RG ResGroup1 -RemoveObject VM
-.EXAMPLE
-\.AZRM-VMDeploy.ps1 -ActionType remove -RG ResGroup1 -RemoveObject rg
 .EXAMPLE
 .\AZRM-VMDeploy.ps1 -ActionType update -UploadSharedFiles -StorageName test001str -rg resx
 .NOTES
@@ -286,14 +280,14 @@ Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windo
 			WinPuppet - Puppet Agent Install for Windows
 .LINK
 https://github.com/JonosGit/IaaSDeploymentTool
-https://github.com/JonosGit/IaaSDeploymentTool/blob/master/The%20IaaS%20Deployment%20Tool%20User%20Guide.pdf
+
 #>
 
 [CmdletBinding(DefaultParameterSetName = 'default')]
 Param(
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
-[ValidateSet("remove","create","update")]
+[ValidateSet("create","update")]
 [Alias("action")]
 [string]
 $ActionType = 'create',
@@ -317,16 +311,25 @@ $rg = '',
 [string]
 $vnetrg = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateSet("Single","Dual","NoPubDual","PvtDualStat","StatPvtNoPubSingle","PvtSingleStat","StatPvtNoPubDual","NoPubSingle")]
 [ValidateNotNullorEmpty()]
 [string]
-$vnet2rg = '',
+$ConfigIPs = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [switch]
 $AddVnet,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateNotNullorEmpty()]
+[string]
+$vnet2rg = '',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("vnet")]
 [string]
 $VNetName = '',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[Alias("useazrmlogin")]
+[switch]
+$usermlogin,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("vnet2")]
 [string]
@@ -335,11 +338,6 @@ $VNetName2 = 'vnet2',
 [Alias("addpeer")]
 [switch]
 $VnetPeering,
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[ValidateSet("Single","Dual","NoPubDual","PvtDualStat","StatPvtNoPubSingle","PvtSingleStat","StatPvtNoPubDual","NoPubSingle")]
-[ValidateNotNullorEmpty()]
-[string]
-$ConfigIPs = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("nsg")]
 [switch]
@@ -370,11 +368,7 @@ $ExtLBName = 'extlb',
 [int]
 $LBSubnet = '3',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-$LBPvtIp = '10.120.4.10',
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[ValidateSet("vm","vnet","rg","nsg","storage","availabilityset")]
-[string]
-$RemoveObject = '',
+$LBPvtIp = '10.20.4.10',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [ValidateSet("Standard_A3","Standard_A4","Standard_A2")]
@@ -568,10 +562,6 @@ $BatchCreateIntLB = 'False',
 [string]
 $BatchAddLB = 'False',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[Alias("removeext")]
-[switch]
-$RemoveExtension,
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateSet("True","False")]
 [Alias("upload")]
 [string]
@@ -619,7 +609,16 @@ $csvfile = -join $workfolder + "\azrm-vmdeploy.csv",
 [Alias("h")]
 [Alias("?")]
 [switch]
-$help
+$help,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$remscriptpath =  '.\AZRM-RemoveResource.ps1',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$extscriptpath = '.\Azrm-ExtDeploy.ps1',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$vnetscriptpath = '.\AzRm-VNETDeploy.ps1'
 )
 
 $SecureLocPassword=Convertto-SecureString $locpassword –asplaintext -Force
@@ -647,6 +646,11 @@ $fileexist = Test-Path $ProfileFile -NewerThan $comparedate
   }
 }
 #endregion
+
+Function Login-AddAzureRmProfile
+{
+Add-AzureRmAccount -WarningAction SilentlyContinue
+}
 
 #region User Help
 Function Help-User {
@@ -814,7 +818,7 @@ Function Verify-NIC {
 	If ($ConfigIPs -eq "Dual")
 	{
 		Write-Host "Skipping Subnet IP Validation"
-		if($Subnet1 -le 1){$subnet1 = 1}
+		if($Subnet1 -le 0){$subnet1 = 0}
 		if($Subnet2 -le 1){$subnet2 = 2}
 		$script:Subnet1 = $Subnet1
 		$script:Subnet2 = $Subnet2
@@ -874,19 +878,21 @@ Function Vnet-Peering {
 	param(
 [string]$vnetName_1 = $VNetName,
 [string]$vnetName_2 = $VNetName2,
-[string]$vnetrg = $vnetrg
+[string]$vnetrg = $vnetrg,
+[string]$peer1 = 'peer1',
+[string]$peer2 = 'peer2'
 	)
 # Enable vnet peering
 Register-AzureRmProviderFeature -FeatureName AllowVnetPeering -ProviderNamespace Microsoft.Network -Confirm:$false -WarningAction SilentlyContinue
 Register-AzureRmResourceProvider -ProviderNamespace Microsoft.Network -Confirm:$false -WarningAction SilentlyContinue
 
 # Get vnet properties
-$vnet1 = Get-AzureRmVirtualNetwork -ResourceGroupName $vnetrg -Name $vnetName_1
-$vnet2 = Get-AzureRmVirtualNetwork -ResourceGroupName $vnetrg -Name $vnetName_2
+$vnet1 = Get-AzureRmVirtualNetwork -ResourceGroupName $vnetrg -Name $vnetName_1 -WarningAction SilentlyContinue -ErrorAction Stop | Out-Null
+$vnet2 = Get-AzureRmVirtualNetwork -ResourceGroupName $vnetrg -Name $vnetName_2 -WarningAction SilentlyContinue -ErrorAction Stop | Out-Null
 
 # Create link between vnets
-Add-AzureRmVirtualNetworkPeering -name peer1 -VirtualNetwork $vnet1 -RemoteVirtualNetworkId $vnet2.id
-Add-AzureRmVirtualNetworkPeering -name peer2 -VirtualNetwork $vnet2 -RemoteVirtualNetworkId $vnet1.id
+Add-AzureRmVirtualNetworkPeering -name $peer1 -VirtualNetwork $vnet1 -RemoteVirtualNetworkId $vnet2.id -WarningAction SilentlyContinue -ErrorAction Stop | Out-Null
+Add-AzureRmVirtualNetworkPeering -name $peer2 -VirtualNetwork $vnet2 -RemoteVirtualNetworkId $vnet1.id -WarningAction SilentlyContinue -ErrorAction Stop | Out-Null
 
 $LogOut = "Completed Network Peering Configuration of $VNetName and $VnetName2"
 Log-Command -Description $LogOut -LogFile $LogOutFile
@@ -915,21 +921,6 @@ exit
 				exit
 				}
 }
-
-function Check-RemoveAction {
-if($ActionType -eq 'Remove' -and !$RemoveObject -and !$RemoveExtension)
-	 {
-		 Write-Host "Please enter object -RemoveObject or extension -RemoveExtension to remove"
-		exit
-		 }
- }
-
-function Check-RemoveObject {
-if($RemoveObject -eq 'rg' -and !$rg) {
-	Write-Host "Please Enter -rg RG Name"
-	exit
-	}
-	}
 
 function Check-ExtensionUnInstall {
 if($RemoveExtension -and !$rg) {
@@ -2788,7 +2779,7 @@ Function Create-LB
 	{
 	$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
 	Write-Host "Creating Public Ip, Pools, Probe and Inbound NAT Rules"
-		$lbpublicip = New-AzureRmPublicIpAddress -Name 'lbip' -ResourceGroupName $rg -Location $Location -AllocationMethod Dynamic -WarningAction SilentlyContinue
+		$lbpublicip = New-AzureRmPublicIpAddress -Name 'lbip' -ResourceGroupName $rg -Location $Location -AllocationMethod Dynamic -WarningAction SilentlyContinue -Force -Confirm:$False
 		$frtend = New-AzureRmLoadBalancerFrontendIpConfig -Name $frtpool -PublicIpAddress $lbpublicip -WarningAction SilentlyContinue
 		$backendpool = New-AzureRmLoadBalancerBackendAddressPoolConfig -Name $backpool  -WarningAction SilentlyContinue
 		$probecfg = New-AzureRmLoadBalancerProbeConfig -Name 'probecfg' -Protocol Http -Port 80 -IntervalInSeconds 30 -ProbeCount 2 -RequestPath 'healthcheck.aspx' -WarningAction SilentlyContinue
@@ -4019,122 +4010,6 @@ Function Upload-sharefiles {
 }
 #endregion
 
-#region Uninstall Extension
-Function UnInstall-Ext {
-	param(
-		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-		[string]
-		$Location = $Location,
-		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-		[string]
-		$rg = $rg,
-		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-		[string]
-		$VMName = $VMName,
-		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-		[string]
-		$customextname = $customextname,
-		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-		[string]
-		$AzExtConfig = $AzExtConfig
-
-	)
-switch ($AzExtConfig)
-	{
-		"access" {
-				Write-Host "VM Access Agent VM Image Removal in Process"
-				Remove-AzureRmVMAccessExtension -ResourceGroupName $rg -VMName $VMName -Name "VMAccess" -Force -Confirm:$false
-				$LogOut = "Removed VM Access Extension"
-				Log-Command -Description $LogOut -LogFile $LogOutFile
-						exit
-}
-		"msav" {
-				Write-Host "MSAV Agent VM Image Removal in Process"
-				Remove-AzureRmVMExtension -Name "MSAVExtension" -ResourceGroupName $rg -VMName $VMName -Confirm:$false -Force
-				$LogOut = "Removed MSAV Extension"
-				Log-Command -Description $LogOut -LogFile $LogOutFile
-						exit
-		}
-		"customscript" {
-				Write-Host "Removing custom script"
-				Remove-AzureRmVMCustomScriptExtension -ResourceGroupName $rg -VMName $VMName -Name $customextname -Confirm:$false -Force
-				$LogOut = "Removed Custom Script Extension"
-				Log-Command -Description $LogOut -LogFile $LogOutFile
-					exit
-		}
-		"diag" {
-				Write-Host "Removing Azure Enhanced Diagnostics"
-				Remove-AzureRmVMAEMExtension -ResourceGroupName $rg -VMName $VMName
-				$LogOut = "Removed Custom Script Extension"
-				Log-Command -Description $LogOut -LogFile $LogOutFile
-						exit
-		}
-		"domjoin" {
-				Write-Host "Removing Domain Join"
-		}
-		"linuxOsPatch" {
-				Write-Host "Removing Azure OS Patching Linux"
-				Remove-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "OSPatch"
-				$LogOut = "Removed Linux OS Patch Extension"
-				Log-Command -Description $LogOut -LogFile $LogOutFile
-						exit
-				}
-		"linuxbackup" {
-				Write-Host "Removing Linux VMBackup"
-				Remove-AzureRmVMBackup -ResourceGroupName $rg -VMName $VMName -Tag 'OSBackup'
-				$LogOut = "Removed Linux OS Backup Extension"
-				Log-Command -Description $LogOut -LogFile $LogOutFile
-						exit
-				}
-		"chefAgent" {
-				Write-Host "Removing Chef Agent"
-				Remove-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "ChefStrap" -Force -Confirm:$false
-				$LogOut = "Removed Chef Extension"
-				Log-Command -Description $LogOut -LogFile $LogOutFile
-				exit
-				}
-		"opsinsightLinux" {
-				Write-Host "Removing Linux Insight Agent"
-			exit
-				}
-		"opsinsightWin" {
-				Write-Host "Removing Windows Insight Agent"
-			exit
-				}
-		"ESET" {
-				Write-Host "Removing File Security"
-				Remove-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "ESET" -Force -Confirm:$false
-				$LogOut = "Removed File Security Extension"
-				Log-Command -Description $LogOut -LogFile $LogOutFile
-			exit
-				}
-		"RegisterAzDSC" {
-				Write-Host "Removing Azure Automation DSC"
-			exit
-				}
-		"WinPuppet" {
-				Write-Host "Removing Puppet Extension"
-			exit
-				}
-		"PushDSC" {
-				Remove-DscExt
-				$LogOut = "Removed DSC Extension"
-				Log-Command -Description $LogOut -LogFile $LogOutFile
-						exit
-				}
-		"Bginfo" {
-				Write-Host "Removing BgInfo Extension"
-				Remove-AzureVMBGInfoExtension -VM $VMName
-				$LogOut = "Removed BGInfo Extension"
-				Log-Command -Description $LogOut -LogFile $LogOutFile
-			exit
-				}
-		default{"An unsupported uninstall Extension command was used"}
-	}
-	exit
-}
-#endregion
-
 Function Verify-StorageExists {
 	param(
 		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
@@ -4316,57 +4191,6 @@ switch ($AzExtConfig)
 }
 #endregion
 
-#region Remove Orphans
-Function Remove-Orphans {
-	param(
-	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-	[string]
-	$InterfaceName1 = $VMName + "_nic1",
-	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-	[string]
-	$InterfaceName2 = $VMName + "_nic2",
-	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-	[string]$Location = $Location,
-	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-	[string]$rg = $rg,
-	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-	[string]$VMName = $VMName
-	)
-	$extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $rg -ErrorAction SilentlyContinue
-	$nic1 = Get-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -ErrorAction SilentlyContinue
-	$nic2 = Get-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -ErrorAction SilentlyContinue
-	$pubip =  Get-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $rg -ErrorAction SilentlyContinue
-
-if($extvm)
-{ Write-Host "Host VM Found, cleanup cannot proceed" -ForegroundColor Cyan
- Start-sleep 2
-Exit }
-else {if($nic1)
-{
-		Write-Host "Removing orphan $InterfaceName1" -ForegroundColor White
-		Remove-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Force -Confirm:$False
-		$LogOut = "Removed $InterfaceName1 - Private Adapter"
-		Log-Command -Description $LogOut -LogFile $LogOutFile
- }
-	 if($pubip)
-{
-		Remove-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $rg -Force -Confirm:$False
-		$LogOut = "Removed $InterfaceName1 - Public Ip"
-		Log-Command -Description $LogOut -LogFile $LogOutFile
-}
-	 if($nic2)
-{
-		Write-Host "Removing orphan $InterfaceName2" -ForegroundColor White
-		Remove-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Force -Confirm:$False
-		$LogOut = "Removed $InterfaceName2 - Private Adapter"
-		Log-Command -Description $LogOut -LogFile $LogOutFile
- }
- else {Write-Host "No orphans found." -ForegroundColor Green}
- exit
- }
-}
-#endregion
-
 #region Precheck Orphans
 Function Check-Orphans {
 	param(
@@ -4422,105 +4246,6 @@ else {if($nic1)
 } #
 #endregion
 
-#region Remove DSC
-Function Remove-DscExt
-{
-Param(
-		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
-		[string]
-		$rg = $rg,
-		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
-		[string]
-		$VMName = $VMName
-)
-Write-Host "Removing DSC Extension"
-Remove-AzureRmVMDscExtension -ResourceGroupName $rg -VMName $VMName -Confirm:$False
-}
-
-Function Remove-azRg
-{
-Param(
-		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
-		[string]
-		$rg = $rg
-)
-		Write-Host "Removing RG "
-		Get-AzureRmResourceGroup -Name $rg | Remove-AzureRmResourceGroup -Verbose -Force -Confirm:$False
-}
-#endregion
-
-#region RemoveVM
-Function Remove-azVM
-{
-Param(
-		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=1)]
-		[string]
-		$rg = $rg,
-		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
-		[string]
-		$VMName = $VMName
-)
-		Write-Host "Removing VM"
-		Remove-AzureRmVm -Name $VMName -ResourceGroupName $rg -ErrorAction Stop -Confirm:$False -Force | ft Status,StartTime,EndTime | Format-Table
-		$LogOut = "Removed $VMName from RG $rg"
-		Log-Command -Description $LogOut -LogFile $LogOutFile
-}
-#endregion
-
-#region Remove NSG
-Function Remove-azNSG
-{
-Param(
-		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=1)]
-		[string]
-		$rg = $rg,
-		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
-		[string]
-		$NSGName = $NSGName
-)
-		Write-Host "Removing NSG"
-		Remove-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $rg -WarningAction SilentlyContinue -ErrorAction Stop -Force -Confirm:$False | Format-Table
-		$LogOut = "Removed $NSGName"
-		Log-Command -Description $LogOut -LogFile $LogOutFile
-}
-#endregion
-
-#region Remove VNET
-Function Remove-azVNET
-{
-Param(
-		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=1)]
-		[string]
-		$rg = $rg,
-		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
-		[string]
-		$VNETName = $VNETName
-)
-		Write-Host "Removing VNET"
-		Remove-AzureRmVirtualNetwork -Name $VNETName -ResourceGroupName $rg -Confirm:$False -Force
-		$LogOut = "Removed $VNETName"
-		Log-Command -Description $LogOut -LogFile $LogOutFile
-}
-#endregion
-
-#region Remove Storage
-Function Remove-AzStorage
-{
-Param(
-		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=1)]
-		[string]
-		$rg = $rg,
-		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
-		[string]
-		$Name = $storagename
-)
-		Write-Host "Removing Storage"
-		Remove-AzureRMStorageAccount -Name $Name -ResourceGroupName $rg -WarningAction SilentlyContinue -Force -Confirm:$False
-		$LogOut = "Removed $Name"
-		Log-Command -Description $LogOut -LogFile $LogOutFile
-}
-#endregion
-
 #region Create Availability Set
 Function Remove-AzAvailabilitySet
 {
@@ -4547,47 +4272,6 @@ Function Create-ResourceGroup {
 					}
 				}
 }
-#region Remove Component
-Function Remove-Component {
-	param(
-		[string]$RemoveObject = $RemoveObject
-	)
-
-switch ($RemoveObject)
-	{
-		"rg" {
-		Remove-azRg
-		exit
-}
-		"vm" {
-		Remove-azVM
-		Remove-Orphans
-}
-		"nsg" {
-		Remove-azNSG
-		exit
-}
-		"vnet" {
-		Remove-azVNET
-		exit
-}
-		"storage" {
-		Remove-AzStorage
-		exit
-}
-		"availabilityset" {
-		Remove-AzAvailabilitySet
-		exit
-}
-		"dsc" {
-		Remove-Dsc
-		exit
-}
-		default{"An unsupported uninstall Extension command was used"}
-	}
-	exit
-}
-#endregion
 
 #region Action Type
 Function Action-Type {
@@ -4685,23 +4369,9 @@ Create-VnetPeering
 						}
 				if($VNETPeering)
 							{
-Vnet-Peering
+Create-VnetPeering
 							} #Creates Peering
 	}
-			"remove" {
-					Check-RemoveAction
-					if($RemoveObject)
-						{
-						Check-RemoveObject
-						Remove-Component
-						}
-
-					if($RemoveExtension)
-						 {
-						 Check-ExtensionUnInstall
-						 UnInstall-Ext
-						 }
-		}
 			default{"An unsupported uninstall Extension command was used"}
 		}
 	}
@@ -4766,6 +4436,31 @@ if(!$logdirexists)
 }
 #endregion
 
+<#
+Function Get-Dependencies {
+	param(
+$remscriptpath =  $remscriptpath,
+$extscriptpath = $extscriptpath,
+$vnetscriptpath = $vnetscriptpath
+
+	)
+$remscript = Test-Path -Path $remscriptpath
+	$extscript = Test-Path -Path $extscriptpath
+		$vnetscript = Test-Path -Path $vnetscriptpath
+if(!$remscript)
+	{
+		Write-Host "Removal Functionality Disabled" $remscript
+	}
+	elseif(!$extscript)
+	{
+	Write-Host "Extension Functionality Disabled" $extscript
+}
+		elseif(!$vnetscript)
+{
+		Write-Host "Vnet Functionality Disabled" $vnetscript
+}
+}
+#>
 Function Register-ResourceProviders {
 	 $resourceProviders = @("microsoft.compute","microsoft.network","microsoft.storage");
  if($resourceProviders.length) {
@@ -4792,7 +4487,14 @@ if($help) {
 Help-User
 exit
 }
-validate-profile # Attempts to use json file for auth, falls back on Add-AzureRmAccount
+if(!$usermlogin)
+{
+validate-profile
+}
+else
+{
+Login-AddAzureRmProfile
+}
 
 try {
 Get-AzureRmResourceGroup -Location $Location -ErrorAction Stop | Out-Null
@@ -4808,5 +4510,5 @@ Register-ResourceProviders
 Create-Dir
 
 if($csvimport) { csv-run }
-
+# Get-Dependencies
 Action-Type
