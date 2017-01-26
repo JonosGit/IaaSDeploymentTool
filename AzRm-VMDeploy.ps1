@@ -2,7 +2,7 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 8.2
+Ver 8.3
 
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerous Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
@@ -12,6 +12,7 @@ This script supports Load Balanced configurations for both internal and external
 
 The script will create three directories if they do not exist in the runtime directory, Log, Scripts, DSC.
 
+v8.3 updates - Updated with Centos68, Centos72 as available images.
 v8.2 updates - Added Data Drives to VM Deployment by default
 v8.1 updates - Additional removal functions moved to AZRM-RemoveResource.ps1, final release 2016.
 v8.0 updates - Added - override switch to use Add-AzureRmAccount instead of Profile file
@@ -294,7 +295,7 @@ Param(
 $ActionType = 'create',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=2)]
 [ValidateNotNullorEmpty()]
-[ValidateSet("w2k12","w2k8","w2k16","nano","sql2016","sql2014","biztalk2013","tfs","biztalk2016","vs2015","dev15","jenk-opcenter","chef-compliance","incredibuild","debian","puppet","msnav2016","red67","red72","suse","free","ubuntu14","ubuntu15","centos","chef-server","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","horton-dp","serverr","horton-hdp","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack","hadoop","neos","tomcat","redis","gitlab","jruby","tableau","cloudera","datastax","O365-suite","ads-linuxdatascience","ads-datascience","cloud-conn","cisco750")]
+[ValidateSet("w2k12","w2k8","w2k16","nano","sql2016","sql2014","biztalk2013","tfs","biztalk2016","vs2015","dev15","jenk-opcenter","chef-compliance","incredibuild","debian","puppet","msnav2016","red67","red72","suse","free","ubuntu14","ubuntu15","centos68","centos72","chef-server","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","horton-dp","serverr","horton-hdp","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack","hadoop","neos","tomcat","redis","gitlab","jruby","tableau","cloudera","datastax","O365-suite","ads-linuxdatascience","ads-datascience","cloud-conn","cisco750")]
 [Alias("image")]
 [string]
 $vmMarketImage = 'w2k12',
@@ -1063,7 +1064,7 @@ Function Check-StorageName
 		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 		[string]$StorageName  = $StorageName
 	)
-$extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $rg -ErrorAction SilentlyContinue
+$extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $rg -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
 	if($extvm) {exit}
 		$checkname =  Get-AzureRmStorageAccountNameAvailability -Name $StorageName | Select-Object -ExpandProperty NameAvailable
 if($checkname -ne 'True') {
@@ -2250,7 +2251,7 @@ $LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Sku
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
-Function MakeImageNoPlanInfo_CentOs {
+Function MakeImageNoPlanInfo_CentOs72 {
 param(
 	[string]$VMName = $VMName,
 	[string]$Publisher = "OpenLogic",
@@ -2259,7 +2260,24 @@ param(
 	[string]$version = "latest"
 
 )
-Write-Host "Image Creation in Process - No Plan Info - CentOs" -ForegroundColor White
+Write-Host "Image Creation in Process - No Plan Info - CentOs 7.2" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function MakeImageNoPlanInfo_CentOs68 {
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = "OpenLogic",
+	[string]$offer = "Centos",
+	[string]$Skus = "6.8",
+	[string]$version = "latest"
+
+)
+Write-Host "Image Creation in Process - No Plan Info - CentOs 6.8" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
 $script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
 $script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
@@ -3114,8 +3132,8 @@ Write-FinalState
 Function Write-FinalState {
 Write-Host "                                                               "
 Write-Host "Private Network Interfaces for $rg"
-$vms = get-azurermvm -ResourceGroupName $rg
-$nics = get-azurermnetworkinterface -ResourceGroupName $rg | where VirtualMachine -NE $null #skip Nics with no VM
+$vms = get-azurermvm -ResourceGroupName $rg -WarningAction SilentlyContinue
+$nics = get-azurermnetworkinterface -ResourceGroupName $rg -WarningAction SilentlyContinue | where VirtualMachine -NE $null #skip Nics with no VM
 foreach($nic in $nics)
 {
 	$vm = $vms | where-object -Property Id -EQ $nic.VirtualMachine.id
@@ -3124,8 +3142,8 @@ foreach($nic in $nics)
 	Write-Output "$($vm.Name) : $prv , $alloc" | Format-Table
 }
 
-$pubip = Get-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $rg -ErrorAction SilentlyContinue
-$dns = Get-AzureRmPublicIpAddress -ExpandResource IPConfiguration -Name $InterfaceName1 -ResourceGroupName $rg -ErrorAction SilentlyContinue | select-object -ExpandProperty DNSSettings | select-object -ExpandProperty FQDN
+$pubip = Get-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $rg -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+$dns = Get-AzureRmPublicIpAddress -ExpandResource IPConfiguration -Name $InterfaceName1 -ResourceGroupName $rg -ErrorAction SilentlyContinue | select-object -ExpandProperty DNSSettings -WarningAction SilentlyContinue | select-object -ExpandProperty FQDN
 if($pubip)
 {
 Write-Host "Public Network Interfaces for $rg"
@@ -3194,7 +3212,7 @@ Function Create-Storage {
 Function Create-VM {
 	param(
 	[string]$VMName = $VMName,
-	[ValidateSet("w2k12","w2k8","w2k16","nano","sql2016","sql2014","biztalk2013","tfs","biztalk2016","vs2015","dev15","incredibuild","msnav2016","red67","red72","suse","free","ubuntu","centos","chef","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","horton-dp","serverr","horton-hdp","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack","hadoop","neos","tomcat","redis","gitlab","jruby","tableau","cloudera","datastax","O365-suite","ads-linuxdatascience","ads-datascience","cloud-conn")]
+	[ValidateSet("w2k12","w2k8","w2k16","nano","sql2016","sql2014","biztalk2013","tfs","biztalk2016","vs2015","dev15","incredibuild","msnav2016","red67","red72","suse","free","ubuntu","centos72","centos68","chef","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","horton-dp","serverr","horton-hdp","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack","hadoop","neos","tomcat","redis","gitlab","jruby","tableau","cloudera","datastax","O365-suite","ads-linuxdatascience","ads-datascience","cloud-conn")]
 	[string]
 	$vmMarketImage = $vmMarketImage,
 	[string]
@@ -3347,16 +3365,27 @@ Function Create-VM {
 			Configure-Image # Completes Image Creation
 			Provision-Vm
 }
-		"*cent*" {
+		"*centos68" {
 			Write-ConfigVM
 			Create-Storage
 			Create-AvailabilitySet
 			Configure-Nics  #Sets network connection info
-			MakeImageNoPlanInfo_CentOs  # Begins Image Creation
+			MakeImageNoPlanInfo_CentOs68  # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
 			Provision-Vm
 }
+		"*centos72" {
+			Write-ConfigVM
+			Create-Storage
+			Create-AvailabilitySet
+			Configure-Nics  #Sets network connection info
+			MakeImageNoPlanInfo_CentOs72  # Begins Image Creation
+			Set-NicConfiguration # Adds Network Interfaces
+			Configure-Image # Completes Image Creation
+			Provision-Vm
+}
+
 		"*Suse*" {
 			Write-ConfigVM
 			Create-Storage
@@ -4281,10 +4310,10 @@ Function Check-Orphans {
 	[string]
 	$VMName = $VMName
 	)
-	$extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $rg -ErrorAction SilentlyContinue
-	$nic1 = Get-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -ErrorAction SilentlyContinue
-	$nic2 = Get-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -ErrorAction SilentlyContinue
-	$pubip =  Get-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $rg -ErrorAction SilentlyContinue
+	$extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $rg -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+	$nic1 = Get-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+	$nic2 = Get-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+	$pubip =  Get-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $rg -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
 
 if($extvm)
 {
@@ -4295,20 +4324,20 @@ if($extvm)
 else {if($nic1)
 {
 	Write-Host "Removing orphan $InterfaceName1" -ForegroundColor White
-	Remove-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Force -Confirm:$False
+	Remove-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Force -Confirm:$False -WarningAction SilentlyContinue
 	$LogOut = "Removed $InterfaceName1 - Private Adapter"
 	Log-Command -Description $LogOut -LogFile $LogOutFile
  }
 	 if($pubip)
 {
-	Remove-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $rg -Force -Confirm:$False
+	Remove-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $rg -Force -Confirm:$False  -WarningAction SilentlyContinue
 	$LogOut = "Removed $InterfaceName1 - Public Ip"
 	Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 	 if($nic2)
 {
 	Write-Host "Removing orphan $InterfaceName2" -ForegroundColor White
-	Remove-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Force -Confirm:$False
+	Remove-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Force -Confirm:$False -WarningAction SilentlyContinue
 	$LogOut = "Removed $InterfaceName2 - Private Adapter"
 	Log-Command -Description $LogOut -LogFile $LogOutFile
  }
