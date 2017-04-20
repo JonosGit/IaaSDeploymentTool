@@ -2,7 +2,7 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 8.4
+Ver 8.5
 
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerous Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
@@ -12,6 +12,7 @@ This script supports Load Balanced configurations for both internal and external
 
 The script will create three directories if they do not exist in the runtime directory, Log, Scripts, DSC.
 
+v8.5 updates - changed info provided for existing VNET deployments, updated -addssh to switch, added $sshPublicKey which is a text file that contains the Public SSH key which is used by the addssh switch.
 v8.4 updates - added -addssh and -sshpublickey options for Linux image deployment
 v8.3 updates - Updated with Centos68, Centos72 as available images.
 v8.2 updates - Added Data Drives to VM Deployment by default
@@ -377,7 +378,7 @@ $ExtLBName = 'extlb',
 [int]
 $LBSubnet = '3',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-$LBPvtIp = '10.20.4.10',
+$LBPvtIp = '172.10.205.10',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [ValidateSet("Standard_A3","Standard_A4","Standard_A2")]
@@ -386,11 +387,11 @@ $VMSize = 'Standard_A3',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [string]
-$locadmin = 'admin',
+$locadmin = 'locadmin',
 [Parameter(Mandatory=$false,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [string]
-$locpassword = 'P@ssW0rd!',
+$locpassword = 'P@ssw0rd!',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [string]
@@ -403,12 +404,12 @@ $SubscriptionID = '',
 $TenantID = '',
 [Parameter(Mandatory=$False)]
 [string]
-$GenerateName = -join ((65..90) + (97..122) | Get-Random -Count 6 | % {[char]$_}) + "aip",
+$GenerateName = -join ((65..90) + (97..122) | Get-Random -Count 6 | % {[char]$_}) + "rmp",
 [Parameter(Mandatory=$False)]
 [string]
 $StorageName = $VMName + 'str',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[ValidateSet("Standard_LRS","Standard_GRS")]
+[ValidateSet("Standard_LRS","Standard_GRS","Premium_GRS")]
 [string]
 $StorageType = 'Standard_GRS',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
@@ -428,7 +429,7 @@ $NSGName = '',
 [ValidateRange(0,8)]
 [Alias("sub1")]
 [Int]
-$Subnet1 = 1,
+$Subnet1 = 2,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateRange(0,8)]
 [ValidateNotNullorEmpty()]
@@ -452,11 +453,11 @@ $AddFQDN,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [Alias("nic1")]
-$PvtIPNic1 = '10.10.0.0',
+$PvtIPNic1 = '172.10.0.7',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [Alias("nic2")]
-$PvtIPNic2 = '10.10.0.0',
+$PvtIPNic2 = '172.10.4.7',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $AddVPN = $False,
@@ -468,52 +469,52 @@ $LocalNetPip = "207.21.2.1",
 $LocalAddPrefix = "10.0.0.0/24",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$AddRange = '10.20.0.0/21',
+$AddRange = '172.10.200.0/21',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$SubnetAddPrefix1 = "10.20.0.0/24",
+$SubnetAddPrefix1 = "172.10.200.0/24",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $SubnetNameAddPrefix1 = "gatewaysubnet",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$SubnetAddPrefix2 = "10.20.1.0/25",
+$SubnetAddPrefix2 = "172.10.201.0/25",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $SubnetNameAddPrefix2 = 'perimeter',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$SubnetAddPrefix3 = "10.20.2.0/24",
+$SubnetAddPrefix3 = "172.10.202.0/24",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $SubnetNameAddPrefix3 = "data",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$SubnetAddPrefix4 = "10.20.3.0/24",
+$SubnetAddPrefix4 = "172.10.203.0/24",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $SubnetNameAddPrefix4 = "monitor",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$SubnetAddPrefix5 = "10.20.4.0/24",
+$SubnetAddPrefix5 =  "172.10.204.0/24",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $SubnetNameAddPrefix5 = "reporting",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$SubnetAddPrefix6 = "10.20.5.0/24",
+$SubnetAddPrefix6 = "172.10.205.0/24",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $SubnetNameAddPrefix6 = "analytics",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$SubnetAddPrefix7 = "10.20.6.0/24",
+$SubnetAddPrefix7 = "172.10.206.0/24",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $SubnetNameAddPrefix7 = "management",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$SubnetAddPrefix8 = "10.20.7.0/24",
+$SubnetAddPrefix8 = "172.10.207.0/24",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $SubnetNameAddPrefix8 = "deployment",
@@ -522,7 +523,7 @@ $SubnetNameAddPrefix8 = "deployment",
 $Azautoacct = "OMSAuto",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$Profile = "fujitsu",
+$Profile = "profile",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateSet("diag","msav","bginfo","access","linuxbackup","chefagent","eset","customscript","opsinsightLinux","opsinsightWin","WinPuppet","domjoin","RegisterAzDSC","PushDSC")]
 [Alias("ext")]
@@ -645,14 +646,12 @@ $extscriptpath = '.\Azrm-ExtDeploy.ps1',
 [string]
 $vnetscriptpath = '.\AzRm-VNETDeploy.ps1',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[string]
-$addssh = 'false',
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[string]
-$sshPublicKey = "ssh-rsa <public key here>"
+[switch]
+$addssh
 
 )
 
+$sshPublicKey = Get-Content '.\Pspub.txt'
 $SecureLocPassword=Convertto-SecureString $locpassword –asplaintext -Force
 $Credential1 = New-Object System.Management.Automation.PSCredential ($locadmin,$SecureLocPassword)
 
@@ -946,12 +945,34 @@ $LogOut = "Completed Network Peering Configuration of $VNetName and $VnetName2"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
-Function Check-Vnet {
+Function Old-Check-Vnet
+ {
 $vnetexists = Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
 if(!$vnetexists)
 	{Create-Vnet}
 	else
 		{Write-Host "Proceeding with VNET $VnetName"}
+}
+
+Function Check-Vnet {
+$vnetexists = Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+if(!$vnetexists)
+	{Create-Vnet}
+	else
+		{ $existvnet = Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg
+
+			$addspace = $existvnet.AddressSpace | Select-Object -ExpandProperty AddressPrefixes
+			$existvnet = Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg
+			$addsubnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $existvnet
+			$sub = $addsubnet.AddressPrefix
+			$subnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $existvnet | ft Name,AddressPrefix -AutoSize -Wrap -HideTableHeaders
+			Write-Host "                                                               "
+			Write-Host "VNET CONFIGURATION - EXISTING --------" -ForegroundColor Cyan
+			Write-Host "                                                               "
+			Write-Host "Active VNET: $VnetName in resource group $vnetrg"
+			Write-Host "Address Space: $addspace "
+			Write-Host "Subnets: $sub "
+			 }
 }
 
 #region Check Values of runtime params
@@ -1168,13 +1189,13 @@ switch ($ConfigIPs)
 			Write-Host "Default Single IP Configuration"
 			Configure-PubIpDNS
 			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop -EnableIPForwarding
 }
 		"Dual" {
 			Write-Host "Default Dual IP Configuration"
 			Configure-PubIpDNS
 			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop -EnableIPForwarding
 			$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 }
 		"NoPubSingle" {
@@ -1495,6 +1516,20 @@ catch {
  }
  #endregion
 
+ Function Add-SSHKey {
+	 param (
+	[string]$sshkey = $sshPublicKey,
+	[string]$sshcopypath = "/home/$locadmin/.ssh/authorized_keys",
+	[string]$sshfilepath = '.\Pspub.txt'
+
+	 )
+	 $sshkeyexists = Test-Path -Path $sshfilepath
+	 if($sshkeyexists)
+	 {	 Add-AzureRmVMSshPublicKey -VM $VirtualMachine -KeyData $sshkey -Path $sshcopypath  }
+
+		else {Write-Host "Missing SSH Public Key File"}
+ }
+
 #region Deploy VM
  function Provision-Vm {
 	 param (
@@ -1504,9 +1539,9 @@ catch {
 	$ProvisionVMs = @($VirtualMachine);
 try {
    foreach($provisionvm in $ProvisionVMs) {
-	   if($addssh -eq 'true')
-	   {Add-AzureRmVMSshPublicKey -VM $VirtualMachine -KeyData $sshPublicKey -Path "/home/rmpadmin/.ssh/authorized_keys"}
-		New-AzureRmVM -ResourceGroupName $rg -Location $Location -VM $VirtualMachine -DisableBginfoExtension –Confirm:$false -WarningAction SilentlyContinue -ErrorAction Stop | Out-Null
+	   if($addssh)
+	   { Add-SSHKey }
+		New-AzureRmVM -ResourceGroupName $rg -Location $Location -VM $VirtualMachine -DisableBginfoExtension –Confirm:$false -WarningAction SilentlyContinue -ErrorAction Stop -InformationAction SilentlyContinue | Out-Null
 		$LogOut = "Completed Creation of $VMName from $vmMarketImage"
 		Log-Command -Description $LogOut -LogFile $LogOutFile
 						}
@@ -1543,7 +1578,7 @@ Function Configure-Image {
 		$script:VirtualMachine = Add-AzureRmVMDataDisk -VM $VirtualMachine -Name 'Data3' -Caching ReadOnly -DiskSizeInGB '20' -Lun 2 -VhdUri $script:DataDiskUri3 -CreateOption Empty
 		$script:VirtualMachine = Add-AzureRmVMDataDisk -VM $VirtualMachine -Name 'Data4' -Caching ReadOnly -DiskSizeInGB '20' -Lun 3 -VhdUri $script:DataDiskUri4 -CreateOption Empty
 
-		$script:VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching -WarningAction SilentlyContinue
+		$script:VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching -WarningAction SilentlyContinue -InformationAction SilentlyContinue -ErrorAction Stop
 	}
 	Catch
 	{
@@ -2246,7 +2281,7 @@ param(
 )
 Write-Host "Image Creation in Process - No Plan Info - RedHat 6.7" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-	if($addssh -eq 'true')
+	if($addssh)
 	{ $script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1 -DisablePasswordAuthentication }
 	else
 		{ $script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1 }
@@ -2265,7 +2300,7 @@ param(
 )
 Write-Host "Image Creation in Process - No Plan Info - Redhat 7.2" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-	if($addssh -eq 'true')
+	if($addssh)
 	{ $script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1 -DisablePasswordAuthentication }
 	else
 		{ $script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1 }
@@ -2284,7 +2319,7 @@ param(
 )
 Write-Host "Image Creation in Process - No Plan Info - FreeBsd" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-	if($addssh -eq 'true')
+	if($addssh)
 	{ $script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1 -DisablePasswordAuthentication }
 	else
 		{ $script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1 }
@@ -2338,8 +2373,8 @@ param(
 )
 Write-Host "Image Creation in Process - No Plan Info - CentOs 7.2" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-	if($addssh -eq 'true')
-	{ $script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1 -DisablePasswordAuthentication }
+	if($addssh)
+	{ $script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1 -DisablePasswordAuthentication}
 	else
 		{ $script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1 }
 $script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
@@ -2358,7 +2393,7 @@ param(
 )
 Write-Host "Image Creation in Process - No Plan Info - CentOs 6.8" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-	if($addssh -eq 'true')
+	if($addssh)
 	{ $script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1 -DisablePasswordAuthentication }
 	else
 	{ $script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1 }
@@ -2376,7 +2411,7 @@ param(
 	[string]$version = "latest"
 )
 Write-Host "Image Creation in Process - No Plan Info - SUSE" -ForegroundColor White
-	if($addssh -eq 'true')
+	if($addssh)
 	{ $script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1 -DisablePasswordAuthentication }
 	else
 		{ $script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1 }
@@ -3033,13 +3068,13 @@ param(
 #endregion
 
 #region Match Subnet
-Function Subnet-Match {
+Function Subnet-Match_Old {
 	Param(
 		[INT]$Subnet
 	)
 switch ($Subnet)
 {
-0 {Write-Host "Deploying to Subnet $SubnetAddPrefix1"}
+0 {Write-Host "Deploying to SubnetId $Subnet1"}
 1 {Write-Host "Deploying to Subnet $SubnetAddPrefix2"}
 2 {Write-Host "Deploying to Subnet $SubnetAddPrefix3"}
 3 {Write-Host "Deploying to Subnet $SubnetAddPrefix4"}
@@ -3050,6 +3085,15 @@ switch ($Subnet)
 8 {Write-Host "Deploying to Subnet $SubnetAddPrefix9"}
 default {No Subnet Found}
 }
+}
+#endregion
+
+Function Subnet-Match {
+	Param(
+		[INT]$Subnet
+	)
+
+Write-Host "Deploying to SubnetId $Subnet"
 }
 #endregion
 
@@ -3070,7 +3114,7 @@ Write-Host "Resource Group Name: $rg"
 Write-Host "Server Type: $vmMarketImage"
 Write-Host "Geo Location: $Location"
 Write-Host "VNET Name: $vNetName"
-Write-Host "Storage Account Name: $StorageName"
+Write-Host "Storage Account Name: $script:StorageNameVerified"
 Write-Host "Storage Account Type: $StorageType"
 if($AddLB)
 	{
@@ -3146,6 +3190,7 @@ Write-Host "Action Type:" $ActionType
 Write-Host "Geo Location: $Location"
 Write-Host "VNET Name: $vNetName"
 Write-Host "VNET Resource Group Name: $vnetrg"
+
 Write-Host "Address Range:  $AddRange"
 if($CreateNSG -or $BatchAddNSG -eq 'True')
 {
@@ -3181,8 +3226,8 @@ Write-Host "Action Type:" $ActionType
 Write-Host "VM Name: $VMName " -ForegroundColor White
 Write-Host "Resource Group Name: $rg"
 Write-Host "Server Type: $vmMarketImage"
-Write-Host "VNET Resource Group Name: $vnetrg" -ForegroundColor White
-Write-Host "VNET Name: $VNetName" -ForegroundColor White
+## Write-Host "VNET Resource Group Name: $vnetrg" -ForegroundColor White
+## Write-Host "VNET Name: $VNetName" -ForegroundColor White
 Write-Host "Storage Account Name:  $StorageNameVerified"
 
 if($AddExtension -or $BatchAddExtension -eq 'True'){
