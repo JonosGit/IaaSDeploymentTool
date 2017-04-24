@@ -2,7 +2,7 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 8.5
+Ver 8.6
 
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerous Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
@@ -12,6 +12,7 @@ This script supports Load Balanced configurations for both internal and external
 
 The script will create three directories if they do not exist in the runtime directory, Log, Scripts, DSC.
 
+v8.6 updates - Add managed Disk Functionality, -vmstrtype 'managed' to deploy the VM with managed disk
 v8.5 updates - changed info provided for existing VNET deployments, updated -addssh to switch, added $sshPublicKey which is a text file that contains the Public SSH key which is used by the addssh switch.
 v8.4 updates - added -addssh and -sshpublickey options for Linux image deployment
 v8.3 updates - Updated with Centos68, Centos72 as available images.
@@ -187,7 +188,8 @@ csvfile to reference
 leverages SSH key to deploy Linux SKU
 .PARAMETER publicsshkey
 Public SSH Key String
-csvfile to reference
+.PARAMETER vmstrtype
+Allows user to specify 'managed' (for managed disk) or legacy (for blob storage)
 
 .PARAMETER help
 
@@ -307,6 +309,11 @@ $ActionType = 'create',
 [Alias("image")]
 [string]
 $vmMarketImage = 'w2k12',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateNotNullorEmpty()]
+[ValidateSet("legacy","managed")]
+[string]
+$vmstrtype = 'legacy',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=1)]
 [ValidateNotNullorEmpty()]
 [Alias("vm")]
@@ -329,6 +336,7 @@ $ConfigIPs = '',
 [switch]
 $AddVnet,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateNotNullorEmpty()]
 [Alias("vnet")]
 [string]
 $VNetName = '',
@@ -391,7 +399,7 @@ $locadmin = 'locadmin',
 [Parameter(Mandatory=$false,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [string]
-$locpassword = 'P@ssw0rd!',
+$locpassword = 'PaSSw0Rd!',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [string]
@@ -408,6 +416,9 @@ $GenerateName = -join ((65..90) + (97..122) | Get-Random -Count 6 | % {[char]$_}
 [Parameter(Mandatory=$False)]
 [string]
 $StorageName = $VMName + 'str',
+[Parameter(Mandatory=$False)]
+[string]
+$mngdiskname = $VMName + 'OS',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateSet("Standard_LRS","Standard_GRS","Premium_GRS")]
 [string]
@@ -647,8 +658,31 @@ $extscriptpath = '.\Azrm-ExtDeploy.ps1',
 $vnetscriptpath = '.\AzRm-VNETDeploy.ps1',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [switch]
-$addssh
-
+$addssh,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$mngdiskDATAtype = 'StandardLRS',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$mngdiskOStype = 'StandardLRS',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[int]
+$mngdiskOSsize = '128',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[int]
+$mngdiskDATAsize = '128',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$mngdiskDATAostype = 'windows',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$mngdiskDATAcreateopt = 'Empty',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$mngdiskDATAname = $VMName + '_datadisk',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[switch]
+$addmngdatadisk
 )
 
 $sshPublicKey = Get-Content '.\Pspub.txt'
@@ -945,14 +979,6 @@ $LogOut = "Completed Network Peering Configuration of $VNetName and $VnetName2"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
-Function Old-Check-Vnet
- {
-$vnetexists = Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
-if(!$vnetexists)
-	{Create-Vnet}
-	else
-		{Write-Host "Proceeding with VNET $VnetName"}
-}
 
 Function Check-Vnet {
 $vnetexists = Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
@@ -1107,6 +1133,16 @@ Write-Host "No DNS Name Specified"
 }
 }
 #endregion
+
+Function Check-VMstrtype {
+	Write-Host "$vmstrtype selected"
+if($vmstrtype -eq 'legacy')
+		{ Check-StorageName }
+	elseif($vmstrtype -eq 'managed')
+		{ Check-StorageName }
+	 }
+
+
 
 #region Check Storage
 Function Check-StorageName
@@ -1557,11 +1593,57 @@ catch {
 	 }
 #endregion
 
-#region Configure Image
+Function Configure-Image-MngDisks {
+	param(
+	$mngstrtype = $mngdiskOStype,
+	$mngdisksize = $mngdiskOSsize
+	)
+
+Write-Host "Completing managed disk image creation..." -ForegroundColor White
+$script:osDiskCaching = "ReadWrite"
+$script:OSDiskName = $VMName + "OSDisk"
+$script:VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -DiskSizeInGB $mngdisksize -CreateOption "FromImage" -Caching $script:osDiskCaching -Name $script:OSDiskName -StorageAccountType $mngstrtype -WarningAction SilentlyContinue -InformationAction SilentlyContinue -ErrorAction Stop
+
+	}
+
+Function Create-MngDataDisks {
+	param(
+	$mngstrtype = $mngdiskDATAtype,
+	$mngdiskname = $mngdiskDATAname,
+	$mngdisksize = $mngdiskDATAsize,
+	$mngostype = $mngdiskDATAostype,
+	$mngdiskcreateopt = $mngdiskDATAcreateopt
+	)
+
+$diskcfg = New-AzureRmDiskConfig -AccountType $mngstrtype -CreateOption $mngdiskcreateopt -DiskSizeGB $mngdisksize -Location $Location
+$dataDisk1 = New-AzureRmDisk -ResourceGroupName $rg -DiskName $mngdiskname -Disk $diskcfg;
+Write-Host "Completed managed disk creation." -ForegroundColor White
+$vm = Get-AzureRmVM -Name $VMName -ResourceGroupName $rg -WarningAction SilentlyContinue -InformationAction SilentlyContinue -ErrorAction Stop
+
+
+$vm = Add-AzureRmVMDataDisk -VM $vm -Name $mngdiskDATAname -CreateOption Attach -ManagedDiskId $dataDisk1.Id -Lun 1 -WarningAction SilentlyContinue -InformationAction SilentlyContinue -ErrorAction Stop
+
+Update-AzureRmVM -VM $vm -ResourceGroupName $rg -WarningAction SilentlyContinue -InformationAction SilentlyContinue -ErrorAction Stop
+Write-Host "Completed managed disk attach." -ForegroundColor White
+
+	}
+
 Function Configure-Image {
+	Write-Host "$vmstrtype storage type selected"
+if($vmstrtype -eq 'legacy')
+		{ Configure-Image-Legacy }
+	elseif($vmstrtype -eq 'managed')
+		{ Configure-Image-MngDisks }
+	 }
+
+
+
+
+#region Configure Image
+Function Configure-Image-Legacy {
 	Try
 	{
-		Write-Host "Completing image creation..." -ForegroundColor White
+		Write-Host "Completing legacy storage image creation..." -ForegroundColor White
 		$script:osDiskCaching = "ReadWrite"
 		$script:OSDiskName = $VMName + "OSDisk"
 		$script:DataDiskName1 = $VMName + "Data1"
@@ -1573,8 +1655,8 @@ Function Configure-Image {
 		$script:DataDiskUri2 = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $DataDiskName2 + ".vhd"
 		$script:DataDiskUri3 = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $DataDiskName3 + ".vhd"
 		$script:DataDiskUri4 = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $DataDiskName4 + ".vhd"
-		$script:VirtualMachine = Add-AzureRmVMDataDisk -VM $VirtualMachine -Name 'Data1' -Caching ReadOnly -DiskSizeInGB '60' -Lun 0 -VhdUri $script:DataDiskUri1 -CreateOption Empty
-		$script:VirtualMachine = Add-AzureRmVMDataDisk -VM $VirtualMachine -Name 'Data2' -Caching ReadOnly -DiskSizeInGB '60' -Lun 1 -VhdUri $script:DataDiskUri2 -CreateOption Empty
+		$script:VirtualMachine = Add-AzureRmVMDataDisk -VM $VirtualMachine -Name 'Data1' -Caching ReadOnly -DiskSizeInGB '160' -Lun 0 -VhdUri $script:DataDiskUri1 -CreateOption Empty
+		$script:VirtualMachine = Add-AzureRmVMDataDisk -VM $VirtualMachine -Name 'Data2' -Caching ReadOnly -DiskSizeInGB '160' -Lun 1 -VhdUri $script:DataDiskUri2 -CreateOption Empty
 		$script:VirtualMachine = Add-AzureRmVMDataDisk -VM $VirtualMachine -Name 'Data3' -Caching ReadOnly -DiskSizeInGB '20' -Lun 2 -VhdUri $script:DataDiskUri3 -CreateOption Empty
 		$script:VirtualMachine = Add-AzureRmVMDataDisk -VM $VirtualMachine -Name 'Data4' -Caching ReadOnly -DiskSizeInGB '20' -Lun 3 -VhdUri $script:DataDiskUri4 -CreateOption Empty
 
@@ -2523,7 +2605,7 @@ param(
 	[string]$Skus = "14.04.4-LTS",
 	[string]$version = "latest"
 )
-Write-Host "Image Creation in Process - No Plan Info - Ubuntu" -ForegroundColor White
+Write-Host "Image Creation in Process - No Plan Info - Ubuntu 14.04" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
 $script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
 $script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
@@ -2531,15 +2613,32 @@ $LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Sku
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
+Function MakeImageNoPlanInfo_Ubuntu16 {
+param(
+	[string]$VMName = $VMName,
+	[string]$Publisher = "Canonical",
+	[string]$offer = "UbuntuServer",
+	[string]$Skus = "16.04.4-LTS",
+	[string]$version = "latest"
+)
+Write-Host "Image Creation in Process - No Plan Info - Ubuntu 16.04" -ForegroundColor White
+Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
+$script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1
+$script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
+$LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+
 Function MakeImagePlanInfo_Chef {
 param(
 	[string]$VMName = $VMName,
 	[string]$Publisher = 'chef-software',
 	[string]$offer = 'chef-server',
-	[string]$Skus = 'azure_marketplace_100',
+	[string]$Skus = 'azure_marketplace_25',
 	[string]$version = 'latest',
 	[string]$Product = 'chef-server',
-	[string]$name = 'azure_marketplace_100'
+	[string]$name = 'azure_marketplace_25'
 )
 Write-Host "Image Creation in Process - Plan Info - Chef" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -3326,6 +3425,8 @@ Function Get-azinfo  {
 validate-profile
 }
 
+
+
 #region Create Storage
 Function Create-Storage {
 		param(
@@ -3334,6 +3435,9 @@ Function Create-Storage {
 		[string]$StorageType = $StorageType,
 		[string]$Location = $Location
 		)
+
+
+
 		Write-Host "Starting Storage Creation.."
 		$script:StorageAccount = New-AzureRmStorageAccount -ResourceGroupName $rg -Name $StorageName.ToLower() -Type $StorageType -Location $Location -ErrorAction Stop -WarningAction SilentlyContinue
 		Write-Host "Completed Storage Creation" -ForegroundColor White
@@ -3431,7 +3535,9 @@ Function Create-VM {
 }
 		"*w2k12*" {
 			Write-ConfigVM
+
 			Create-Storage
+
 			Create-AvailabilitySet
 			Configure-Nics  #Sets network connection info
 			MakeImageNoPlanInfo_w2k12  # Begins Image Creation
@@ -4570,6 +4676,11 @@ Function Action-Type {
 
 					Check-Vnet
 					Create-VM # Configure Image
+
+					if($addmngdatadisk)
+							{
+							Create-MngDataDisks
+							}
 					if($AddNSG -or $BatchUpdateNSG -eq 'True')
 							{
 								Configure-NSG
@@ -4661,8 +4772,8 @@ if(Get-Module -ListAvailable |
 		select version -ExpandProperty version
 		Write-Host "current Azure PowerShell Version:" $ver
 	$currentver = $ver
-		if($currentver-le '3.0.0'){
-		Write-Host "expected version 3.0.0 found $ver" -ForegroundColor DarkRed
+		if($currentver-le '3.5.0'){
+		Write-Host "expected version 3.4.0 found $ver" -ForegroundColor DarkRed
 		exit
 			}
 }
