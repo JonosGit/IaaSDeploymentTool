@@ -2,7 +2,7 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 8.7
+Ver 8.8
 
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerous Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
@@ -12,6 +12,7 @@ This script supports Load Balanced configurations for both internal and external
 
 The script will create three directories if they do not exist in the runtime directory, Log, Scripts, DSC.
 
+v8.8 updates - Added -useexiststorage flag to provide override for deploying VM to existing storage account. Added custom script for linux extension to -addextension deployment options.
 v8.7 updates - Added Ubuntu16 and PfSense 3.2.2.1 Images
 v8.6 updates - Add managed Disk Functionality, -vmstrtype 'managed' to deploy the VM with managed disk
 v8.5 updates - changed info provided for existing VNET deployments, updated -addssh to switch, added $sshPublicKey which is a text file that contains the Public SSH key which is used by the addssh switch.
@@ -191,6 +192,8 @@ leverages SSH key to deploy Linux SKU
 Public SSH Key String
 .PARAMETER vmstrtype
 Allows user to specify 'managed' (for managed disk) or unmanaged (for blob storage)
+.PARAMETER usexiststorage
+Allows user specify an existing storage account for VM deployment
 
 .PARAMETER help
 
@@ -281,6 +284,7 @@ Allows user to specify 'managed' (for managed disk) or unmanaged (for blob stora
 			access – Adds Azure Access Extension – Added by default during VM creation
 			msav – Adds Azure Antivirus Extension
 			custScript – Adds Custom Script for Execution (Requires Table Storage Configuration first)
+			linuxcustscript – Executes custom command on Linux VM
 			pushdsc - Deploys DSC Configuration to Azure VM
 			diag – Adds Azure Diagnostics Extension
 			linuxOsPatch - Deploy Latest updates for Linux platforms
@@ -536,9 +540,9 @@ $SubnetNameAddPrefix8 = "deployment",
 $Azautoacct = "OMSAuto",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$Profile = "fujitsu",
+$Profile = "profile",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[ValidateSet("diag","msav","bginfo","access","linuxbackup","linuxospatch","chefagent","eset","customscript","opsinsightLinux","opsinsightWin","WinPuppet","domjoin","RegisterAzDSC","PushDSC")]
+[ValidateSet("diag","msav","bginfo","access","linuxbackup","linuxospatch","chefagent","eset","customscript","linuxcustomscript","opsinsightLinux","opsinsightWin","WinPuppet","domjoin","RegisterAzDSC","PushDSC")]
 [Alias("ext")]
 [string]
 $AzExtConfig = 'RegisterAzDSC',
@@ -588,7 +592,7 @@ $BatchAddLB = 'False',
 [ValidateSet("True","False")]
 [Alias("upload")]
 [string]
-$CustomScriptUpload = 'True',
+$CustomScriptUpload = 'False',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("addvmnsg")]
 [switch]
@@ -612,7 +616,7 @@ $scriptname = 'installbase.sh',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("customscriptname2")]
 [string]
-$scriptname2 = 'installbase.sh',
+$scriptname2 = 'installchef.sh',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $containername = 'scripts',
@@ -687,7 +691,10 @@ $mngdiskDATAname = $VMName + '_datadisk',
 $addmngdatadisk,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [switch]
-$summaryinfo
+$summaryinfo,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[switch]
+$useexiststorage
 )
 
 $sshPublicKey = Get-Content '.\Pspub.txt'
@@ -1165,7 +1172,8 @@ Function Check-StorageName
 	)
 $extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $rg -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
 	if($extvm) {exit}
-		$checkname =  Get-AzureRmStorageAccountNameAvailability -Name $StorageName | Select-Object -ExpandProperty NameAvailable
+	if(!$useexiststorage) {
+	$checkname =  Get-AzureRmStorageAccountNameAvailability -Name $StorageName | Select-Object -ExpandProperty NameAvailable
 if($checkname -ne 'True') {
 	Write-Host "Storage Account Name in use, generating random name for storage..."
 	Start-Sleep 5
@@ -1177,6 +1185,9 @@ if($checkname -ne 'True') {
 	$script:StorageNameVerified = $StorageName.ToLower()
 	Write-Host "Storage Name Check Completed for:" $StorageNameVerified
 	}
+	}
+	else {	$script:StorageNameVerified = $StorageName.ToLower()
+	Write-Host "Storage Name:" $StorageNameVerified }
 }
 #endregion
 
@@ -1563,19 +1574,31 @@ catch {
  }
  #endregion
 
- Function Add-SSHKey {
-	 param (
+Function Add-SSHKey {
+	param(
 	[string]$sshkey = $sshPublicKey,
 	[string]$sshcopypath = "/home/$locadmin/.ssh/authorized_keys",
 	[string]$sshfilepath = '.\Pspub.txt'
+	)
 
-	 )
+	Try
+	{
 	 $sshkeyexists = Test-Path -Path $sshfilepath
 	 if($sshkeyexists)
-	 {	 Add-AzureRmVMSshPublicKey -VM $VirtualMachine -KeyData $sshkey -Path $sshcopypath  }
-
-		else {Write-Host "Missing SSH Public Key File"}
- }
+	 { Add-AzureRmVMSshPublicKey -VM $VirtualMachine -KeyData $sshkey -Path $sshcopypath -ErrorAction Stop -WarningAction SilentlyContinue -InformationAction SilentlyContinue | Out-Null }
+		 $LogOut = "Completed adding SSH Key"
+		Log-Command -Description $LogOut -LogFile $LogOutFile
+	}
+	Catch
+	{
+	Write-Host -foregroundcolor Yellow `
+	"Exception Encountered"; `
+	$ErrorMessage = $_.Exception.Message
+	$LogOut  = 'Error '+$ErrorMessage
+	Log-Command -Description $LogOut -LogFile $LogOutFile
+	break
+	}
+}
 
 #region Deploy VM
  function Provision-Vm {
@@ -1607,7 +1630,8 @@ catch {
 Function Configure-Image-MngDisks {
 	param(
 	$mngstrtype = $mngdiskOStype,
-	$mngdisksize = $mngdiskOSsize
+	$mngdisksize = $mngdiskOSsize,
+	$mngcreateoption = "FromImage"
 	)
 
 	Try
@@ -1615,8 +1639,8 @@ Function Configure-Image-MngDisks {
 		Write-Host "Completing managed disk image creation..." -ForegroundColor White
 		$script:osDiskCaching = "ReadWrite"
 		$script:OSDiskName = $VMName + "_OSDisk"
-		$script:VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -DiskSizeInGB $mngdisksize -CreateOption "FromImage" -Caching $script:osDiskCaching -Name $script:OSDiskName -StorageAccountType $mngstrtype -WarningAction SilentlyContinue -InformationAction SilentlyContinue -ErrorAction Stop
-		 $LogOut = "Completed managed disk creation $script:OSDiskName "
+		$script:VirtualMachine = Set-AzureRmVMOSDisk -VM $script:VirtualMachine -DiskSizeInGB $mngdisksize -CreateOption $mngcreateoption -Caching $script:osDiskCaching -Name $script:OSDiskName -StorageAccountType $mngstrtype -WarningAction SilentlyContinue -InformationAction SilentlyContinue -ErrorAction Stop
+		 $LogOut = "Completed managed disk creation $script:OSDiskName"
 		Log-Command -Description $LogOut -LogFile $LogOutFile
 	}
 	Catch
@@ -1643,7 +1667,7 @@ Function Create-MngDataDisks {
 	{
 		$diskcfg = New-AzureRmDiskConfig -AccountType $mngstrtype -CreateOption $mngdiskcreateopt -DiskSizeGB $mngdisksize -Location $Location
 		$dataDisk1 = New-AzureRmDisk -ResourceGroupName $rg -DiskName $mngdiskname -Disk $diskcfg;
-		Write-Host "Completed managed disk creation." -ForegroundColor White
+		Write-Host "Completed managed data disk creation." -ForegroundColor White
 		$vm = Get-AzureRmVM -Name $VMName -ResourceGroupName $rg -WarningAction SilentlyContinue -InformationAction SilentlyContinue -ErrorAction Stop
 
 		$vm = Add-AzureRmVMDataDisk -VM $vm -Name $mngdiskDATAname -CreateOption Attach -ManagedDiskId $dataDisk1.Id -Lun 1 -WarningAction SilentlyContinue -InformationAction SilentlyContinue -ErrorAction Stop
@@ -1664,7 +1688,7 @@ Function Create-MngDataDisks {
 }
 
 Function Configure-Image {
-	Write-Host "$vmstrtype storage type selected"
+	Write-Host "OS storage type: $vmstrtype"
 if($vmstrtype -eq 'unmanaged')
 		{ Configure-Image-Unmanaged }
 	elseif($vmstrtype -eq 'managed')
@@ -1677,22 +1701,19 @@ Function Configure-Image-Unmanaged {
 	{
 		Write-Host "Completing unmanaged storage image creation..." -ForegroundColor White
 		$script:osDiskCaching = "ReadWrite"
+		$script:createOption = "FromImage"
 		$script:OSDiskName = $VMName + "OSDisk"
 		$script:DataDiskName1 = $VMName + "Data1"
 		$script:DataDiskName2 = $VMName + "Data2"
-		$script:DataDiskName3 = $VMName + "Data3"
-		$script:DataDiskName4 = $VMName + "Data4"
+
 		$script:OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDiskName + ".vhd"
 		$script:DataDiskUri1 = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $DataDiskName1 + ".vhd"
 		$script:DataDiskUri2 = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $DataDiskName2 + ".vhd"
-		$script:DataDiskUri3 = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $DataDiskName3 + ".vhd"
-		$script:DataDiskUri4 = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $DataDiskName4 + ".vhd"
+
 		$script:VirtualMachine = Add-AzureRmVMDataDisk -VM $VirtualMachine -Name 'Data1' -Caching ReadOnly -DiskSizeInGB '160' -Lun 0 -VhdUri $script:DataDiskUri1 -CreateOption Empty
 		$script:VirtualMachine = Add-AzureRmVMDataDisk -VM $VirtualMachine -Name 'Data2' -Caching ReadOnly -DiskSizeInGB '160' -Lun 1 -VhdUri $script:DataDiskUri2 -CreateOption Empty
-		$script:VirtualMachine = Add-AzureRmVMDataDisk -VM $VirtualMachine -Name 'Data3' -Caching ReadOnly -DiskSizeInGB '20' -Lun 2 -VhdUri $script:DataDiskUri3 -CreateOption Empty
-		$script:VirtualMachine = Add-AzureRmVMDataDisk -VM $VirtualMachine -Name 'Data4' -Caching ReadOnly -DiskSizeInGB '20' -Lun 3 -VhdUri $script:DataDiskUri4 -CreateOption Empty
 
-		$script:VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption "FromImage" -Caching $osDiskCaching -WarningAction SilentlyContinue -InformationAction SilentlyContinue -ErrorAction Stop
+		$script:VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption $script:createOption -Caching $osDiskCaching -WarningAction SilentlyContinue -InformationAction SilentlyContinue -ErrorAction Stop
 		 $LogOut = "Completed unmanaged disk creation"
 			Log-Command -Description $LogOut -LogFile $LogOutFile
 	}
@@ -3231,6 +3252,11 @@ Write-Host "VNET Name: $vNetName"
 Write-Host "Storage Account Name: $script:StorageNameVerified"
 Write-Host "Storage Account Type: $StorageType"
 Write-Host "Disk Storage Type: $vmstrtype" -ForegroundColor White
+if($addssh)
+	   {
+Write-Host "Adding Public SSH Key to $VMName"
+	   }
+
 if($AddLB)
 	{
 Write-Host "Adding $VMName to Load Balancer"
@@ -3363,7 +3389,7 @@ Write-Host "                                                               "
 else
 {
 $time = " Completed Time " + (Get-Date -UFormat "%d-%m-%Y %H:%M:%S")
-Write-Host $time -ForegroundColor Cyan
+Write-Host VM CONFIGURATION - $time -ForegroundColor Cyan
 Write-Host "                                                               "
 }
 Write-FinalState
@@ -3387,6 +3413,7 @@ foreach($nic in $nics)
 $pubip = Get-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $rg -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
 $dns = Get-AzureRmPublicIpAddress -ExpandResource IPConfiguration -Name $InterfaceName1 -ResourceGroupName $rg -ErrorAction SilentlyContinue | select-object -ExpandProperty DNSSettings -WarningAction SilentlyContinue | select-object -ExpandProperty FQDN
 
+Write-Host "                                 "
 Write-Host "Public Network Interfaces for $rg" -NoNewline
 Get-AzureRmPublicIpAddress -ResourceGroupName $rg| ft "Name","IpAddress" -Wrap
 Get-AzureRmPublicIpAddress -ResourceGroupName $rg | select-object -ExpandProperty DNSSettings | FT FQDN -Wrap
@@ -3443,12 +3470,14 @@ Function Create-Storage {
 		[string]$StorageType = $StorageType,
 		[string]$Location = $Location
 		)
-
-		Write-Host "Starting Storage Creation.."
+		if(!$useexiststorage)
+		{ Write-Host "Starting Storage Creation.."
 		$script:StorageAccount = New-AzureRmStorageAccount -ResourceGroupName $rg -Name $StorageName.ToLower() -Type $StorageType -Location $Location -ErrorAction Stop -WarningAction SilentlyContinue
 		Write-Host "Completed Storage Creation" -ForegroundColor White
 		$LogOut = "Storage Configuration completed: $StorageName"
 		Log-Command -Description $LogOut -LogFile $LogOutFile
+			}
+		else {Write-Host "Skipped storage creation, using $StorageName"}
 		} # Creates Storage
 #endregion
 
@@ -4446,20 +4475,27 @@ switch ($AzExtConfig)
 				Test-Upload -localFolder $localfolderscripts
 				Upload-CustomScript -StorageName $StorageName -rg $rg -containerName $containerNameScripts -localFolder $localfolderscripts -InformationAction SilentlyContinue -WarningAction SilentlyContinue -ErrorAction Stop
 				}
-				Set-AzureRmVMCustomScriptExtension -Name $customextname -ContainerName $containerName -ResourceGroupName $rg -VMName $VMName -StorageAccountName $StorageName -FileName $scriptname,$scriptname2 -run $scriptname -Location $Location -TypeHandlerVersion "1.8" -WarningAction SilentlyContinue -Confirm:$false -ErrorAction stop -InformationAction SilentlyContinue
+				Set-AzureRmVMCustomScriptExtension -Name $customextname -ContainerName $containerName -ResourceGroupName $rg -VMName $VMName -StorageAccountName $StorageName -FileName $scriptname,$scriptname2 -run $scriptname -Location $Location -TypeHandlerVersion "2.0" -WarningAction SilentlyContinue -Confirm:$false -ErrorAction stop -InformationAction SilentlyContinue
 				 $LogOut = "Added VM Custom Script Extension for $scriptname"
 				Log-Command -Description $LogOut -LogFile $LogOutFile
 				Write-Results
 }
 		"linuxcustomscript" {
 				Verify-StorageExists
-				Write-Host "Updating: $VMName in the Resource Group: $rg with a custom script: $customextname in Storage Account: $StorageName"
+				$Keys = Get-AzureRmStorageAccountKey -ResourceGroupName $rg -Name $StorageName
+
+				#$PublicSetting = "{`"fileUris`":[`"https://$StorageName.blob.core.windows.net/$containerNameScripts/$scriptname`"] ,`"commandToExecute`": `"sh installbase.sh`"}"
+				#$PrivateSetting = "{`"storageAccountName`":`"$StorageName`",`"storageAccountKey`":`"$Keys`" }"
+
+				$PublicSetting = "{`"commandToExecute`": `"yum install -y epel-release`"}"
+
+				Write-Host "Updating: $VMName in the Resource Group: $rg with a linux custom script: $customextname in Storage Account: $StorageName"
 				if($CustomScriptUpload -eq 'True')
 				{
 				Test-Upload -localFolder $localfolderscripts
 				Upload-CustomScript -StorageName $StorageName -rg $rg -containerName $containerNameScripts -localFolder $localfolderscripts -InformationAction SilentlyContinue -WarningAction SilentlyContinue -ErrorAction Stop
 				}
-				Set-AzureRmVMCustomScriptExtension -Name $customextname -ContainerName $containerName -ResourceGroupName $rg -VMName $VMName -StorageAccountName $StorageName -FileName $scriptname,$scriptname2 -run $scriptname -Location $Location -TypeHandlerVersion "1.8" -Verbose -WarningAction SilentlyContinue -Confirm:$false -ErrorAction stop -InformationAction SilentlyContinue
+				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "CustomscriptLinux" -ExtensionType "CustomScript" -Publisher "Microsoft.Azure.Extensions" -typeHandlerVersion "2.0" -InformationAction SilentlyContinue -Verbose -SettingString $PublicSetting
 				 $LogOut = "Added VM Custom Script Extension for $scriptname"
 				Log-Command -Description $LogOut -LogFile $LogOutFile
 				Write-Results
@@ -4483,7 +4519,7 @@ switch ($AzExtConfig)
 }
 		"linuxospatch" {
 				Write-Host "Adding Azure OS Patching Linux"
-				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OSPatch" -ExtensionType "OSPatchingForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.1" -InformationAction SilentlyContinue -Verbose
+				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OSPatch" -ExtensionType "OSPatchingForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.0" -InformationAction SilentlyContinue -Verbose
 				Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "OSPatch"
 				 $LogOut = "Added VM OS Patch Extension"
 				Log-Command -Description $LogOut -LogFile $LogOutFile
