@@ -2,7 +2,7 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 8.8
+Ver 8.8.1
 
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerous Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
@@ -12,6 +12,7 @@ This script supports Load Balanced configurations for both internal and external
 
 The script will create three directories if they do not exist in the runtime directory, Log, Scripts, DSC.
 
+v8.8.1 updates - Fixed issue for -userexiststorage when used with unmanaged disks
 v8.8 updates - Added -useexiststorage flag to provide override for deploying VM to existing storage account. Added custom script for linux extension to -addextension deployment options.
 v8.7 updates - Added Ubuntu16 and PfSense 3.2.2.1 Images
 v8.6 updates - Add managed Disk Functionality, -vmstrtype 'managed' to deploy the VM with managed disk
@@ -1172,22 +1173,45 @@ Function Check-StorageName
 	)
 $extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $rg -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
 	if($extvm) {exit}
-	if(!$useexiststorage) {
+	if($useexiststorage)
+	{		$script:StorageNameVerified = $StorageName.ToLower()
+		Write-Host "Storage Name:" $StorageNameVerified}
+	else
+	{
 	$checkname =  Get-AzureRmStorageAccountNameAvailability -Name $StorageName | Select-Object -ExpandProperty NameAvailable
 if($checkname -ne 'True') {
 	Write-Host "Storage Account Name in use, generating random name for storage..."
 	Start-Sleep 5
 	$script:StorageNameVerified = $GenerateName.ToLower()
-	Write-Host "Storage Name Check Completed for:" $StorageNameVerified
-		}
+	Write-Host "Storage Name Check Completed for:" $StorageNameVerified }
 	else
 		{
+		$script:StorageNameVerified = $StorageName.ToLower()
+		Write-Host "Storage Name Check Completed for:" $StorageNameVerified
+		}
+		}
+}
+#endregion
+
+#region Check Storage
+Function Check-StorageNameNotExists
+{
+	param(
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+		[string]$StorageName  = $StorageName
+	)
+
+	$checkname =  Get-AzureRmStorageAccountNameAvailability -Name $StorageName | Select-Object -ExpandProperty NameAvailable
+if($checkname -ne 'True') {
+	Write-Host "Storage Account Name in use, using existing storage..."
+	Start-Sleep 5
 	$script:StorageNameVerified = $StorageName.ToLower()
-	Write-Host "Storage Name Check Completed for:" $StorageNameVerified
-	}
-	}
-	else {	$script:StorageNameVerified = $StorageName.ToLower()
-	Write-Host "Storage Name:" $StorageNameVerified }
+	Write-Host "Storage Name Check Completed for:" $StorageNameVerified }
+	else
+		{
+		$script:StorageNameVerified = $StorageName.ToLower()
+		Write-Host "Storage Name Check Completed for:" $StorageNameVerified
+		}
 }
 #endregion
 
@@ -3477,6 +3501,27 @@ Function Create-Storage {
 		$LogOut = "Storage Configuration completed: $StorageName"
 		Log-Command -Description $LogOut -LogFile $LogOutFile
 			}
+		else {
+			$script:StorageAccount = Get-AzureRmStorageAccount -ResourceGroupName $rg -Name $StorageName.ToLower() -ErrorAction Stop -WarningAction SilentlyContinue
+			Write-Host "Skipped storage creation, using $StorageName"}
+		} # Creates Storage
+#endregion
+
+#region Configures Storage
+Function Configure-ExistingStorage {
+		param(
+		[string]$StorageName = $script:StorageNameVerified,
+		[string]$rg = $rg,
+		[string]$StorageType = $StorageType,
+		[string]$Location = $Location
+		)
+		if(!$useexiststorage)
+		{ Write-Host "Existing Storage account in use .."
+		$script:StorageAccount = Get-AzureRmStorageAccount -ResourceGroupName $rg -Name $StorageName.ToLower() -Location $Location -ErrorAction Stop -WarningAction SilentlyContinue
+		Write-Host "Completed Storage Configuration" -ForegroundColor White
+		$LogOut = "Storage Configuration completed: $StorageName"
+		Log-Command -Description $LogOut -LogFile $LogOutFile
+			}
 		else {Write-Host "Skipped storage creation, using $StorageName"}
 		} # Creates Storage
 #endregion
@@ -4473,9 +4518,9 @@ switch ($AzExtConfig)
 				if($CustomScriptUpload -eq 'True')
 				{
 				Test-Upload -localFolder $localfolderscripts
-				Upload-CustomScript -StorageName $StorageName -rg $rg -containerName $containerNameScripts -localFolder $localfolderscripts -InformationAction SilentlyContinue -WarningAction SilentlyContinue -ErrorAction Stop
+				Upload-CustomScript -StorageName $StorageName -rg $rg -containerName $containerNameScripts -localFolder $localfolderscripts -Verbose -InformationAction SilentlyContinue -WarningAction SilentlyContinue -ErrorAction Stop
 				}
-				Set-AzureRmVMCustomScriptExtension -Name $customextname -ContainerName $containerName -ResourceGroupName $rg -VMName $VMName -StorageAccountName $StorageName -FileName $scriptname,$scriptname2 -run $scriptname -Location $Location -TypeHandlerVersion "2.0" -WarningAction SilentlyContinue -Confirm:$false -ErrorAction stop -InformationAction SilentlyContinue
+				Set-AzureRmVMCustomScriptExtension -Name $customextname -ContainerName $containerName -ResourceGroupName $rg -VMName $VMName -StorageAccountName $StorageName -FileName $scriptname -run  "sh $scriptname" -Location $Location -TypeHandlerVersion "1.8" -WarningAction SilentlyContinue -Confirm:$false -ErrorAction stop -InformationAction SilentlyContinue
 				 $LogOut = "Added VM Custom Script Extension for $scriptname"
 				Log-Command -Description $LogOut -LogFile $LogOutFile
 				Write-Results
@@ -4712,7 +4757,11 @@ Function Action-Type {
 					Check-NullValues # Verifies required fields have data
 					Check-Orphans # Verifies no left overs
 					Verify-NIC # Verifies required fields have data
-					Check-StorageName # Verifies Storage Account Name does not exist
+					if(!$useexiststorage)
+					{ Check-StorageName}
+					else
+						{ Check-StorageNameNotExists }
+					 # Verifies Storage Account Name does not exist
 					Write-Output "Steps will be tracked in the log file : [ $LogOutFile ]"
 					Create-ResourceGroup
 					if($AddVnet -or $BatchAddVnet -eq 'True')
