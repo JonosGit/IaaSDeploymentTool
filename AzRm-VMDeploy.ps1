@@ -2,7 +2,7 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 8.8.1
+Ver 8.9
 
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerous Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
@@ -12,6 +12,7 @@ This script supports Load Balanced configurations for both internal and external
 
 The script will create three directories if they do not exist in the runtime directory, Log, Scripts, DSC.
 
+v8.9 updates - Added Storage Resource Group param -storagerg
 v8.8.1 updates - Fixed issue for -userexiststorage when used with unmanaged disks
 v8.8 updates - Added -useexiststorage flag to provide override for deploying VM to existing storage account. Added custom script for linux extension to -addextension deployment options.
 v8.7 updates - Added Ubuntu16 and PfSense 3.2.2.1 Images
@@ -45,6 +46,8 @@ Sets the name of the VM to deploy
 The name of the resource group to deploy too.
 .PARAMETER vnetrg
 The name of the resource group the Vnet is deployed too.
+.PARAMETER storerg
+The name of the storage account resource group to deploy too.
 .PARAMETER AddVnet
 Adds a mew Vnet.
 .PARAMETER BatchAddVnet
@@ -333,7 +336,11 @@ $rg = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [string]
-$vnetrg = '',
+$vnetrg = $rg,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateNotNullorEmpty()]
+[string]
+$storerg = $rg,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateSet("Single","Dual","NoPubDual","PvtDualStat","StatPvtNoPubSingle","PvtSingleStat","StatPvtNoPubDual","NoPubSingle")]
 [ValidateNotNullorEmpty()]
@@ -992,6 +999,28 @@ $LogOut = "Completed Network Peering Configuration of $VNetName and $VnetName2"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
+function Check_OS {
+param(
+[string]$vm = $VMName,
+[string]$rg = $rg,
+[string]$OSType = 'linux'
+)
+
+$vm =  Get-AzureRmVM -ResourceGroupName $rg -Name $VMName
+$osprofile = $vm.OSProfile
+$win = $osprofile.WindowsConfiguration
+$lin = $osprofile.LinuxConfiguration
+if($win)
+	{Write-Host "Windows"
+	$OSType = 'windows'
+	}
+	if($lin)
+		{
+		$OSType = 'linux'
+		Write-Host "Linux"
+		}
+		}
+
 Function Check-Vnet {
 $vnetexists = Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
 if(!$vnetexists)
@@ -1171,7 +1200,7 @@ Function Check-StorageName
 		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 		[string]$StorageName  = $StorageName
 	)
-$extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $rg -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+$extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $storerg -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
 	if($extvm) {exit}
 	if($useexiststorage)
 	{		$script:StorageNameVerified = $StorageName.ToLower()
@@ -3269,10 +3298,12 @@ Write-Host VM CONFIGURATION - $time -ForegroundColor Cyan
 Write-Host "                                                               "
 Write-Host "Action Type:" $ActionType
 Write-Host "VM Name: $VMName " -ForegroundColor White
-Write-Host "Resource Group Name: $rg"
+Write-Host "VM Resource Group: $rg"
 Write-Host "Server Type: $vmMarketImage"
 Write-Host "Geo Location: $Location"
+Write-Host "VNET Resource Group: $vNetName"
 Write-Host "VNET Name: $vNetName"
+Write-Host "Storage Resource Group: $storerg"
 Write-Host "Storage Account Name: $script:StorageNameVerified"
 Write-Host "Storage Account Type: $StorageType"
 Write-Host "Disk Storage Type: $vmstrtype" -ForegroundColor White
@@ -3496,13 +3527,13 @@ Function Create-Storage {
 		)
 		if(!$useexiststorage)
 		{ Write-Host "Starting Storage Creation.."
-		$script:StorageAccount = New-AzureRmStorageAccount -ResourceGroupName $rg -Name $StorageName.ToLower() -Type $StorageType -Location $Location -ErrorAction Stop -WarningAction SilentlyContinue
+		$script:StorageAccount = New-AzureRmStorageAccount -ResourceGroupName $storerg -Name $StorageName.ToLower() -Type $StorageType -Location $Location -ErrorAction Stop -WarningAction SilentlyContinue
 		Write-Host "Completed Storage Creation" -ForegroundColor White
 		$LogOut = "Storage Configuration completed: $StorageName"
 		Log-Command -Description $LogOut -LogFile $LogOutFile
 			}
 		else {
-			$script:StorageAccount = Get-AzureRmStorageAccount -ResourceGroupName $rg -Name $StorageName.ToLower() -ErrorAction Stop -WarningAction SilentlyContinue
+			$script:StorageAccount = Get-AzureRmStorageAccount -ResourceGroupName $storerg -Name $StorageName.ToLower() -ErrorAction Stop -WarningAction SilentlyContinue
 			Write-Host "Skipped storage creation, using $StorageName"}
 		} # Creates Storage
 #endregion
@@ -3517,7 +3548,7 @@ Function Configure-ExistingStorage {
 		)
 		if(!$useexiststorage)
 		{ Write-Host "Existing Storage account in use .."
-		$script:StorageAccount = Get-AzureRmStorageAccount -ResourceGroupName $rg -Name $StorageName.ToLower() -Location $Location -ErrorAction Stop -WarningAction SilentlyContinue
+		$script:StorageAccount = Get-AzureRmStorageAccount -ResourceGroupName $storerg -Name $StorageName.ToLower() -Location $Location -ErrorAction Stop -WarningAction SilentlyContinue
 		Write-Host "Completed Storage Configuration" -ForegroundColor White
 		$LogOut = "Storage Configuration completed: $StorageName"
 		Log-Command -Description $LogOut -LogFile $LogOutFile
@@ -4527,12 +4558,13 @@ switch ($AzExtConfig)
 }
 		"linuxcustomscript" {
 				Verify-StorageExists
+				Check_OS
 				$Keys = Get-AzureRmStorageAccountKey -ResourceGroupName $rg -Name $StorageName
+				$Key1 = $Keys[0].Value
+				Write-Host $Key1
 
-				#$PublicSetting = "{`"fileUris`":[`"https://$StorageName.blob.core.windows.net/$containerNameScripts/$scriptname`"] ,`"commandToExecute`": `"sh installbase.sh`"}"
-				#$PrivateSetting = "{`"storageAccountName`":`"$StorageName`",`"storageAccountKey`":`"$Keys`" }"
-
-				$PublicSetting = "{`"commandToExecute`": `"yum install -y epel-release`"}"
+			$PublicSetting = "{`"fileUris`":[`"https://$StorageName.blob.core.windows.net/$containerNameScripts/$scriptname`"] ,`"commandToExecute`": `"sh $scriptname`"}"
+				$PrivateSetting = "{`"storageAccountName`":`"$StorageName`",`"storageAccountKey`":`"$Key1`" }"
 
 				Write-Host "Updating: $VMName in the Resource Group: $rg with a linux custom script: $customextname in Storage Account: $StorageName"
 				if($CustomScriptUpload -eq 'True')
@@ -4540,11 +4572,11 @@ switch ($AzExtConfig)
 				Test-Upload -localFolder $localfolderscripts
 				Upload-CustomScript -StorageName $StorageName -rg $rg -containerName $containerNameScripts -localFolder $localfolderscripts -InformationAction SilentlyContinue -WarningAction SilentlyContinue -ErrorAction Stop
 				}
-				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "CustomscriptLinux" -ExtensionType "CustomScript" -Publisher "Microsoft.Azure.Extensions" -typeHandlerVersion "2.0" -InformationAction SilentlyContinue -Verbose -SettingString $PublicSetting
+				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "CustomscriptLinux" -ExtensionType "CustomScript" -Publisher "Microsoft.Azure.Extensions" -typeHandlerVersion "2.0" -InformationAction SilentlyContinue -Verbose -SettingString $PublicSetting -ProtectedSettingString $PrivateSetting
 				 $LogOut = "Added VM Custom Script Extension for $scriptname"
 				Log-Command -Description $LogOut -LogFile $LogOutFile
 				Write-Results
-}
+			}
 		"diag" {
 				Verify-StorageExists
 				Write-Host "Adding Azure Enhanced Diagnostics to $VMName in $rg using the $StorageName Storage Account"
@@ -4563,10 +4595,11 @@ switch ($AzExtConfig)
 				Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 		"linuxospatch" {
+				$PublicSetting = "{`"disabled`": `"$False`",`"stop`" : `"$False`"}"
 				Write-Host "Adding Azure OS Patching Linux"
-				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OSPatch" -ExtensionType "OSPatchingForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.0" -InformationAction SilentlyContinue -Verbose
+				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OSPatch" -ExtensionType "OSPatchingForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.0" -InformationAction SilentlyContinue -ErrorAction Stop -SettingString $PublicSetting
 				Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "OSPatch"
-				 $LogOut = "Added VM OS Patch Extension"
+				$LogOut = "OS Patching Deployed to $VMName"
 				Log-Command -Description $LogOut -LogFile $LogOutFile
 				Write-Results
 		}
@@ -4732,7 +4765,7 @@ Param(
 #endregion
 
 Function Create-ResourceGroup {
-				$resourcegroups = @($rg,$vnetrg);
+				$resourcegroups = @($rg,$vnetrg,$storerg);
 				if($resourcegroups.length) {
 					foreach($resourcegroup in $resourcegroups) {
 						Provision-RG($resourcegroup);
