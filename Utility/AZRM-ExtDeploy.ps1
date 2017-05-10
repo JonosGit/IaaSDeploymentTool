@@ -2,9 +2,10 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 1.2
+Ver 1.3
 Extensions deployment
 
+v 1.3 updated linux access scripts, added function to determine OS before ext deployment
 v 1.2 updated linux OS patching and linux Custom Scripts
 v 1.1 updates - added storage sharing function
 v 1.0 updates - Moved -add parameters to [switch]
@@ -63,21 +64,29 @@ Deploys Azure Extensions to Existing VMs
 
 .PARAMETER csvfile
 
-.EXAMPLE
-\.AZRM-VMDeploy.ps1 -csvimport -csvfile C:\temp\iaasdeployment.csv
-.EXAMPLE
-\.AZRM-VMDeploy.ps1 -ActionType Create -vm pf001 -image pfsense -rg ResGroup1 -vnetrg ResGroup2 -addvnet -vnet VNET -sub1 3 -sub2 4 -ConfigIPs DualPvtNoPub -Nic1 10.120.2.7 -Nic2 10.120.3.7
+.PARAMETER csvfile
 
--AzExtConfig <Extension Type>
-			access – Adds Azure Access Extension – Added by default during VM creation
+
+
+.EXAMPLE
+\.AZRM-ExtDeploy.ps1 -csvimport -csvfile C:\temp\iaasdeployment.csv
+.EXAMPLE
+\.AZRM-ExtDeploy.ps1 -extname linaccess -VMName myvm -rg myres
+.EXAMPLE
+\.AZRM-ExtDeploy.ps1 -extname linuxospatch -VMName myvm -rg myres
+
+
+-extname <Extension Type>
+			winaccess – Adds Azure Access Extension – Added by default during VM creation
 			msav – Adds Azure Antivirus Extension
-			custScript – Adds Custom Script for Execution (Requires Table Storage Configuration first)
+			customscript – Adds Custom Script for Execution (Requires Table Storage Configuration first)
 			linuxcustscript – Adds Custom Script for Execution (Requires Table Storage Configuration first)
-			pushdsc - Deploys DSC Configuration to Azure VM
+			pushdsc - Deploys DSC Configuration to Windows Azure VM
 			diag – Adds Azure Diagnostics Extension
-			linuxOsPatch - Deploy Latest updates for Linux platforms
+			linuxospatch - Deploy Latest updates for Linux platforms
+			linaccess - Adds Azure Access Extension to Linux VM
 			linuxbackup - Deploys Azure Linux backup Extension
-			addDom – Adds Azure Domain Join Extension
+			domjoin – Adds Azure Domain Join Extension
 			chef – Adds Azure Chef Extension (Requires Chef Certificate and Settings info first)
 			opsinsightLinux - OMS Agent
 			opsinsightWin - OMS Agent
@@ -92,10 +101,10 @@ Deploys Azure Extensions to Existing VMs
 Param(
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
-[ValidateSet("azshare","diag","msav","access","linuxbackup","linuxOspatch","chefagent","eset","customscript","linuxcustomscript","opsinsightLinux","opsinsightWin","WinPuppet","domjoin","RegisterAzDSC","PushDSC","bginfo")]
+[ValidateSet("azshare","diag","msav","linaccess","winaccess","linuxbackup","linuxospatch","chefagent","eset","customscript","linuxcustomscript","opsinsightLinux","opsinsightWin","WinPuppet","domjoin","RegisterAzDSC","PushDSC","bginfo")]
 [Alias("ext")]
 [string]
-$AzExtConfig = 'diag',
+$extname = 'diag',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=1)]
 [ValidateNotNullorEmpty()]
 [Alias("vm")]
@@ -105,6 +114,9 @@ $VMName = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=2)]
 [string]
 $rg = 'dcs',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=2)]
+[string]
+$storerg = $rg,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [string]
@@ -146,7 +158,7 @@ $InterfaceName2 = $VMName + "_nic2",
 $Azautoacct = "omsauto",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$Profile = "profile",
+$Profile = "fujitsu",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("addext")]
 [switch]
@@ -193,9 +205,16 @@ $localsoftwarefolder = "$scriptfolder\software",
 $csvimport,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$csvfile = -join $workfolder + "\azrm-vmextdeploy.csv"
+$csvfile = -join $workfolder + "\azrm-vmextdeploy.csv",
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$DiskOSType = 'Linux',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$useexiststorage = 'True'
 )
 
+$sshPublicKey = Get-Content '.\Pspub.txt'
 $SecureLocPassword=Convertto-SecureString $locpassword –asplaintext -Force
 $Credential1 = New-Object System.Management.Automation.PSCredential ($locadmin,$SecureLocPassword)
 $Error.Clear()
@@ -295,7 +314,7 @@ if($RemoveExtension -and !$rg) {
 }
 
 function Check-Extension {
-if($AddExtension -and !$AzExtConfig) {
+if($AddExtension -and !$extname) {
 Write-Host "Please Enter Extension Name"
  }
 }
@@ -305,23 +324,31 @@ Write-Host "Please Enter Extension Name"
 Function Check-StorageName
 {
 	param(
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 		[string]$StorageName  = $StorageName
 	)
-$extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $rg -ErrorAction SilentlyContinue
-	if($extvm) {exit}
-		$checkname =  Get-AzureRmStorageAccountNameAvailability -Name $StorageName | Select-Object -ExpandProperty NameAvailable
+$extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $storerg -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+	if(!$extvm) {exit}
+	if($useexiststorage -eq 'True')
+	{		$script:StorageNameVerified = $StorageName.ToLower()
+		Write-Host "Storage Name:" $StorageNameVerified}
+	else
+	{
+	$checkname =  Get-AzureRmStorageAccountNameAvailability -Name $StorageName | Select-Object -ExpandProperty NameAvailable
 if($checkname -ne 'True') {
 	Write-Host "Storage Account Name in use, generating random name for storage..."
 	Start-Sleep 5
 	$script:StorageNameVerified = $GenerateName.ToLower()
-	Write-Host "Storage Name Check Completed for:" $StorageNameVerified
-		}
+	Write-Host "Storage Name Check Completed for:" $StorageNameVerified }
 	else
 		{
-	$script:StorageNameVerified = $StorageName.ToLower()
-	Write-Host "Storage Name Check Completed for:" $StorageNameVerified
-	}
+		$script:StorageNameVerified = $StorageName.ToLower()
+		Write-Host "Storage Name Check Completed for:" $StorageNameVerified
+		}
+		}
 }
+#endregion
+
 #endregion
 
 #region Get Resource Providers
@@ -394,6 +421,25 @@ param(
 	Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
+function Check-OS {
+	param(
+	$DiskOSType = 'Linux'
+
+	)
+
+$vm =  Get-AzureRmVM -ResourceGroupName $rg -Name $VMName -InformationAction SilentlyContinue -WarningAction SilentlyContinue -ErrorAction Stop
+$ostype = $vm.StorageProfile.OsDisk.OsType
+if($ostype -eq 'Windows')
+	{Write-Host "Windows"
+	$DiskOSType = 'Windows'
+	}
+	elseif($ostype -eq 'Linux')
+		{ 
+		$DiskOSType = 'Linux'
+		Write-Host "Linux" 
+		}
+
+		}
 
 #region Verify Upload Resources
 Function Test-Upload {
@@ -437,6 +483,26 @@ write-host "All files in $localFolder uploaded to $containerName!"
 }
 #endregion
 
+#region Verify Linux OS
+Function Verify-ExtLinux {
+if($DiskOSType -eq 'Linux') {Write-Host "Host OS: Linux"}
+	else
+	{ Write-Host "No Compatble OS Found, please verify the extension is compatible with $VMName"
+		break
+	}
+}
+#endregion
+
+Function Verify-ExtWindows {
+if($DiskOSType -eq 'Windows') {Write-Host "Host OS: Windows"}
+	else
+	{ Write-Host "No Compatble OS Found, please verify the extension is compatible with $VMName" 
+		break
+	}
+}
+#endregion
+
+
 #region Uninstall Extension
 Function UnInstall-Ext {
 	param(
@@ -454,10 +520,10 @@ Function UnInstall-Ext {
 		$customextname = $customextname,
 		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 		[string]
-		$AzExtConfig = $AzExtConfig
+		$extname = $extname
 
 	)
-switch ($AzExtConfig)
+switch ($extname)
 	{
 		"access" {
 				Write-Host "VM Access Agent VM Image Removal in Process"
@@ -555,6 +621,8 @@ switch ($AzExtConfig)
 
 Function Verify-StorageExists {
 	param(
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+		[string]
 		$StorageName = $StorageName
 
 	)
@@ -573,7 +641,7 @@ if(!$strexists)
 #region Install Extension
 Function Install-Ext {
 	param(
-		[string]$AzExtConfig = $AzExtConfig,
+		[string]$extname = $extname,
 		[string]$Location = $Location,
 		[string]$rg = $rg,
 		[string]$StorageName = $script:StorageNameVerified,
@@ -584,11 +652,11 @@ Function Install-Ext {
 		[string]$localfolderscripts = $customscriptsdir,
 		[string]$scriptname = $scriptname
 	)
-switch ($AzExtConfig)
+switch ($extname)
 	{
-		"access" {
-
-				Write-Host "VM Access Agent VM Image Preparation in Process"
+		"winaccess" {
+				Verify-ExtWindows
+				Write-Host "Windows VM Access Agent VM Image Preparation in Process"
 				Set-AzureRmVMAccessExtension -ResourceGroupName $rg -VMName $VMName -Name "VMAccess" -typeHandlerVersion "2.0" -Location $Location -Verbose -username $locadmin -password $locpassword -ErrorAction Stop | Out-Null
 				Get-AzureRmVMAccessExtension -ResourceGroupName $rg -VMName $VMName -Name "VMAccess" -Status
 				$LogOut = "VM Access Agent Deployed to $VMName"
@@ -597,6 +665,20 @@ switch ($AzExtConfig)
 
 									break
 }
+		"linaccess" {
+				Verify-ExtLinux
+				Write-Host "Linux VM Access Agent VM Image Preparation in Process"
+			$PublicSetting = "{}"
+				$PrivateSetting = "{`"username`":`"$locadmin`",`"password`":`"$locpassword`",`"ssh_key`":`"$sshPublicKey`",`"reset_ssh`":`"True`"}"
+
+				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "VMAccessForLinux" -ExtensionType "VMAccessForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "1.4" -InformationAction SilentlyContinue -Verbose -SettingString $PublicSetting -ProtectedSettingString $PrivateSetting
+				$LogOut = "VM Access Agent Deployed to $VMName"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+						Write-Results
+
+									break
+}
+
 		"msav" {
 
 				Write-Host "MSAV Agent VM Image Preparation in Process"
@@ -610,6 +692,7 @@ switch ($AzExtConfig)
 }
 		"customscript" {
 				Verify-StorageExists
+				Verify-ExtWindows
 				Write-Host "Updating: $VMName in the Resource Group: $rg with a custom script: $customextname in Storage Account: $StorageName"
 				if($CustomScriptUpload -eq 'True')
 				{
@@ -626,15 +709,14 @@ switch ($AzExtConfig)
 }
 		"linuxcustomscript" {
 				Verify-StorageExists
-
+				Verify-ExtLinux
 				$Keys = Get-AzureRmStorageAccountKey -ResourceGroupName $rg -Name $StorageName
 				$Key1 = $Keys[0].Value
-				Write-Host $Key1
 
-			$PublicSetting = "{`"fileUris`":[`"https://$StorageName.blob.core.windows.net/$containerNameScripts/$scriptname`"] ,`"commandToExecute`": `"sh installbase.sh`"}"
+			$PublicSetting = "{`"fileUris`":[`"https://$StorageName.blob.core.windows.net/$containerNameScripts/$scriptname`"] ,`"commandToExecute`": `"sh $scriptname`"}"
 				$PrivateSetting = "{`"storageAccountName`":`"$StorageName`",`"storageAccountKey`":`"$Key1`" }"
 
-				Write-Host "Updating: $VMName in the Resource Group: $rg with a linux custom script: $customextname in Storage Account: $StorageName"
+				Write-Host "Updating: $VMName in the Resource Group: $rg with a linux custom script: $scriptname in Storage Account: $StorageName"
 				if($CustomScriptUpload -eq 'True')
 				{
 				Test-Upload -localFolder $localfolderscripts
@@ -657,6 +739,7 @@ switch ($AzExtConfig)
 									  break
 }
 		"domjoin" {
+				Verify-ExtWindows
 				Write-Host "Domain Join active"
 				Set-AzureRmVMADDomainExtension -DomainName $DomName -ResourceGroupName $rg -VMName $VMName -Location $Location -Name 'DomJoin'  -ErrorAction Stop -WarningAction SilentlyContinue -Restart | Out-Null
 				Get-AzureRmVMADDomainExtension -ResourceGroupName $rg  -VMName $VMName -Name 'DomJoin' | Out-Null
@@ -666,11 +749,11 @@ switch ($AzExtConfig)
 
 									  break
 }
-		"linuxOsPatch" {
-
+		"linuxospatch" {
+				Verify-ExtLinux
 				$PublicSetting = "{`"disabled`": `"$False`",`"stop`" : `"$False`"}"
 				Write-Host "Adding Azure OS Patching Linux"
-				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OSPatch" -ExtensionType "OSPatchingForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.0" -InformationAction SilentlyContinue -ErrorAction Stop -SettingString $PublicSetting
+				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OSPatch" -ExtensionType "OSPatchingForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.0" -InformationAction SilentlyContinue -ErrorAction Stop -SettingString $PublicSetting -WarningAction SilentlyContinue
 				Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "OSPatch"
 				$LogOut = "OS Patching Deployed to $VMName"
 				Log-Command -Description $LogOut -LogFile $LogOutFile
@@ -679,18 +762,21 @@ switch ($AzExtConfig)
 										  break
 		}
 		"linuxbackup" {
+				Verify-ExtLinux
+				$PublicSetting = "{`"commandToExecute`": `"snapshot`",`"commandStartTimeUTCTicks`" : `"635809046306353843`"}"				
+
 				Write-Host "Adding Linux VMBackup to $VMName in the resource group $rg"
-				Set-AzureRmVMBackupExtension -VMName $VMName -ResourceGroupName $rg -Name "VMBackup" -Tag "OSBackup" -WarningAction SilentlyContinue | Out-Null
-				$LogOut = "Linux Backup Deployed to $VMName"
+				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "VMBackupForLinuxExtension" -ExtensionType "VMBackupForLinuxExtension" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "0.1" -InformationAction SilentlyContinue -Verbose
+				 $LogOut = "Added VM Backup Extension"
 				Log-Command -Description $LogOut -LogFile $LogOutFile
-						Write-Results
+				Write-Results
 
 									  break
 		}
 		"chefAgent" {
 				Write-Host "Adding Chef Agent"
 				$ProtectedSetting = ''
-				$Setting = ''
+				$PublicSetting = ''
 				Set-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "ChefStrap" -ExtensionType "LinuxChefClient" -Publisher "Chef.Bootstrap.WindowsAzure" -typeHandlerVersion "1210.12" -Location $Location -Verbose -ErrorAction Stop  | Out-Null
 				Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "ChefStrap"
 				$LogOut = "Chef Agent Deployed to $VMName"
@@ -795,8 +881,8 @@ if(Get-Module -ListAvailable |
 		select version -ExpandProperty version
 		Write-Host "current Azure PowerShell Version:" $ver
 	$currentver = $ver
-		if($currentver-le '2.0.0'){
-		Write-Host "expected version 2.0.1 found $ver" -ForegroundColor DarkRed
+		if($currentver-le '3.6.0'){
+		Write-Host "expected version 3.7 found $ver" -ForegroundColor DarkRed
 		exit
 			}
 }
@@ -822,7 +908,7 @@ Write-Host "Resource Group Name: $rg"
 Write-Host "Storage Account Name:  $StorageNameVerified"
 
 if($AddExtension -or $BatchAddExtension -eq 'True'){
-Write-Host "Extension deployed: $AzExtConfig "
+Write-Host "Extension deployed: $extname "
 }
 }
 
@@ -842,7 +928,7 @@ Write-Host "Storage Account Name: $StorageName"
 Write-Host "Storage Account Type: $StorageType"
 
 if($AddExtension -or $BatchAddExtension -eq 'True') {
-Write-Host "Extension selected for deployment: $AzExtConfig "
+Write-Host "Extension selected for deployment: $extname "
 }
 }
 
@@ -858,7 +944,7 @@ Function Check-VM {
 	[string]$rg = $rg,
 	[string]$VMName = $VMName
 	)
-	$extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $rg -ErrorAction SilentlyContinue
+	$extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $rg -ErrorAction SilentlyContinue -InformationAction SilentlyContinue -WarningAction SilentlyContinue
 
 if(!$extvm)
 {
@@ -957,7 +1043,7 @@ Verify-AzureVersion # Verifies Azure client Powershell Version
 validate-profile # Attempts to use json file for auth, falls back on Add-AzureRmAccount
 
 try {
-Get-AzureRmResourceGroup -Location $Location -ErrorAction Stop | Out-Null
+Get-AzureRmResourceGroup -Location $Location -ErrorAction Stop -WarningAction SilentlyContinue -InformationAction SilentlyContinue| Out-Null
 }
 catch {
 	Write-Host -foregroundcolor Yellow `
@@ -987,7 +1073,7 @@ Write-Config
 
 		try {
 				Check-VM
-				Verify-StorageExists
+				Check-StorageName
 					Install-Ext
 		}
 					catch {
