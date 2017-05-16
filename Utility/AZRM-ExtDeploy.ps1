@@ -74,6 +74,8 @@ Deploys Azure Extensions to Existing VMs
 \.AZRM-ExtDeploy.ps1 -extname linaccess -VMName myvm -rg myres
 .EXAMPLE
 \.AZRM-ExtDeploy.ps1 -extname linuxospatch -VMName myvm -rg myres
+.EXAMPLE
+\.AZRM-ExtDeploy.ps1 -extname linuxcustscript -scriptname update.sh -VMName myvm -rg myres
 
 
 -extname <Extension Type>
@@ -158,7 +160,7 @@ $InterfaceName2 = $VMName + "_nic2",
 $Azautoacct = "omsauto",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$Profile = "fujitsu",
+$Profile = "profile",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("addext")]
 [switch]
@@ -208,7 +210,7 @@ $csvimport,
 $csvfile = -join $workfolder + "\azrm-vmextdeploy.csv",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$DiskOSType = 'Linux',
+$DiskOSType = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $useexiststorage = 'True'
@@ -423,23 +425,45 @@ param(
 
 function Check-OS {
 	param(
-	$DiskOSType = 'Linux'
+	$DiskOSType = ''
 
 	)
 
 $vm =  Get-AzureRmVM -ResourceGroupName $rg -Name $VMName -InformationAction SilentlyContinue -WarningAction SilentlyContinue -ErrorAction Stop
 $ostype = $vm.StorageProfile.OsDisk.OsType
 if($ostype -eq 'Windows')
-	{Write-Host "Windows"
-	$DiskOSType = 'Windows'
+	{
+	$Script:DiskOSType = 'Windows'
 	}
 	elseif($ostype -eq 'Linux')
 		{ 
-		$DiskOSType = 'Linux'
-		Write-Host "Linux" 
+		$Script:DiskOSType = 'Linux'
 		}
 
 		}
+
+
+function Check-OSImage {
+
+$vm =  Get-AzureRmVM -ResourceGroupName $rg -Name $VMName -InformationAction SilentlyContinue -WarningAction SilentlyContinue -ErrorAction SilentlyContinue
+
+if(!$vm)
+	{
+	Write-Host "VM does not exist!"
+		break
+	}
+	else
+	{
+		$Script:strpublisher = $vm.StorageProfile.ImageReference.Publisher
+		$Script:stroffer = $vm.StorageProfile.ImageReference.Offer
+		$Script:strsku = $vm.StorageProfile.ImageReference.Sku
+		Write-Host "VM Publisher: $Script:strpublisher"
+		Write-Host "VM Offer: $Script:stroffer"
+		Write-Host "VM SKU: $Script:strsku"
+	}
+
+		}
+
 
 #region Verify Upload Resources
 Function Test-Upload {
@@ -475,32 +499,54 @@ Function Upload-CustomScript {
 		{
 		  $fileName = "$localFolder\$file"
 		  $blobName = "$file"
-		  write-host "copying $fileName to $blobName"
-		  Set-AzureStorageBlobContent -File $filename -Container $containerName -Blob $blobName -Context $blobContext -Force -BlobType Append -WarningAction SilentlyContinue -ErrorAction SilentlyContinue -Confirm:$false | Out-Null
+
+					
+			
+			Set-AzureStorageBlobContent -File $filename -Container $containerName -Blob $blobName -Context $blobContext -Force -BlobType Append -WarningAction SilentlyContinue -ErrorAction SilentlyContinue -Confirm:$false | Out-Null
 		  Get-AzureStorageBlob -Container $containerName -Context $blobContext -Blob $blobName -WarningAction SilentlyContinue | Out-Null
 }
-write-host "All files in $localFolder uploaded to $containerName!"
+		  $scripturl = "https://$StorageName.blob.core.windows.net/$containerNameScripts/$scriptname"
+		  $LogOut = "Custom Script uploaded $scripturl"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 #endregion
 
 #region Verify Linux OS
 Function Verify-ExtLinux {
+Check-OS
+$DiskOSType = $Script:DiskOSType
 if($DiskOSType -eq 'Linux') {Write-Host "Host OS: Linux"}
 	else
-	{ Write-Host "No Compatble OS Found, please verify the extension is compatible with $VMName"
-		break
+	{ 	$LogOut = "No compatible extension found for $VMName"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+					
+						break
 	}
 }
 #endregion
 
 Function Verify-ExtWindows {
+Check-OS
+$DiskOSType = $Script:DiskOSType
+if($DiskOSType -eq 'Windows') {Write-Host "Host OS: Windows"}
+	else
+	{ 	$LogOut = "No compatible extension found for $VMName"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+					
+						break
+	}
+}
+#endregion
+
+Function Verify-ExtCompat {
 if($DiskOSType -eq 'Windows') {Write-Host "Host OS: Windows"}
 	else
 	{ Write-Host "No Compatble OS Found, please verify the extension is compatible with $VMName" 
 		break
 	}
 }
-#endregion
+
+
 
 
 #region Uninstall Extension
@@ -671,7 +717,7 @@ switch ($extname)
 			$PublicSetting = "{}"
 				$PrivateSetting = "{`"username`":`"$locadmin`",`"password`":`"$locpassword`",`"ssh_key`":`"$sshPublicKey`",`"reset_ssh`":`"True`"}"
 
-				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "VMAccessForLinux" -ExtensionType "VMAccessForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "1.4" -InformationAction SilentlyContinue -Verbose -SettingString $PublicSetting -ProtectedSettingString $PrivateSetting
+				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "VMAccessForLinux" -ExtensionType "VMAccessForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "1.4" -InformationAction SilentlyContinue -Verbose -SettingString $PublicSetting -ProtectedSettingString $PrivateSetting | Out-Null
 				$LogOut = "VM Access Agent Deployed to $VMName"
 				Log-Command -Description $LogOut -LogFile $LogOutFile
 						Write-Results
@@ -691,7 +737,6 @@ switch ($extname)
 									  break
 }
 		"customscript" {
-				Verify-StorageExists
 				Verify-ExtWindows
 				Write-Host "Updating: $VMName in the Resource Group: $rg with a custom script: $customextname in Storage Account: $StorageName"
 				if($CustomScriptUpload -eq 'True')
@@ -708,7 +753,6 @@ switch ($extname)
 									  break
 }
 		"linuxcustomscript" {
-				Verify-StorageExists
 				Verify-ExtLinux
 				$Keys = Get-AzureRmStorageAccountKey -ResourceGroupName $rg -Name $StorageName
 				$Key1 = $Keys[0].Value
@@ -716,19 +760,18 @@ switch ($extname)
 			$PublicSetting = "{`"fileUris`":[`"https://$StorageName.blob.core.windows.net/$containerNameScripts/$scriptname`"] ,`"commandToExecute`": `"sh $scriptname`"}"
 				$PrivateSetting = "{`"storageAccountName`":`"$StorageName`",`"storageAccountKey`":`"$Key1`" }"
 
-				Write-Host "Updating: $VMName in the Resource Group: $rg with a linux custom script: $scriptname in Storage Account: $StorageName"
+				Write-Host "Updating $VMName with $scriptname in Storage Account $StorageName" -ForegroundColor Yellow
 				if($CustomScriptUpload -eq 'True')
 				{
 				Test-Upload -localFolder $localfolderscripts
 				Upload-CustomScript -StorageName $StorageName -rg $rg -containerName $containerNameScripts -localFolder $localfolderscripts -InformationAction SilentlyContinue -WarningAction SilentlyContinue -ErrorAction Stop
 				}
-				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "CustomscriptLinux" -ExtensionType "CustomScript" -Publisher "Microsoft.Azure.Extensions" -typeHandlerVersion "2.0" -InformationAction SilentlyContinue -Verbose -SettingString $PublicSetting -ProtectedSettingString $PrivateSetting
+				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "CustomscriptLinux" -ExtensionType "CustomScript" -Publisher "Microsoft.Azure.Extensions" -typeHandlerVersion "2.0" -InformationAction SilentlyContinue -SettingString $PublicSetting -ProtectedSettingString $PrivateSetting | Out-Null
 				 $LogOut = "Added VM Custom Script Extension for $scriptname"
 				Log-Command -Description $LogOut -LogFile $LogOutFile
 				Write-Results
 			}
 		"diag" {
-				Verify-StorageExists
 				Write-Host "Adding Azure Enhanced Diagnostics to $VMName in $rg using the $StorageName Storage Account"
 				Set-AzureRmVMAEMExtension -ResourceGroupName $rg -VMName $VMName -WADStorageAccountName $StorageName -InformationAction SilentlyContinue  -ErrorAction Stop -WarningAction SilentlyContinue | Out-Null
 				Get-AzureRmVMAEMExtension -ResourceGroupName $rg -VMName $VMName | Out-Null
@@ -753,9 +796,9 @@ switch ($extname)
 				Verify-ExtLinux
 				$PublicSetting = "{`"disabled`": `"$False`",`"stop`" : `"$False`"}"
 				Write-Host "Adding Azure OS Patching Linux"
-				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OSPatch" -ExtensionType "OSPatchingForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.0" -InformationAction SilentlyContinue -ErrorAction Stop -SettingString $PublicSetting -WarningAction SilentlyContinue
-				Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "OSPatch"
-				$LogOut = "OS Patching Deployed to $VMName"
+				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OSPatch" -ExtensionType "OSPatchingForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.0" -InformationAction SilentlyContinue -ErrorAction Stop -SettingString $PublicSetting -WarningAction SilentlyContinue | Out-Null
+				
+				 $LogOut = "Added VM OS Patching Extension"
 				Log-Command -Description $LogOut -LogFile $LogOutFile
 						Write-Results
 
@@ -819,7 +862,7 @@ switch ($extname)
 										  break
 }
 		"PushDSC" {
-				Verify-StorageExists
+Verify-ExtWindows
 				Configure-DSC
 				Write-Host "Pushing DSC to $VMName in the $rg Resource Group"
 						Write-Results
@@ -827,7 +870,7 @@ switch ($extname)
 										  break
 }
 		"azshare" {
-				Verify-StorageExists
+
 				Upload-sharefiles
 				Write-Host "Uploading Files to $StorageName"
 						Write-Results
@@ -835,6 +878,8 @@ switch ($extname)
 										  break
 }
 		"RegisterAzDSC" {
+				Verify-ExtWindows
+
 				Write-Host "Registering with Azure Automation DSC"
 				$ActionAfterReboot = 'ContinueConfiguration'
 				$configmode = 'ApplyAndAutocorrect'
@@ -846,7 +891,7 @@ switch ($extname)
 										  break
 }
 		"WinPuppet" {
-
+				Verify-ExtWindows
 				Write-Host "Deploying Puppet Extension"
 				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "PuppetEnterpriseAgent" -ExtensionType "PuppetEnterpriseAgent" -Publisher "PuppetLabs" -typeHandlerVersion "3.2" -InformationAction SilentlyContinue -ErrorAction Stop -Verbose | Out-Null
 				Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "PuppetEnterpriseAgent"
@@ -896,20 +941,16 @@ if(Get-Module -ListAvailable |
 
 Function Write-Results {
 param(
-
-)
+	)
 Write-Host "                                                               "
-Write-Host "--------------------------------------------------------------" -ForegroundColor Cyan
+$time = " End Time " + (Get-Date -UFormat "%d-%m-%Y %H:%M:%S")
+Write-Host VM CONFIGURATION - $time -ForegroundColor Cyan
 Write-Host "                                                               "
-Write-Host "Completed Deployment of:"  -ForegroundColor Cyan
-
 Write-Host "VM Name: $VMName " -ForegroundColor White
 Write-Host "Resource Group Name: $rg"
 Write-Host "Storage Account Name:  $StorageNameVerified"
-
-if($AddExtension -or $BatchAddExtension -eq 'True'){
 Write-Host "Extension deployed: $extname "
-}
+
 }
 
 Function Write-Config {
@@ -919,17 +960,15 @@ param(
 
 Write-Host "                                                               "
 $time = " Start Time " + (Get-Date -UFormat "%d-%m-%Y %H:%M:%S")
-Write-Host VM CONFIGURATION - $time ----------- -ForegroundColor Cyan
+Write-Host VM CONFIGURATION - $time -ForegroundColor Cyan
 Write-Host "                                                               "
 Write-Host "VM Name: $VMName " -ForegroundColor White
 Write-Host "Resource Group Name: $rg"
 Write-Host "Geo Location: $Location"
 Write-Host "Storage Account Name: $StorageName"
 Write-Host "Storage Account Type: $StorageType"
-
-if($AddExtension -or $BatchAddExtension -eq 'True') {
 Write-Host "Extension selected for deployment: $extname "
-}
+Check-OSImage
 }
 
 Function Check-VM {
@@ -944,11 +983,11 @@ Function Check-VM {
 	[string]$rg = $rg,
 	[string]$VMName = $VMName
 	)
-	$extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $rg -ErrorAction SilentlyContinue -InformationAction SilentlyContinue -WarningAction SilentlyContinue
+	$extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $rg -InformationAction SilentlyContinue -WarningAction SilentlyContinue
 
 if(!$extvm)
 {
-	Write-Host "Host VM  Not Found, please use a different VMName for Provisioning Extensions" -ForegroundColor Cyan
+	Write-Host "Host VM Not Found, please use a different VMName for Provisioning Extensions" -ForegroundColor Cyan
 	Start-sleep 10
 	Exit
 }
