@@ -2,7 +2,7 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 9.0
+Ver 9.1
 
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerous Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
@@ -12,6 +12,7 @@ This script supports Load Balanced configurations for both internal and external
 
 The script will create three directories if they do not exist in the runtime directory, Log, Scripts, DSC.
 
+v9.1 updates - Extensive updates to LB Creation Process as well as NSG Creation.
 v9.0 updates - Updated -csvimport process to include managed disks, ssh and storage rg. Made updates to Availability Sets to handle managed disks. Updates for all extensions, chef extension now available for Linux and Windows.
 v8.9 updates - Added Storage Resource Group param -storagerg
 v8.8.1 updates - Fixed issue for -userexiststorage when used with unmanaged disks
@@ -209,11 +210,16 @@ Allows user specify an existing storage account for VM deployment
 .EXAMPLE
 \.AZRM-VMDeploy.ps1 -ActionType Create -vm red76 -image red67 -vmstrtype managed -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -sub1 7 -ConfigIPs SinglePvtNoPub -Nic1 10.120.6.124 -Ext linuxchefagent -addssh
 .EXAMPLE
-\.AZRM-VMDeploy.ps1 -ActionType Create -vm win006 -image w2k12 -vmstrtype managed -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -sub1 2 -ConfigIPs Single -AvSet -CreateNSG -NSGName NSG
+\.AZRM-VMDeploy.ps1 -ActionType Create -vm win006 -image w2k12 -vmstrtype managed -rg ResGroup1 -vnetrg ResGroup2 -storerg storagerg -vnet VNET -sub1 2 -ConfigIPs Single -CreateNSG -NSGName NSG
 .EXAMPLE
 \.AZRM-VMDeploy.ps1 -ActionType Create -vm win008 -image w2k16 -vmstrtype managed -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -sub1 5 -ConfigIPs PvtSingleStat -Nic1 10.120.4.169 -AddFQDN -fqdn mydns1
 .EXAMPLE
+\.AZRM-VMDeploy.ps1 -ActionType Create -vm ubu004 -image ubuntu -vmstrtype managed -RG ResGroup1 -vnetrg ResGroup2 -VNet VNET -ConfigIPs Single -AddLB -LBType external -LBSubnet 2 -CreateLoadBalancer -LBName mylb -AddAvailabilitySet -AvailSetName myavsetname
+.EXAMPLE
+\.AZRM-VMDeploy.ps1 -ActionType Create -vm ubu004 -image ubuntu -vmstrtype managed -RG ResGroup1 -vnetrg ResGroup2 -VNet VNET -ConfigIPs Single -AddLB -LBType internal -LBPvtIP 172.10.4.15 -CreateLoadBalancer -LBName mylb -AddAvailabilitySet -AvailSetName myavsetname
+.EXAMPLE
 \.AZRM-VMDeploy.ps1 -ActionType Create -vm ubu001 -image ubuntu -vmstrtype managed -RG ResGroup1 -vnetrg ResGroup2 -VNet VNET -sub1 6 -ConfigIPs PvtSingleStat -Nic1 10.120.5.169 -AddFQDN fqdn mydns2 -addssh
+
 .EXAMPLE
 .\AZRM-VMDeploy.ps1 -ActionType update -UploadSharedFiles -StorageName test001str -rg resx
 .NOTES
@@ -312,7 +318,7 @@ https://github.com/JonosGit/IaaSDeploymentTool
 Param(
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
 [ValidateNotNullorEmpty()]
-[ValidateSet("create","update","remove")]
+[ValidateSet("create")]
 [Alias("action")]
 [string]
 $ActionType = 'create',
@@ -379,13 +385,9 @@ $VnetPeering,
 [switch]
 $CreateNSG,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[Alias("extlb")]
+[Alias("lb")]
 [switch]
-$CreateExtLoadBalancer,
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[Alias("intlb")]
-[switch]
-$CreateIntLoadBalancer,
+$CreateLoadBalancer,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("addloadb")]
 [switch]
@@ -396,15 +398,12 @@ $AddLB,
 $LBType = 'external',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$IntLBName = 'intlb',
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[string]
-$ExtLBName = 'extlb',
+$LBName = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [int]
 $LBSubnet = '3',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-$LBPvtIp = '172.10.205.10',
+$LBPvtIp = '172.10.5.10',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [ValidateSet("Standard_A3","Standard_A4","Standard_A2")]
@@ -621,7 +620,7 @@ $localsoftwarefolder = "$scriptfolder\software",
 $csvimport,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$csvfile = -join $workfolder + "\azrm-vmdeploy.csv",
+$csvfile = -join $workfolder + "\azrm-vmdeploy-rmp.csv",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("h")]
 [Alias("?")]
@@ -645,6 +644,9 @@ $BatchAddFQDN,
 $BatchAddNSG = 'False',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
+$BatchCreateNSG = 'False',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
 $BatchAddVnet = 'False',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
@@ -654,10 +656,7 @@ $BatchAddAvSet = 'False',
 $BatchUpdateNSG = 'False',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$BatchCreateExtLB = 'False',
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[string]
-$BatchCreateIntLB = 'False',
+$BatchCreateLB = 'False',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $BatchAddLB = 'False',
@@ -725,8 +724,10 @@ $chefclientrb =  "C:\Users\jonos\Source\Repos\Deployment\AzureDeployment\AzureDe
 )
 
 $sshPublicKey = Get-Content '.\Pspub.txt'
-$SecureLocPassword=Convertto-SecureString $locpassword –asplaintext -Force
-$Credential1 = New-Object System.Management.Automation.PSCredential ($locadmin,$SecureLocPassword)
+
+$SecureLocPassword = new-object -typename system.security.securestring
+$SecureLocPassword = Convertto-SecureString $locpassword –asplaintext -Force
+$Credential1 = New-Object -typename System.Management.Automation.PSCredential -argumentlist $locadmin,$SecureLocPassword
 
 $Error.Clear()
 Set-StrictMode -Version Latest
@@ -796,7 +797,9 @@ Write-Host "                                                       "
 #endregion
 
 #region Create Log
-Function Log-Command ([string]$Description, [string]$logFile, [string]$VMName){
+Function Log-Command
+([string]$Description, [string]$logFile, [string]$VMName)
+{
 $Output = $LogOut+'. '
 Write-Host $Output -ForegroundColor white
 ((Get-Date -UFormat "[%d-%m-%Y %H:%M:%S] ") + $Output) | Out-File -FilePath $LogOutFile -Append -Force
@@ -814,7 +817,7 @@ try {
 	{ exit }
 	else {
 	Write-Host $csvin "File Exists"
-		import-csv -Path $csvin -Delimiter ',' | ForEach-Object{.\AZRM-VMDeploy.ps1 -ActionType $_.ActionType -VMName $_.VMName -vmMarketImage $_.Image -rg $_.rg -vNetrg $_.vnetrg -VNetName $_.VNetName -ConfigIPs $_.ConfigIPs -subnet1 $_.Subnet1 -subnet2 $_.Subnet2 -PvtIPNic1 $_.PvtIPNic1 -PvtIPNic2 $_.PvtIPNic2 -DNLabel $_.DNLabel  -BatchAddVnet $_.BatchAddVnet -BatchCreateIntLB $_.BatchCreateIntLB -BatchCreateExtLB $_.BatchCreateExtLB -BatchAddLB $_.BatchAddLB -LBSubnet $_.LBSubnet -LBPvtIp $_.LBPvtIp -IntLBName $_.IntLBName -ExtLBName $_.ExtLBName -LBType $_.LBType -BatchAddNSG $_.BatchAddNSG -BatchUpdateNSG $_.BatchUpdateNSG -NSGName $_.NSGName -extname $_.extname -BatchAddExtension $_.BatchAddExtension -BatchAddAvSet $_.BatchAddAvSet -AvailSetName $_.AvailSetName -BatchAddFqdn $_.BatchAddFqdn -CustomScriptUpload $_.CustomScriptUpload -scriptname $_.scriptname -containername $_.containername -scriptfolder $_.scriptfolder -customextname $_.customextname -batchAddShare $_.BatchAddShare -sharedirectory $_.sharedirectory -sharename $_.sharename -localsoftwarefolder $_.localsoftwarefolder -ConfigurationName $_.ConfigurationName -vmstrtype $_.vmstrtype -storerg $_.storerg -Batchaddmngdatadisk $_.Batchadddatadisk -Batchaddssh $_.Batchaddssh }
+		import-csv -Path $csvin -Delimiter ',' | ForEach-Object{.\AZRM-VMDeploy.ps1 -ActionType $_.ActionType -VMName $_.VMName -vmMarketImage $_.Image -rg $_.rg -vNetrg $_.vnetrg -VNetName $_.VNetName -ConfigIPs $_.ConfigIPs -subnet1 $_.Subnet1 -subnet2 $_.Subnet2 -PvtIPNic1 $_.PvtIPNic1 -PvtIPNic2 $_.PvtIPNic2 -DNLabel $_.DNLabel  -BatchAddVnet $_.BatchAddVnet -BatchCreateLB $_.BatchCreateLB -BatchAddLB $_.BatchAddLB -LBSubnet $_.LBSubnet -LBPvtIp $_.LBPvtIp -LBName $_.LBName -LBType $_.LBType -BatchAddNSG $_.BatchAddNSG -BatchCreateNSG $_.BatchCreateNSG -NSGName $_.NSGName -extname $_.extname -BatchAddExtension $_.BatchAddExtension -BatchAddAvSet $_.BatchAddAvSet -AvailSetName $_.AvailSetName -BatchAddFqdn $_.BatchAddFqdn -CustomScriptUpload $_.CustomScriptUpload -scriptname $_.scriptname -containername $_.containername -scriptfolder $_.scriptfolder -customextname $_.customextname -batchAddShare $_.BatchAddShare -sharedirectory $_.sharedirectory -sharename $_.sharename -localsoftwarefolder $_.localsoftwarefolder -ConfigurationName $_.ConfigurationName -vmstrtype $_.vmstrtype -storerg $_.storerg -Batchaddmngdatadisk $_.Batchadddatadisk -Batchaddssh $_.Batchaddssh }
 	}
 }
 catch {
@@ -828,13 +831,15 @@ catch {
 #endregion
 
 Function Lb-type {
-if($AddLB -eq 'external' -or $BatchAddLB -eq 'external'){$LBName = 'extlb'
-Write-Host"Setting LBName to $LBName"
+if(!$LBName)
+{
+if($LBType -eq 'external' -or $BatchAddLB -eq 'external'){$LBName = $LBName
+Write-Host "Setting LBName to $LBName"
 }
-
-	elseif($AddLB -eq 'internal' -or $BatchAddLB -eq 'internal'){$LBName = 'intlb'
-	Write-Host"Setting LBName to $LBName"
+	elseif($LBType -eq 'internal' -or $BatchAddLB -eq 'internal'){$LBName = $LBName
+	Write-Host "Setting LBName to $LBName"
 	}
+}
 }
 #region Verify IP
 Function Verify-PvtIp {
@@ -873,14 +878,14 @@ if($PvtIPNic2)
 			}
 			else
 			{
-			Write-Host "correct subnet"
+			Write-Host "Correct subnet verified"
 			$script:Subnet2 = $Subnet2
 			}
 	}
 }
 
 Function Verify-LBSubnet {
-if($CreateIntLoadBalancer -or $BatchCreateIntLB -eq 'True')
+if($CreateLoadBalancer -or $BatchCreateLB -eq 'True' -and $LBType -eq 'internal')
 			{
 			[int]$subnet = $LBSubnet
 			$ip = $LBPvtIp
@@ -894,7 +899,7 @@ if($CreateIntLoadBalancer -or $BatchCreateIntLB -eq 'True')
 			}
 			else
 			{
-			Write-Host "correct subnet"
+			Write-Host "Correct subnet verified"
 			$script:LBSubnet = $LBSubnet
 			}
 	}
@@ -914,32 +919,32 @@ Function Verify-NIC {
 	}
 	If ($ConfigIPs -eq "Single")
 	{
-		Write-Host "Skipping Subnet IP Validation"
+		Write-Host "Dynamic IP - Skipping Subnet IP Validation"
 		if($Subnet1 -le 0)
 		{$subnet1 = 1}
 		$script:Subnet1 = $Subnet1
 	}
 	If ($ConfigIPs -eq "NoPubSingle")
 	{
-		Write-Host "Skipping Subnet IP Validation"
+		Write-Host "Dynamic IP - Skipping Subnet IP Validation"
 		if($Subnet1 -le 0)
 		{$subnet1 = 1}
 		$script:Subnet1 = $Subnet1
 	}
 	If ($ConfigIPs -eq "NoPubDual")
 	{
-		Write-Host "Skipping Subnet IP Validation"
+		Write-Host "Dynamic IP - Skipping Subnet IP Validation"
 		if($Subnet1 -le 0){$subnet1 = 0}
-		if($Subnet2 -le 1){$subnet2 = 2}
+		if($Subnet2 -le 0){$subnet2 = 1}
 		$script:Subnet1 = $Subnet1
 		$script:Subnet2 = $Subnet2
 	}
 
 	If ($ConfigIPs -eq "Dual")
 	{
-		Write-Host "Skipping Subnet IP Validation"
+		Write-Host "Dynamic IP - Skipping Subnet IP Validation"
 		if($Subnet1 -le 0){$subnet1 = 0}
-		if($Subnet2 -le 1){$subnet2 = 2}
+		if($Subnet2 -le 0){$subnet2 = 1}
 		$script:Subnet1 = $Subnet1
 		$script:Subnet2 = $Subnet2
 	}
@@ -1036,6 +1041,26 @@ if($ostype -eq 'Windows')
 		}
 		}
 
+Function Verify-SubnetIndex {
+	param(
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
+	[int]$Subnet,
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+	[string]$vnetrg = $vnetrg,
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+	[string]$rg = $rg
+	)
+
+$myvnet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
+$subcnt = $myvnet.Subnets.Count
+$retsubnet = $myvnet.Subnets[$Subnet]
+$name = $retsubnet.Name
+$pre = $retsubnet.AddressPrefix
+
+Write-Host "VNET Subnet Name: $name "
+Write-Host "VNET Subnet Prefix: $pre"
+}
+
 Function Check-Vnet {
 $vnetexists = Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
 if(!$vnetexists)
@@ -1044,16 +1069,46 @@ if(!$vnetexists)
 		{ $existvnet = Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg
 
 			$addspace = $existvnet.AddressSpace | Select-Object -ExpandProperty AddressPrefixes
+			$namespace = $existvnet.Name
 			$existvnet = Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg
 			$addsubnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $existvnet
+
 			$sub = $addsubnet.AddressPrefix
+			$subname = $addsubnet.Name
+			$nsg = $addsubnet.NetworkSecurityGroup
 			$subnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $existvnet | ft Name,AddressPrefix -AutoSize -Wrap -HideTableHeaders
 			Write-Host "                                                               "
 			Write-Host "VNET CONFIGURATION - Existing VNET" -ForegroundColor Cyan
 			Write-Host "                                                               "
 			Write-Host "Active VNET: $VnetName in resource group $vnetrg"
 			Write-Host "Address Space: $addspace "
-			Write-Host "Subnets: $sub "
+			Write-Host "Subnet Ranges: $sub "
+			Write-Host "Subnet Names: $subname "
+		}
+}
+
+Function Check-NSG-NoMsg {
+$nsgexists = Get-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Name $NSGName
+if(!$nsgexists)
+	{ break }
+	else
+		{
+			$existnsg = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg | Set-AzureRmNetworkSecurityGroup
+			Write-Host "VM NSG: $NSGName "
+			 }
+}
+
+Function Check-NSG-Msg {
+$nsgexists = Get-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Name $NSGName
+if(!$nsgexists)
+	{ break }
+	else
+		{
+			$existnsg = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg | Set-AzureRmNetworkSecurityGroup
+			$defrules = $existnsg.DefaultSecurityRules | ft Name,DestinationPortRange,SourcePortRange,Description,Access,Direction,Priority,Protocol
+			$defrules | Format-Table
+			$secrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access | Format-Table | Out-Null
+			$defsecrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg | Get-AzureRmNetworkSecurityRuleConfig -DefaultRules | Format-Table
 			 }
 }
 
@@ -1089,11 +1144,6 @@ exit
 						Write-Host "Please Enter -vmstrtype"
 						exit
 				}
-
-
-
-
-
 }
 
 function Check-ExtensionUnInstall {
@@ -1113,6 +1163,13 @@ Write-Host "Please Enter AvailabilitySet Name -availset"
 exit
  }
 }
+function Check-LBAvSet {
+if($AddLB -and !$AvailSetName) {
+Write-Host "Please Enter AvailabilitySet Name -availset"
+exit
+ }
+}
+
 function Check-FQDN {
 if($AddFQDN -and !$DNLabel) {
 Write-Host "Please Enter Public FQDN -fqdn"
@@ -1142,23 +1199,33 @@ exit
 }
 
 function Check-CreateLB {
-if($CreateExtLoadBalancer -and !$ExtLBName) {
-Write-Host "Please Enter External LB Name"
+if($CreateLoadBalancer -and !$LBType) {
+Write-Host "Please Enter Internal LB Type"
 exit
  }
+	elseif($CreateLoadBalancer -and !$AddAvailabilitySet)
+			{
+		Write-Host "Availability Set Required for LB -addavailabilityset"
+		exit
+		 }
+		elseif($CreateLoadBalancer -and !$AvailSetName)
+				{
+		Write-Host "Availability Set Required for LB -availsetname"
+			exit
+			 }
 }
 
 function Check-CreateIntLB {
-if($CreateIntLoadBalancer -and !$IntLBName) {
-Write-Host "Please Enter Internal LB Name"
+if($CreateLoadBalancer -and !$LBType) {
+Write-Host "Please Enter Internal LB Type"
 exit
  }
-	elseif($CreateIntLoadBalancer -and !$LBPvtIp)
+	elseif($CreateLoadBalancer -and !$LBPvtIp)
 			{
 		Write-Host "Please Enter Internal LB Pvt IP"
 		exit
 		 }
-		elseif($CreateIntLoadBalancer -and !$LBSubnet)
+		elseif($CreateLoadBalancer -and !$LBSubnet)
 				{
 			Write-Host "Please Enter Internal LB Subnet"
 			exit
@@ -1302,41 +1369,166 @@ Function Configure-Nics {
 switch ($ConfigIPs)
 	{
 		"PvtDualStat" {
-			Write-Host "Dual IP Configuration - Static"
+			Write-Host "Configuring dual static NICs (with Public IP)..."
 			Configure-PubIpDNS
 			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
 			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
+			$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id -PrivateIpAddress $PvtIPNic2 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
+
+			$LogOut = "Completed configuration of dual static NICs: $VMName"
+			Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+		"PvtSingleStat" {
+			Write-Host "Configuring single static NIC (with Public IP)..."
+			Configure-PubIpDNS
+			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
+			$LogOut = "Completed configuration of single static NIC: $VMName"
+			Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+		"StatPvtNoPubDual" {
+			Write-Host "Configuring dual static NICs (without Public IP)..."
+			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
+			$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id -PrivateIpAddress $PvtIPNic2 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
+			$LogOut = "Completed configuration of dual static NICs: $VMName"
+			Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+		"StatPvtNoPubSingle" {
+			Write-Host "Configuring single static NIC (without Public IP)..."
+			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
+			$LogOut = "Completed configuration of single static NIC: $VMName"
+			Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+		"Single" {
+			Write-Host "Configuring single NIC (with Public IP)..."
+			Configure-PubIpDNS
+			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop -EnableIPForwarding
+			$LogOut = "Completed configuration of single NIC: $VMName"
+			Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+		"Dual" {
+			Write-Host "Configuring dual NICs (with Public IP)..."
+			Configure-PubIpDNS
+			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop -EnableIPForwarding
+			$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
+			$LogOut = "Completed configuration of dual NICs: $VMName"
+			Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+		"NoPubSingle" {
+			Write-Host "Configuring single NIC (without Public IP)..."
+			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
+			$LogOut = "Completed configuration of single NIC: $VMName"
+			Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+		"NoPubDual" {
+			Write-Host "Configuring dual NICs (without Public IP)..."
+			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
+			$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
+			$LogOut = "Completed configuration of dual NICs: $VMName"
+			Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+		"LoadBalancedDual" {
+			Write-Host "Configuring load balanced dual NICs (without Public IP)..."
+			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
+			$script:besubnet =	Get-AzureRmVirtualNetworkSubnetConfig -Name $LBName -VirtualNetwork $script:VNet -WarningAction SilentlyContinue
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PrivateIpAddress $PvtIPNic1 -LoadBalancerBackendAddressPool $lb.BackendAddressPools[0] -LoadBalancerInboundNatRule $lb.InboundNatRules[0]
+			$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id -PrivateIpAddress $PvtIPNic2 -LoadBalancerBackendAddressPool $lb.BackendAddressPools[0] -LoadBalancerInboundNatRule $lb.InboundNatRules[0] –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
+			$LogOut = "Completed configuration of load balanced dual NICs: $VMName"
+			Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+		"LoadBalancedSingle" {
+			Write-Host "Configuring load balkanced single NIC (without Public IP)..."
+			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
+			$besubnet =	Get-AzureRmVirtualNetworkSubnetConfig -Name $LBName -VirtualNetwork $script:VNet -WarningAction SilentlyContinue
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -Subnet $besubnet -PrivateIpAddress $PvtIPNic1 -LoadBalancerBackendAddressPool $lb.BackendAddressPools[0] -LoadBalancerInboundNatRule $lb.InboundNatRules[0]
+			$LogOut = "Completed configuration of load balanced single NIC: $VMName"
+			Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+		default{"Nothing matched entry criteria"}
+}
+	}
+	Catch
+		{
+		Write-Host -foregroundcolor Yellow `
+		"Exception Encountered"; `
+		$ErrorMessage = $_.Exception.Message
+		$LogOut  = 'Error '+$ErrorMessage
+		Log-Command -Description $LogOut -LogFile $LogOutFile
+		break
+		}
+}
+#endregion
+
+Function Configure-NicsBySubnetName {
+	param(
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+	[string]$vnetrg = $vnetrg,
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+	[string]$Location = $Location,
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+	[string]$rg = $rg,
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+	[string]$InterfaceName1 = $InterfaceName1,
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+	[string]$InterfaceName2 = $InterfaceName2,
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+	[string]$SubnetName1 = 'data',
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+	[string]$SubnetName2 = 'perimeter',
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+	[ipaddress]$PvtIPNic1 = $PvtIPNic1,
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+	[ipaddress]$PvtIPNic2 = $PvtIPNic2,
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+	[string]$ConfigIps = $ConfigIps
+	)
+
+	Try
+	{
+switch ($ConfigIPs)
+	{
+		"PvtDualStat" {
+			Write-Host "Dual IP Configuration - Static"
+			Configure-PubIpDNS
+			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -Subnet $SubnetName1 -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 			$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id -PrivateIpAddress $PvtIPNic2 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 }
 		"PvtSingleStat" {
 			Write-Host "Single IP Configuration - Static"
 			Configure-PubIpDNS
 			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location  -Subnet $SubnetName1 -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 }
 		"StatPvtNoPubDual" {
 			Write-Host "Dual IP Configuration- Static - No Public"
 			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
-			$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id -PrivateIpAddress $PvtIPNic2 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location  -Subnet $SubnetName1 -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
+			$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -Subnet $SubnetName2 -PrivateIpAddress $PvtIPNic2 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 }
 		"StatPvtNoPubSingle" {
 			Write-Host "Single IP Configuration - Static - No Public"
 			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location  -Subnet $SubnetName1 -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 }
 		"Single" {
 			Write-Host "Default Single IP Configuration"
 			Configure-PubIpDNS
 			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop -EnableIPForwarding
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location  -Subnet $SubnetName1 -PublicIpAddressId $PIp.Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop -EnableIPForwarding
 }
 		"Dual" {
 			Write-Host "Default Dual IP Configuration"
 			Configure-PubIpDNS
 			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop -EnableIPForwarding
-			$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location  -Subnet $SubnetName1 -PublicIpAddressId $PIp.Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop -EnableIPForwarding
+			$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location  -Subnet $SubnetName2 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 }
 		"NoPubSingle" {
 			Write-Host "Single IP - No Public"
@@ -1375,7 +1567,6 @@ switch ($ConfigIPs)
 		break
 		}
 }
-#endregion
 
 #region Add Dual Nics
 Function Add-NICs {
@@ -1451,7 +1642,7 @@ Function Configure-NSG
 			$nic = Get-AzureRmNetworkInterface -ResourceGroupName $rg -Name $InterfaceName1
 			$nic.NetworkSecurityGroup = $nsg
 			Set-AzureRmNetworkInterface -NetworkInterface $nic | Out-Null
-			$LogOut = "Completed Image NSG Post Configuration. Added $InterfaceName1 to $NSGName"
+			$LogOut = "Completed NSG update. Added $InterfaceName1 to $NSGName"
 			Log-Command -Description $LogOut -LogFile $LogOutFile
 		}
 			if($nic2)
@@ -1460,9 +1651,7 @@ Function Configure-NSG
 				$nic = Get-AzureRmNetworkInterface -ResourceGroupName $rg -Name $InterfaceName2
 				$nic.NetworkSecurityGroup = $nsg
 				Set-AzureRmNetworkInterface -NetworkInterface $nic | Out-Null
-				$secrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access | Format-Table | Out-Null
-				$defsecrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg | Get-AzureRmNetworkSecurityRuleConfig -DefaultRules | Format-Table | Out-Null
-				$LogOut = "Completed Image NSG Post Configuration. Added $InterfaceName2 to $NSGName"
+				$LogOut = "Completed NSG update. Added $InterfaceName2 to $NSGName"
 				Log-Command -Description $LogOut -LogFile $LogOutFile
 			}
 	}
@@ -1482,25 +1671,27 @@ Function Configure-NSG
 Function Configure-extLB
 {
 	param(
-		[string]$LBName = $ExtLBName,
+		[string]$LBName = $LBName,
 		[string]$frtendpool = 'frontend',
 		[string]$backpool = 'backend'
 	)
 
 	Try
+
 	{
+	Lb-type
 	$nic1 = Get-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -ErrorAction SilentlyContinue
 	$nic2 = Get-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -ErrorAction SilentlyContinue
 
 		if($nic1)
 	{
-				Write-Host "Configuring NIC for Load Balancer"
+				Write-Host "Configuring $InterfaceName1 for lb: $LBName"
 		$lb = Get-AzureRmLoadBalancer -Name $LBName -ResourceGroupName $rg -WarningAction SilentlyContinue -ErrorAction Stop
 		$backend = Get-AzureRmLoadBalancerBackendAddressPoolConfig -Name $backpool -LoadBalancer $lb -WarningAction SilentlyContinue
 		$nic = $nic1
 		$nic.IpConfigurations[0].LoadBalancerBackendAddressPools = $backend
 		Set-AzureRmNetworkInterface -NetworkInterface $nic -WarningAction SilentlyContinue -ErrorAction Stop | Out-Null
-		$LogOut = "Completed Image Load Balancer Post Configuration. Added $InterfaceName1 to $LBName"
+		$LogOut = "Completed load balancer post deployment configuration. Added $InterfaceName1 to $LBName"
 		Log-Command -Description $LogOut -LogFile $LogOutFile
 		}
 	}
@@ -1520,19 +1711,20 @@ Function Configure-extLB
 Function Configure-IntLB
 {
 	param(
-		[string]$LBName = $IntLBName,
+		[string]$LBName = $LBName,
 		[string]$frtendpool = 'frontend',
 		[string]$backpool = 'backend'
 	)
 
 	Try
 	{
+	Lb-type
 	$nic1 = Get-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -ErrorAction SilentlyContinue
 	$nic2 = Get-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -ErrorAction SilentlyContinue
 
 		if($nic1)
 	{
-				Write-Host "Configuring NIC for Load Balancer"
+				Write-Host "Configuring $InterfaceName1 for Load Balancer"
 		$lb = Get-AzureRmLoadBalancer -Name $LBName -ResourceGroupName $rg -WarningAction SilentlyContinue -ErrorAction Stop
 		$backend = Get-AzureRmLoadBalancerBackendAddressPoolConfig -Name $backpool -LoadBalancer $lb -WarningAction SilentlyContinue
 		$nic = $nic1
@@ -1634,6 +1826,8 @@ Function Create-AvailabilitySet {
 		 New-AzureRmAvailabilitySet -ResourceGroupName $rg -Name $AvailSetName -Location $Location -WarningAction SilentlyContinue  -ErrorAction Stop -Sku 'Aligned' -PlatformUpdateDomainCount 3 -PlatformFaultDomainCount 3  | Out-Null
 	$AddAvailabilitySet = (Get-AzureRmAvailabilitySet -ResourceGroupName $rg -Name $AvailSetName).Id
 	$script:VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AddAvailabilitySet -WarningAction SilentlyContinue
+	$LogOut = "Completed Availability Set configuration $AvailSetName"
+	Log-Command -Description $LogOut -LogFile $LogOutFile
 	 }
 	 elseif
 	 ($addmngdatadisk)
@@ -1641,6 +1835,8 @@ Function Create-AvailabilitySet {
 	 New-AzureRmAvailabilitySet -ResourceGroupName $rg -Name $AvailSetName -Location $Location -WarningAction SilentlyContinue  -ErrorAction Stop -Sku 'Aligned' -PlatformUpdateDomainCount 3 -PlatformFaultDomainCount 3  | Out-Null
 	$AddAvailabilitySet = (Get-AzureRmAvailabilitySet -ResourceGroupName $rg -Name $AvailSetName).Id
 	$script:VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AddAvailabilitySet -WarningAction SilentlyContinue
+	$LogOut = "Completed Availability Set configuration $AvailSetName"
+	Log-Command -Description $LogOut -LogFile $LogOutFile
 	 }
 	 elseif
 	 ($vmstrtype -eq 'managed')
@@ -1648,6 +1844,8 @@ Function Create-AvailabilitySet {
 	 New-AzureRmAvailabilitySet -ResourceGroupName $rg -Name $AvailSetName -Location $Location -WarningAction SilentlyContinue  -ErrorAction Stop -Sku 'Aligned' -PlatformUpdateDomainCount 3 -PlatformFaultDomainCount 3 | Out-Null
 	$AddAvailabilitySet = (Get-AzureRmAvailabilitySet -ResourceGroupName $rg -Name $AvailSetName).Id
 	$script:VirtualMachine = New-AzureRmVMConfig -VMName $VMName -VMSize $VMSize -AvailabilitySetID $AddAvailabilitySet -WarningAction SilentlyContinue
+	$LogOut = "Completed Availability Set configuration $AvailSetName"
+	Log-Command -Description $LogOut -LogFile $LogOutFile
 	 }
 	 else
 	 {	 New-AzureRmAvailabilitySet -ResourceGroupName $rg -Name $AvailSetName -Location $Location -WarningAction SilentlyContinue  -ErrorAction Stop | Out-Null
@@ -1790,7 +1988,7 @@ Function Create-MngDataDisks {
 }
 
 Function Configure-Image {
-	Write-Host "OS storage type: $vmstrtype"
+	Write-Host "Starting $vmstrtype disk configuration.."
 if($vmstrtype -eq 'unmanaged')
 		{ Configure-Image-Unmanaged }
 	elseif($vmstrtype -eq 'managed')
@@ -3183,7 +3381,7 @@ Function Create-LB
 	param(
 		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 		[string]
-		$LBName = $ExtLBName,
+		$LBName = $LBName,
 		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 		[string]
 		$Location = $Location,
@@ -3195,19 +3393,23 @@ Function Create-LB
 		$frtpool = 'frontend',
 		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 		[string]
-		$backpool = 'backend'
+		$backpool = 'backend',
+		$lbpubdns = $lbpubdns
 	)
 
 	Try
 	{
+	Lb-type
 	$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
 	Write-Host "Creating Public Ip, Pools, Probe and Inbound NAT Rules"
+
 		$lbpublicip = New-AzureRmPublicIpAddress -Name 'lbip' -ResourceGroupName $vnetrg -Location $Location -AllocationMethod Dynamic -WarningAction SilentlyContinue -Force -Confirm:$False
 		$frtend = New-AzureRmLoadBalancerFrontendIpConfig -Name $frtpool -PublicIpAddress $lbpublicip -WarningAction SilentlyContinue
 		$backendpool = New-AzureRmLoadBalancerBackendAddressPoolConfig -Name $backpool  -WarningAction SilentlyContinue
-		$probecfg = New-AzureRmLoadBalancerProbeConfig -Name 'probecfg' -Protocol Http -Port 80 -IntervalInSeconds 30 -ProbeCount 2 -RequestPath 'healthcheck.aspx' -WarningAction SilentlyContinue
+		$probecfg = New-AzureRmLoadBalancerProbeConfig -Name 'probecfg' -Protocol Tcp -Port 443 -IntervalInSeconds 30 -ProbeCount 2 -WarningAction SilentlyContinue
 		$inboundnat1 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'inboundnat1' -FrontendIpConfiguration $frtend -Protocol Tcp -FrontendPort 443 -BackendPort 443 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
 		$inboundnat2 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'inboundnat2' -FrontendIpConfiguration $frtend -Protocol Tcp -FrontendPort 3389 -BackendPort 3389 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
+		$inboundnat3 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'inboundnat3' -FrontendIpConfiguration $frtend -Protocol Tcp -FrontendPort 3391 -BackendPort 3389 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
 		$lbrule = New-AzureRmLoadBalancerRuleConfig -Name 'lbrules' -FrontendIpConfiguration $frtend -BackendAddressPool $backendpool -Probe $probecfg -Protocol Tcp -FrontendPort '80' -BackendPort '80' -IdleTimeoutInMinutes '20' -EnableFloatingIP -LoadDistribution SourceIP -WarningAction SilentlyContinue
 		$lb = New-AzureRmLoadBalancer -Location $Location -Name $LBName -ResourceGroupName $vnetrg -FrontendIpConfiguration $frtend -BackendAddressPool $backendpool -Probe $probecfg -InboundNatRule $inboundnat1,$inboundnat2 -LoadBalancingRule $lbrule -WarningAction SilentlyContinue -ErrorAction Stop -Force -Confirm:$false
 		Get-AzureRmLoadBalancer -Name $LBName -ResourceGroupName $vnetrg -WarningAction SilentlyContinue | Out-Null
@@ -3229,7 +3431,7 @@ Function Create-IntLB
 {
 	param(
 		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-		[string]$LBName = $IntLBName,
+		[string]$LBName = $LBName,
 		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 		[string]$Location = $Location,
 		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
@@ -3246,15 +3448,18 @@ Function Create-IntLB
 
 	Try
 	{
+	Lb-type
 	$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
 	Write-Host "Creating Pools, Probe and Inbound NAT Rules"
 		$frontendIP = New-AzureRmLoadBalancerFrontendIpConfig -Name $frtpool -PrivateIpAddress $PvtIP -SubnetId $vnet.subnets[$subnet].Id -WarningAction SilentlyContinue
 		$backendpool = New-AzureRmLoadBalancerBackendAddressPoolConfig -Name $backpool  -WarningAction SilentlyContinue
-		$probecfg = New-AzureRmLoadBalancerProbeConfig -Name 'probecfg' -Protocol Http -Port 80 -IntervalInSeconds 30 -ProbeCount 2 -RequestPath 'healthcheck.aspx' -WarningAction SilentlyContinue
+		$probecfg = New-AzureRmLoadBalancerProbeConfig -Name 'probecfg' -Protocol Tcp -Port 1433 -IntervalInSeconds 30 -ProbeCount 2 -WarningAction SilentlyContinue
 		$inboundnat1 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'inboundnat1' -FrontendIpConfiguration $frontendIP -Protocol Tcp -FrontendPort 3391 -BackendPort 3389 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
 		$inboundnat2 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'inboundnat2' -FrontendIpConfiguration $frontendIP -Protocol Tcp -FrontendPort 3389 -BackendPort 3389 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
+		$inboundnat3 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'inboundnat3' -FrontendIpConfiguration $frontendIP -Protocol Tcp -FrontendPort 1433 -BackendPort 1433 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
+		$inboundnat4 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'inboundnat4' -FrontendIpConfiguration $frontendIP -Protocol Tcp -FrontendPort 1434 -BackendPort 1433 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
 		$lbrule = New-AzureRmLoadBalancerRuleConfig -Name 'lbrules' -FrontendIpConfiguration $frontendIP -BackendAddressPool $backendpool -Probe $probecfg -Protocol Tcp -FrontendPort '80' -BackendPort '80' -IdleTimeoutInMinutes '20' -EnableFloatingIP -LoadDistribution SourceIP -WarningAction SilentlyContinue
-		$lb = New-AzureRmLoadBalancer -Location $Location -Name $LBName -ResourceGroupName $vnetrg -FrontendIpConfiguration $frontendIP -BackendAddressPool $backendpool -Probe $probecfg -InboundNatRule $inboundnat1,$inboundnat2 -LoadBalancingRule $lbrule -WarningAction SilentlyContinue -ErrorAction Stop -Force -Confirm:$false
+		$lb = New-AzureRmLoadBalancer -Location $Location -Name $LBName -ResourceGroupName $vnetrg -FrontendIpConfiguration $frontendIP -BackendAddressPool $backendpool -Probe $probecfg -InboundNatRule $inboundnat1,$inboundnat2,$inboundnat3,$inboundnat4 -LoadBalancingRule $lbrule -WarningAction SilentlyContinue -ErrorAction Stop -Force -Confirm:$false
 		Get-AzureRmLoadBalancer -Name $LBName -ResourceGroupName $vnetrg -WarningAction SilentlyContinue -ErrorAction Stop | Out-Null
 			$LogOut = "Completed LB Configuration of $LBName"
 			Log-Command -Description $LogOut -LogFile $LogOutFile
@@ -3306,15 +3511,76 @@ param(
 }
 #endregion
 
-
 Function Subnet-Match {
 	Param(
-		[INT]$Subnet
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
+		[INT]$Subnet,
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=1)]
+		[string]$interfacename = $InterfaceName1
 	)
+$myvnet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
+$subcnt = $myvnet.Subnets.Count
+$retsubnet = $myvnet.Subnets[$Subnet]
+$name = $retsubnet.Name
+$pre = $retsubnet.AddressPrefix
 
-Write-Host "Deploying to SubnetId $Subnet"
+Write-Host "VNET Subnet Name: $name "
+Write-Host "VNET Subnet Prefix: $pre"
 }
 #endregion
+
+Function HostNic-Summary {
+Write-Host "VNET Resource Group: $vnetrg"
+Write-Host "VNET Name: $vNetName"
+If ($ConfigIPs -eq "StatPvtNoPubSingle")
+{
+Write-Host "Nic1: $PvtIPNic1"
+Subnet-Match $Subnet1
+}
+If ($ConfigIPs -eq "StatPvtNoPubDual")
+{
+Write-Host "Nic1: $PvtIPNic1"
+Write-Host "Nic2: $PvtIPNic2"
+Subnet-Match $Subnet1
+Subnet-Match $Subnet2
+}
+If ($ConfigIPs -eq "Single")
+{
+Subnet-Match $Subnet1
+}
+If ($ConfigIPs -eq "NoPubSingle")
+{
+Subnet-Match $Subnet1
+}
+If ($ConfigIPs -eq "Dual")
+{
+Subnet-Match $Subnet1
+Subnet-Match $Subnet2
+}
+If ($ConfigIPs -eq "PvtSingleStat")
+{
+Subnet-Match $Subnet1
+Write-Host "Nic1: $PvtIPNic1"
+}
+If ($ConfigIPs -eq "PvtDualStat")
+{
+Subnet-Match $Subnet1
+Subnet-Match $Subnet2
+Write-Host "Nic1: $PvtIPNic1"
+Write-Host "Nic2: $PvtIPNic2"
+}
+}
+
+Function Host-Summary {
+Write-Host "VM Name: $VMName " -ForegroundColor White
+Write-Host "Server Type: $vmMarketImage"
+Write-Host "Geo Location: $Location"
+Write-Host "VM Resource Group: $rg"
+Write-Host "Storage Resource Group: $storerg"
+Write-Host "Storage Account Name: $script:StorageNameVerified"
+Write-Host "Storage Account Type: $StorageType"
+Write-Host "Disk Storage Type: $vmstrtype" -ForegroundColor White
+}
 
 #region Show VM Configuration
 Function Write-ConfigVM {
@@ -3327,13 +3593,8 @@ Write-Host "                                                               "
 $time = " Start Time " + (Get-Date -UFormat "%d-%m-%Y %H:%M:%S")
 Write-Host VM CONFIGURATION - $time -ForegroundColor Cyan
 Write-Host "                                                               "
-Write-Host "Action Type:" $ActionType
-Write-Host "VM Name: $VMName " -ForegroundColor White
-Write-Host "VM Resource Group: $rg"
-Write-Host "Server Type: $vmMarketImage"
-Write-Host "Geo Location: $Location"
-Write-Host "VNET Resource Group: $vnetrg"
-Write-Host "VNET Name: $vNetName"
+
+HostNic-Summary
 Write-Host "Storage Resource Group: $storerg"
 Write-Host "Storage Account Name: $script:StorageNameVerified"
 Write-Host "Storage Account Type: $StorageType"
@@ -3346,47 +3607,10 @@ Write-Host "Adding Public SSH Key to $VMName"
 
 if($AddLB)
 	{
-Write-Host "Adding $VMName to Load Balancer"
-Write-Host "LB Name:  '$LBName'"
+Write-Host "Adding $VMName $InterfaceName1 to Load Balancer $LBName"
 	}
 Select-NicDescrtipt
-If ($ConfigIPs -eq "StatPvtNoPubSingle")
-{ Write-Host "Public Ip Will not be created" -ForegroundColor White
-Write-Host "Nic1: $PvtIPNic1"
-Subnet-Match $Subnet1
-}
-If ($ConfigIPs -eq "StatPvtNoPubDual")
-{ Write-Host "Public Ip Will not be created" -ForegroundColor White
-Write-Host "Nic1: $PvtIPNic1"
-Write-Host "Nic2: $PvtIPNic2"
-Subnet-Match $Subnet1
-Subnet-Match $Subnet2
-}
-If ($ConfigIPs -eq "Single")
-{ Write-Host "Public Ip Will be created"
-Subnet-Match $Subnet1
-}
-If ($ConfigIPs -eq "NoPubSingle")
-{ Write-Host "Public Ip Will not be created"
-Subnet-Match $Subnet1
-}
-If ($ConfigIPs -eq "Dual")
-{ Write-Host "Public Ip Will be created"
-Subnet-Match $Subnet1
-Subnet-Match $Subnet2
-}
-If ($ConfigIPs -eq "PvtSingleStat")
-{ Write-Host "Public Ip Will be created"
-Subnet-Match $Subnet1
-Write-Host "Nic1: $PvtIPNic1"
-}
-If ($ConfigIPs -eq "PvtDualStat")
-{ Write-Host "Public Ip Will be created"
-Subnet-Match $Subnet1
-Subnet-Match $Subnet2
-Write-Host "Nic1: $PvtIPNic1"
-Write-Host "Nic2: $PvtIPNic2"
-}
+
 if($AddExtension -or $BatchAddExtension -eq 'True') {
 Write-Host "Extension selected for deployment: $extname "
 }
@@ -3420,20 +3644,15 @@ Write-Host "VNET Name: $vNetName"
 Write-Host "VNET Resource Group Name: $vnetrg"
 
 Write-Host "Address Range:  $AddRange"
-if($CreateNSG -or $BatchAddNSG -eq 'True')
+
+if($CreateNSG -or $BatchCreateNSG -eq 'True')
 {
-Write-Host "NSG Name: $NSGName"
+Write-Host "Creating NSG Name: $NSGName"
 }
-if($CreateExtLoadBalancer)
+if($CreateLoadBalancer -or $BatchCreateLB -eq 'True')
 	{
-Write-Host "Creating External Load Balancer"
-Write-Host "LB Name: '$LBName'"
-	}
-if($CreateIntLoadBalancer)
-	{
-Write-Host "Creating Internal Load Balancer"
-Write-Host "LB Name:'$LBName'"
-	}
+Write-Host "Creating Load Balancer $LBName"
+}
 
 Write-Host "                                                               "
 }
@@ -3461,15 +3680,22 @@ Write-Host "Create storage share to 'True'"
 Write-Host "Share Name:  '$ShareName'"
 	}
 
-if($CreateExtLoadBalancer)
+if($CreateLoadBalancer -or $BatchCreateLB -eq 'True' -and $LBType -eq 'external')
 	{
-Write-Host "Completed creation of external load balancer"
-Write-Host "LB Name:  '$LBName'"
+Write-Host "Completed creation of external load balancer: $LBName"
+	}
+if($CreateLoadBalancer -or $BatchCreateLB -eq 'True' -and $LBType -eq 'internal')
+	{
+Write-Host "Completed creation of internal load balancer: $LBName"
+	}
+if($AddLB)
+	{
+Write-Host "Completed adding $VMName to load balancer: $LBName"
 	}
 
 if($AddAvailabilitySet -or $BatchAddAvset -eq 'True') {
 Write-Host "Availability Set Configured"
-Write-Host "Availability Set Name:  '$AvailSetName'"
+Write-Host "Availability Set Name: '$AvailSetName'"
 $time = " Completed Time " + (Get-Date -UFormat "%d-%m-%Y %H:%M:%S")
 Write-Host VM CONFIGURATION - $time -ForegroundColor Cyan
 Write-Host "                                                               "
@@ -3523,7 +3749,6 @@ Write-Output "VM Extensions on $VMName $exttype" | Format-Table
 
 #region Show Results
 Function Results-Rollup {
-
 Write-Host "                                                               "
 $chkmatch = $rg -match $storerg
 if($chkmatch -eq 'True')
@@ -3580,7 +3805,7 @@ Function Create-Storage {
 		[string]$Location = $Location
 		)
 		if(!$useexiststorage)
-		{ Write-Host "Starting Storage Creation.."
+		{ Write-Host "Starting Storage Creation..."
 		$script:StorageAccount = New-AzureRmStorageAccount -ResourceGroupName $storerg -Name $StorageName.ToLower() -Type $StorageType -Location $Location -ErrorAction Stop -WarningAction SilentlyContinue
 		Write-Host "Completed Storage Creation" -ForegroundColor White
 		$LogOut = "Storage Configuration completed: $StorageName"
@@ -4443,8 +4668,54 @@ elseif(!$clientfileexists)
 }
 }
 
+function Verify-ScriptExists {
+	param(
+	$remscriptpath = -join $customscriptsdir + "\" + $scriptname
+
+	)
+
+	$remscript = Test-Path -Path $remscriptpath
+
+if(!$remscript)
+	{
+		Write-Host "File does not Exist" $remscriptpath
+		break
+	}
+	else
+	{	 $script:remenable = 'True'}
+}
+
 #region Upload Custom Script
 Function Upload-CustomScript {
+	param(
+	$StorageName = $script:StorageNameVerified,
+	$containerName = $containerName,
+	$rg = $rg,
+	$localFolder = $localFolder,
+	$remscriptpath = -join $customscriptsdir + "\"
+	)
+
+		$Keys = Get-AzureRmStorageAccountKey -ResourceGroupName $rg -Name $StorageName;
+		$StorageContext = New-AzureStorageContext -StorageAccountName $StorageName -StorageAccountKey $Keys[0].Value;
+		New-AzureStorageContainer -Context $StorageContext -Name $containerName -WarningAction SilentlyContinue -ErrorAction SilentlyContinue;
+		$storageAccountKey = Get-AzureRmStorageAccountKey -ResourceGroupName $rg -Name $StorageName;
+		$blobContext = New-AzureStorageContext -StorageAccountName $StorageName -StorageAccountKey $Keys[0].Value;
+		$files = Get-ChildItem $remscriptpath
+		foreach($file in $files)
+		{
+		  $fileName = "$localFolder\$file"
+		  $blobName = "$file"
+
+			Set-AzureStorageBlobContent -File $filename -Container $containerName -Blob $blobName -Context $blobContext -Force -BlobType Append -WarningAction SilentlyContinue -ErrorAction SilentlyContinue -Confirm:$false | Out-Null
+		  Get-AzureStorageBlob -Container $containerName -Context $blobContext -Blob $blobName -WarningAction SilentlyContinue | Out-Null
+}
+		  $scripturl = "https://$StorageName.blob.core.windows.net/$containerNameScripts/$scriptname"
+		  $LogOut = "Custom Script uploaded $scripturl"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+#endregion
+
+Function Upload-CustomScriptDir {
 	param(
 	$StorageName = $script:StorageNameVerified,
 	$containerName = $containerName,
@@ -4621,13 +4892,19 @@ switch ($extname)
 						Write-Results
 }
 		"customscript" {
+				Verify-ScriptExists
 				Verify-ExtWindows
-				Write-Host "Updating: $VMName in the Resource Group: $rg with a custom script: $customextname in Storage Account: $StorageName" -ForegroundColor Cyan
+				Write-Host "Updating: $VMName in the Resource Group: $rg with a custom script: $scriptname in Storage Account: $StorageName" -ForegroundColor Cyan
 				if($CustomScriptUpload -eq 'True')
 				{
 				Test-Upload -localFolder $localfolderscripts
 				Upload-CustomScript -StorageName $StorageName -rg $rg -containerName $containerNameScripts -localFolder $localfolderscripts
 				}
+				$scriptend = "https://$StorageName.blob.core.windows.net/$containerNameScripts/$scriptname"
+				if(!$scriptend)
+					{
+					Upload-CustomScript -StorageName $StorageName -rg $rg -containerName $containerNameScripts -localFolder $localfolderscripts
+					}
 				Set-AzureRmVMCustomScriptExtension -Name $customextname -ContainerName $containerName -ResourceGroupName $rg -VMName $VMName -StorageAccountName $StorageName -FileName $scriptname -Location $Location -TypeHandlerVersion "1.8" -WarningAction SilentlyContinue  -ErrorAction Stop | Out-Null
 				Get-AzureRmVMCustomScriptExtension -ResourceGroupName $rg -VMName $VMName -Name $customextname -Status | Out-Null
 				$LogOut = "Custom $scriptname Deployed to $VMName"
@@ -4636,6 +4913,7 @@ switch ($extname)
 }
 		"linuxcustomscript" {
 				Verify-ExtLinux
+				Verify-ScriptExists
 				$Keys = Get-AzureRmStorageAccountKey -ResourceGroupName $rg -Name $StorageName
 				$Key1 = $Keys[0].Value
 
@@ -4798,7 +5076,7 @@ Function Check-Orphans {
 
 if($extvm)
 {
-	Write-Host "Host VM Found, please use a different VMName for Provisioning or manually delete the existing VM" -ForegroundColor Cyan
+	Write-Host "Host VM Found, please use a different VMName for Provisioning or manually delete the existing VM" -ForegroundColor Yellow
 	Start-sleep 10
 	Exit
 }
@@ -4825,24 +5103,6 @@ else {if($nic1)
  else {Write-Host "No orphans found." -ForegroundColor Green}
  }
 } #
-#endregion
-
-#region Create Availability Set
-Function Remove-AzAvailabilitySet
-{
-Param(
-		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=1)]
-		[string]
-		$rg = $rg,
-		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
-		[string]
-		$AvailSetName = $AvailSetName
-)
-		Write-Host "Removing Availability Set"
-		Remove-AzureRmAvailabilitySet -ResourceGroupName $rg -Confirm:$False -Force -Name $AvailSetName
-		$LogOut = "Removed $AvailSetName"
-		Log-Command -Description $LogOut -LogFile $LogOutFile
-}
 #endregion
 
 Function Create-ResourceGroup {
@@ -4883,16 +5143,17 @@ Function Action-Type {
 								Check-Vnet-NoMsg
 							} # Creates VNET
 
-					if($CreateNSG -or $BatchAddNSG -eq 'True')
+					if($CreateNSG -or $BatchCreateNSG -eq 'True')
 							{
 								Create-NSG
 							} # Creates NSG and Security Groups
-					if($CreateExtLoadBalancer -or $BatchCreateExtLB -eq 'True')
+					if($CreateLoadBalancer -or $BatchCreateLB -eq 'True' -and $LBType -eq 'external')
 							{
 							Check-CreateLB
 							Create-LB
 							}
-					if($CreateIntLoadBalancer -or $BatchCreateIntLB -eq 'True')
+
+					if($CreateLoadBalancer -or $BatchCreateLB -eq 'True' -and $LBType -eq 'internal')
 							{
 							Verify-LBSubnet
 							Check-CreateIntLB
@@ -4906,7 +5167,7 @@ Function Action-Type {
 							{
 							Create-MngDataDisks
 							}
-					if($AddNSG -or $BatchUpdateNSG -eq 'True')
+					if($AddNSG -or $BatchAddNSG -eq 'True')
 							{
 								Configure-NSG
 							} #Adds NSG to NIC
@@ -4946,7 +5207,7 @@ Function Action-Type {
 						Install-Ext
 						exit
 						}
-				if($AddNSG -or $BatchUpdateNSG -eq 'True')
+				if($AddNSG -or $BatchAddNSG -eq 'True')
 						{
 						Check-NSGName
 						Configure-NSG
