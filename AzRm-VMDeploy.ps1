@@ -416,7 +416,7 @@ $locadmin = 'locadmin',
 [Parameter(Mandatory=$false,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [string]
-$locpassword = 'P@ssW0rd!',
+$locpassword = 'P@ssw0rd!',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [string]
@@ -840,6 +840,8 @@ Write-Host "Setting LBName to $LBName"
 	Write-Host "Setting LBName to $LBName"
 	}
 }
+
+
 }
 #region Verify IP
 Function Verify-PvtIp {
@@ -1280,6 +1282,9 @@ Write-Host "No DNS Name Specified"
 }
 #endregion
 
+
+
+
 Function Check-VMstrtype {
 	Write-Host "$vmstrtype selected"
 if($vmstrtype -eq 'unmanaged')
@@ -1374,7 +1379,7 @@ switch ($ConfigIPs)
 			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
 			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 			$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id -PrivateIpAddress $PvtIPNic2 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
-
+			
 			$LogOut = "Completed configuration of dual static NICs: $VMName"
 			Log-Command -Description $LogOut -LogFile $LogOutFile
 }
@@ -1424,6 +1429,7 @@ switch ($ConfigIPs)
 			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 			$LogOut = "Completed configuration of single NIC: $VMName"
 			Log-Command -Description $LogOut -LogFile $LogOutFile
+
 }
 		"NoPubDual" {
 			Write-Host "Configuring dual NICs (without Public IP)..."
@@ -1432,6 +1438,7 @@ switch ($ConfigIPs)
 			$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 			$LogOut = "Completed configuration of dual NICs: $VMName"
 			Log-Command -Description $LogOut -LogFile $LogOutFile
+
 }
 		"LoadBalancedDual" {
 			Write-Host "Configuring load balanced dual NICs (without Public IP)..."
@@ -1441,6 +1448,7 @@ switch ($ConfigIPs)
 			$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id -PrivateIpAddress $PvtIPNic2 -LoadBalancerBackendAddressPool $lb.BackendAddressPools[0] -LoadBalancerInboundNatRule $lb.InboundNatRules[0] –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 			$LogOut = "Completed configuration of load balanced dual NICs: $VMName"
 			Log-Command -Description $LogOut -LogFile $LogOutFile
+
 }
 		"LoadBalancedSingle" {
 			Write-Host "Configuring load balkanced single NIC (without Public IP)..."
@@ -3393,8 +3401,7 @@ Function Create-LB
 		$frtpool = 'frontend',
 		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 		[string]
-		$backpool = 'backend',
-		$lbpubdns = $lbpubdns
+		$backpool = 'backend'
 	)
 
 	Try
@@ -3533,45 +3540,48 @@ Function HostNic-Summary {
 Write-Host "VNET Resource Group: $vnetrg"
 Write-Host "VNET Name: $vNetName"
 If ($ConfigIPs -eq "StatPvtNoPubSingle")
-{
+{ 
 Write-Host "Nic1: $PvtIPNic1"
 Subnet-Match $Subnet1
 }
 If ($ConfigIPs -eq "StatPvtNoPubDual")
-{
+{ 
 Write-Host "Nic1: $PvtIPNic1"
 Write-Host "Nic2: $PvtIPNic2"
 Subnet-Match $Subnet1
 Subnet-Match $Subnet2
 }
 If ($ConfigIPs -eq "Single")
-{
+{ 
 Subnet-Match $Subnet1
 }
 If ($ConfigIPs -eq "NoPubSingle")
-{
+{ 
 Subnet-Match $Subnet1
 }
 If ($ConfigIPs -eq "Dual")
-{
+{ 
 Subnet-Match $Subnet1
 Subnet-Match $Subnet2
 }
 If ($ConfigIPs -eq "PvtSingleStat")
-{
+{ 
 Subnet-Match $Subnet1
 Write-Host "Nic1: $PvtIPNic1"
 }
 If ($ConfigIPs -eq "PvtDualStat")
-{
+{ 
 Subnet-Match $Subnet1
 Subnet-Match $Subnet2
 Write-Host "Nic1: $PvtIPNic1"
 Write-Host "Nic2: $PvtIPNic2"
 }
+
+
 }
 
 Function Host-Summary {
+
 Write-Host "VM Name: $VMName " -ForegroundColor White
 Write-Host "Server Type: $vmMarketImage"
 Write-Host "Geo Location: $Location"
@@ -3580,6 +3590,8 @@ Write-Host "Storage Resource Group: $storerg"
 Write-Host "Storage Account Name: $script:StorageNameVerified"
 Write-Host "Storage Account Type: $StorageType"
 Write-Host "Disk Storage Type: $vmstrtype" -ForegroundColor White
+
+
 }
 
 #region Show VM Configuration
@@ -3593,6 +3605,7 @@ Write-Host "                                                               "
 $time = " Start Time " + (Get-Date -UFormat "%d-%m-%Y %H:%M:%S")
 Write-Host VM CONFIGURATION - $time -ForegroundColor Cyan
 Write-Host "                                                               "
+
 
 HostNic-Summary
 Write-Host "Storage Resource Group: $storerg"
@@ -3653,6 +3666,7 @@ if($CreateLoadBalancer -or $BatchCreateLB -eq 'True')
 	{
 Write-Host "Creating Load Balancer $LBName"
 }
+
 
 Write-Host "                                                               "
 }
@@ -5163,7 +5177,7 @@ Function Action-Type {
 					Check-Vnet
 					Create-VM # Configure Image
 
-					if($addmngdatadisk)
+					if($addmngdatadisk -or $batchaddmngdatadisk -eq 'True')
 							{
 							Create-MngDataDisks
 							}
