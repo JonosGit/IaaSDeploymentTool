@@ -2,7 +2,7 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 9.1
+Ver 10.0
 
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerous Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
@@ -12,6 +12,7 @@ This script supports Load Balanced configurations for both internal and external
 
 The script will create three directories if they do not exist in the runtime directory, Log, Scripts, DSC.
 
+v10 updates - Azure PowerShell 4.0.x updates
 v9.1 updates - Extensive updates to LB Creation Process as well as NSG Creation.
 v9.0 updates - Updated -csvimport process to include managed disks, ssh and storage rg. Made updates to Availability Sets to handle managed disks. Updates for all extensions, chef extension now available for Linux and Windows.
 v8.9 updates - Added Storage Resource Group param -storagerg
@@ -296,6 +297,7 @@ Allows user specify an existing storage account for VM deployment
 			msav – Adds Azure Antivirus Extension
 			customscript – Adds Custom Script for Execution (Requires Table Storage Configuration first)
 			linuxcustscript – Adds Custom Script for Execution (Requires Table Storage Configuration first)
+			linuxpushdsc - Deploys DSC Configuration to Linux Azure VM	
 			pushdsc - Deploys DSC Configuration to Windows Azure VM
 			diag – Adds Azure Diagnostics Extension
 			linuxospatch - Deploy Latest updates for Linux platforms
@@ -416,7 +418,7 @@ $locadmin = 'locadmin',
 [Parameter(Mandatory=$false,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [string]
-$locpassword = 'P@ssw0rd!',
+$locpassword = 'P@ssw0Rd!',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [string]
@@ -553,7 +555,7 @@ $Azautoacct = "OMSAuto",
 [string]
 $Profile = "profile",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[ValidateSet("diag","msav","bginfo","winaccess","linaccess","linuxbackup","linuxospatch","linuxchefagent","windowschefagent","eset","customscript","linuxcustomscript","opsinsightLinux","opsinsightWin","WinPuppet","domjoin","RegisterAzDSC","PushDSC")]
+[ValidateSet("diag","msav","bginfo","winaccess","linaccess","linuxbackup","linuxospatch","linuxchefagent","windowschefagent","eset","customscript","linuxcustomscript","opsinsightLinux","opsinsightWin","WinPuppet","domjoin","RegisterAzDSC","PushDSC","linuxpushdsc")]
 [Alias("ext")]
 [string]
 $extname = 'RegisterAzDSC',
@@ -591,6 +593,12 @@ $azautomrg = 'OMS',
 [string]
 $scriptname = 'installbase.sh',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$dsccontainername = 'dscforlinux',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$dscfilename = 'localhost.mof',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("customscriptname2")]
 [string]
 $scriptname2 = 'installchef.sh',
@@ -620,7 +628,7 @@ $localsoftwarefolder = "$scriptfolder\software",
 $csvimport,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$csvfile = -join $workfolder + "\azrm-vmdeploy-rmp.csv",
+$csvfile = -join $workfolder + "\azrm-vmdeploy-qa.csv",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("h")]
 [Alias("?")]
@@ -709,7 +717,7 @@ $addmngdatadisk,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [switch]
 $summaryinfo,
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$false)]
 [string]
 $DiskOSType = 'Linux',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
@@ -717,10 +725,24 @@ $DiskOSType = 'Linux',
 $useexiststorage,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$chefvalidationpem = "C:\Users\jonos\Source\Repos\Deployment\AzureDeployment\AzureDeployment\chef\chef\rmpadmin.pem",
+$batchuseexistingstorage = 'False',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$chefclientrb =  "C:\Users\jonos\Source\Repos\Deployment\AzureDeployment\AzureDeployment\chef\chef\knife.rb"
+$chefvalidationpem = ".\admin.pem",
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$chefclientrb =  ".\knife.rb",
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateSet("oneoff","scheduled","disabled")]
+[string]
+$linuxpatchtype = '',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$omswrkspaceid = '',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$omswrkspacekey = ''
+
 )
 
 $sshPublicKey = Get-Content '.\Pspub.txt'
@@ -739,14 +761,17 @@ $comparedate = (Get-Date).AddDays(-14)
 $fileexist = Test-Path $ProfileFile -NewerThan $comparedate
   if($fileexist)
   {
-  Select-AzureRmProfile -Path $ProfileFile | Out-Null
+  $az = Import-AzureRmContext -Path $ProfileFile
+	  $subid = $az.Context.Subscription.Id
+
+	Set-AzureRmContext -SubscriptionId $subid | Out-Null
 		Write-Host "Using $ProfileFile"
   }
   else
   {
   Write-Host "Please enter your credentials"
   Add-AzureRmAccount
-  Save-AzureRmProfile -Path $ProfileFile -Force
+  Save-AzureRmContext -Path $ProfileFile -Force
   Write-Host "Saved Profile to $ProfileFile"
   exit
   }
@@ -816,8 +841,8 @@ try {
 	if(!$GetPath)
 	{ exit }
 	else {
-	Write-Host $csvin "File Exists"
-		import-csv -Path $csvin -Delimiter ',' | ForEach-Object{.\AZRM-VMDeploy.ps1 -ActionType $_.ActionType -VMName $_.VMName -vmMarketImage $_.Image -rg $_.rg -vNetrg $_.vnetrg -VNetName $_.VNetName -ConfigIPs $_.ConfigIPs -subnet1 $_.Subnet1 -subnet2 $_.Subnet2 -PvtIPNic1 $_.PvtIPNic1 -PvtIPNic2 $_.PvtIPNic2 -DNLabel $_.DNLabel  -BatchAddVnet $_.BatchAddVnet -BatchCreateLB $_.BatchCreateLB -BatchAddLB $_.BatchAddLB -LBSubnet $_.LBSubnet -LBPvtIp $_.LBPvtIp -LBName $_.LBName -LBType $_.LBType -BatchAddNSG $_.BatchAddNSG -BatchCreateNSG $_.BatchCreateNSG -NSGName $_.NSGName -extname $_.extname -BatchAddExtension $_.BatchAddExtension -BatchAddAvSet $_.BatchAddAvSet -AvailSetName $_.AvailSetName -BatchAddFqdn $_.BatchAddFqdn -CustomScriptUpload $_.CustomScriptUpload -scriptname $_.scriptname -containername $_.containername -scriptfolder $_.scriptfolder -customextname $_.customextname -batchAddShare $_.BatchAddShare -sharedirectory $_.sharedirectory -sharename $_.sharename -localsoftwarefolder $_.localsoftwarefolder -ConfigurationName $_.ConfigurationName -vmstrtype $_.vmstrtype -storerg $_.storerg -Batchaddmngdatadisk $_.Batchadddatadisk -Batchaddssh $_.Batchaddssh }
+	Write-Host "Located $csvin. CSV import starting..."
+		import-csv -Path $csvin -Delimiter ',' | ForEach-Object{.\AZRM-VMDeploy.ps1 -ActionType $_.ActionType -VMName $_.VMName -vmMarketImage $_.Image -rg $_.rg -vNetrg $_.vnetrg -VNetName $_.VNetName -ConfigIPs $_.ConfigIPs -subnet1 $_.Subnet1 -subnet2 $_.Subnet2 -PvtIPNic1 $_.PvtIPNic1 -PvtIPNic2 $_.PvtIPNic2 -DNLabel $_.DNLabel  -BatchAddVnet $_.BatchAddVnet -BatchCreateLB $_.BatchCreateLB -BatchAddLB $_.BatchAddLB -LBSubnet $_.LBSubnet -LBPvtIp $_.LBPvtIp -LBName $_.LBName -LBType $_.LBType -BatchAddNSG $_.BatchAddNSG -BatchCreateNSG $_.BatchCreateNSG -NSGName $_.NSGName -extname $_.extname -BatchAddExtension $_.BatchAddExtension -BatchAddAvSet $_.BatchAddAvSet -AvailSetName $_.AvailSetName -BatchAddFqdn $_.BatchAddFqdn -CustomScriptUpload $_.CustomScriptUpload -scriptname $_.scriptname -containername $_.containername -scriptfolder $_.scriptfolder -customextname $_.customextname -batchAddShare $_.BatchAddShare -sharedirectory $_.sharedirectory -sharename $_.sharename -localsoftwarefolder $_.localsoftwarefolder -ConfigurationName $_.ConfigurationName -vmstrtype $_.vmstrtype -storerg $_.storerg -Batchaddmngdatadisk $_.Batchadddatadisk -Batchaddssh $_.Batchaddssh -linuxpatchtype $_.linuxpatchtype -batchuseexistingstorage $_.batchuseexistingstorage }
 	}
 }
 catch {
@@ -840,8 +865,6 @@ Write-Host "Setting LBName to $LBName"
 	Write-Host "Setting LBName to $LBName"
 	}
 }
-
-
 }
 #region Verify IP
 Function Verify-PvtIp {
@@ -963,6 +986,54 @@ Function Verify-NIC {
 	}
 }
 #endregion
+
+function linuxos-Patching{
+	param(
+		$patchtype = $linuxpatchtype
+	)
+
+if($patchtype -eq 'oneoff')
+	{
+$PublicSetting = ConvertTo-Json -InputObject @{
+	"disabled" = $false;
+	"stop" = $false;
+	"rebootAfterPatch" = "Required";
+	"category" = "ImportantAndRecommended";
+	"installDuration" = "00:30";
+	"oneoff" = $true;
+}
+Write-Host "Adding Azure OS Patching Linux - One Off"
+Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OSPatch" -ExtensionType "OSPatchingForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.0" -InformationAction SilentlyContinue -ErrorAction Stop -SettingString $PublicSetting -WarningAction SilentlyContinue | Out-Null
+	}
+	elseif($patchtype -eq 'scheduled')
+	{
+$PublicSetting = ConvertTo-Json -InputObject @{
+	"disabled" = $false;
+	"stop" = $false;
+	"rebootAfterPatch" = "Required";
+	"category" = "ImportantAndRecommended";
+	"installDuration" = "00:90";
+	"oneoff" = $false;
+	"intervalOfWeeks" = "1";
+	"dayOfWeek" = "Sunday|Saturday";
+	"startTime" = "03:00";
+}
+Write-Host "Adding Azure OS Patching Linux - scheduled"
+Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OSPatch" -ExtensionType "OSPatchingForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.0" -InformationAction SilentlyContinue -ErrorAction Stop -SettingString $PublicSetting -WarningAction SilentlyContinue | Out-Null
+	}
+	elseif($patchtype -eq 'disabled')
+	{
+$PublicSetting = ConvertTo-Json -InputObject @{
+	"disabled" = $false;
+	"stop" = $true;
+}
+	Write-Host "Disabling Azure OS Patching Linux"
+Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OSPatch" -ExtensionType "OSPatchingForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.0" -InformationAction SilentlyContinue -ErrorAction Stop -SettingString $PublicSetting -WarningAction SilentlyContinue | Out-Null
+	}
+
+$LogOut = "Added VM OS Patching Extension"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
 
 Function Create-VnetPeering {
 	param(
@@ -1148,6 +1219,22 @@ exit
 				}
 }
 
+function Check-linuxos-NullValues {
+if($extname -eq 'linuxospatch' -and !$linuxpatchtype) {
+Write-Host "Please select -linuxpatchtype"
+exit
+}
+	elseif($extname -eq 'linuxospatch' -and $linuxpatchtype -eq 'oneoff') {
+	Write-Host "Deploying Linux OS Patch - OneOff"
+	}
+				elseif($extname -eq 'linuxospatch' -and $linuxpatchtype -eq 'scheduled')  {
+	Write-Host "Deploying Linux OS Patch - Scheduled"
+				}
+					elseif($extname -eq 'linuxospatch' -and $linuxpatchtype -eq 'disabled') {
+	Write-Host "Deploying Linux OS Patch - Disable"
+					}
+}
+
 function Check-ExtensionUnInstall {
 if($RemoveExtension -and !$rg) {
 	Write-Host "Please Enter -rg RG Name"
@@ -1282,9 +1369,6 @@ Write-Host "No DNS Name Specified"
 }
 #endregion
 
-
-
-
 Function Check-VMstrtype {
 	Write-Host "$vmstrtype selected"
 if($vmstrtype -eq 'unmanaged')
@@ -1379,7 +1463,7 @@ switch ($ConfigIPs)
 			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
 			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 			$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id -PrivateIpAddress $PvtIPNic2 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
-			
+
 			$LogOut = "Completed configuration of dual static NICs: $VMName"
 			Log-Command -Description $LogOut -LogFile $LogOutFile
 }
@@ -1429,7 +1513,6 @@ switch ($ConfigIPs)
 			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 			$LogOut = "Completed configuration of single NIC: $VMName"
 			Log-Command -Description $LogOut -LogFile $LogOutFile
-
 }
 		"NoPubDual" {
 			Write-Host "Configuring dual NICs (without Public IP)..."
@@ -1438,7 +1521,6 @@ switch ($ConfigIPs)
 			$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 			$LogOut = "Completed configuration of dual NICs: $VMName"
 			Log-Command -Description $LogOut -LogFile $LogOutFile
-
 }
 		"LoadBalancedDual" {
 			Write-Host "Configuring load balanced dual NICs (without Public IP)..."
@@ -1448,7 +1530,6 @@ switch ($ConfigIPs)
 			$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id -PrivateIpAddress $PvtIPNic2 -LoadBalancerBackendAddressPool $lb.BackendAddressPools[0] -LoadBalancerInboundNatRule $lb.InboundNatRules[0] –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 			$LogOut = "Completed configuration of load balanced dual NICs: $VMName"
 			Log-Command -Description $LogOut -LogFile $LogOutFile
-
 }
 		"LoadBalancedSingle" {
 			Write-Host "Configuring load balkanced single NIC (without Public IP)..."
@@ -1917,7 +1998,7 @@ Function Add-SSHKey {
 	$ProvisionVMs = @($VirtualMachine);
 try {
    foreach($provisionvm in $ProvisionVMs) {
-	   if($addssh)
+	   if($addssh -or $batchaddssh -eq 'True')
 	   { Add-SSHKey }
 		New-AzureRmVM -ResourceGroupName $rg -Location $Location -VM $VirtualMachine -DisableBginfoExtension –Confirm:$false -WarningAction SilentlyContinue -ErrorAction Stop -InformationAction SilentlyContinue | Out-Null
 		$LogOut = "Completed Creation of $VMName from $vmMarketImage"
@@ -2728,7 +2809,7 @@ param(
 )
 Write-Host "Image Creation in Process - No Plan Info - Redhat 7.2" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-	if($addssh)
+	   if($addssh -or $batchaddssh -eq 'True')
 	{ $script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1 -DisablePasswordAuthentication }
 	else
 		{ $script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1 }
@@ -2747,7 +2828,7 @@ param(
 )
 Write-Host "Image Creation in Process - No Plan Info - FreeBsd" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-	if($addssh)
+	   if($addssh -or $batchaddssh -eq 'True')
 	{ $script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1 -DisablePasswordAuthentication }
 	else
 		{ $script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1 }
@@ -2801,7 +2882,7 @@ param(
 )
 Write-Host "Image Creation in Process - No Plan Info - CentOs 7.2" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-	if($addssh)
+	   if($addssh -or $batchaddssh -eq 'True')
 	{ $script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1 -DisablePasswordAuthentication}
 	else
 		{ $script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1 }
@@ -2821,7 +2902,7 @@ param(
 )
 Write-Host "Image Creation in Process - No Plan Info - CentOs 6.8" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
-	if($addssh)
+	   if($addssh -or $batchaddssh -eq 'True')
 	{ $script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1 -DisablePasswordAuthentication }
 	else
 	{ $script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1 }
@@ -2834,12 +2915,12 @@ Function MakeImageNoPlanInfo_Suse {
 param(
 	[string]$VMName = $VMName,
 	[string]$Publisher = "Suse",
-	[string]$offer = "openSUSE",
-	[string]$Skus = "13.2",
+	[string]$offer = "openSUSE-Leap",
+	[string]$Skus = "42.2",
 	[string]$version = "latest"
 )
 Write-Host "Image Creation in Process - No Plan Info - SUSE" -ForegroundColor White
-	if($addssh)
+	   if($addssh -or $batchaddssh -eq 'True')
 	{ $script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1 -DisablePasswordAuthentication }
 	else
 		{ $script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -linux -ComputerName $VMName -Credential $Credential1 }
@@ -3500,9 +3581,10 @@ param(
 		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -WarningAction SilentlyContinue | Out-Null
 		Write-Host "Network Security Group configuration completed" -ForegroundColor White
 		$secrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access
+			$LogOut = "Security Rules added for $NSGName"
+			Log-Command -Description $LogOut -LogFile $LogOutFile
+
 		$defsecrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig -DefaultRules | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationAddressPrefix,SourceAddressPrefix,Access
-		$LogOut = "Security Rules added for $NSGName"
-		Log-Command -Description $LogOut -LogFile $LogOutFile
 		$LogOut = "Completed NSG Configuration of $NSGName"
 		Log-Command -Description $LogOut -LogFile $LogOutFile
 	}
@@ -3531,67 +3613,62 @@ $retsubnet = $myvnet.Subnets[$Subnet]
 $name = $retsubnet.Name
 $pre = $retsubnet.AddressPrefix
 
-Write-Host "VNET Subnet Name: $name "
-Write-Host "VNET Subnet Prefix: $pre"
+Write-Host "VM Deployment Subnet Name: $name "
+Write-Host "VM Deployment Subnet Prefix: $pre"
 }
 #endregion
 
 Function HostNic-Summary {
-Write-Host "VNET Resource Group: $vnetrg"
-Write-Host "VNET Name: $vNetName"
+Write-Host "VM Deployment VNET RG: $vnetrg"
+Write-Host "VM Deployment VNET: $vNetName"
 If ($ConfigIPs -eq "StatPvtNoPubSingle")
-{ 
-Write-Host "Nic1: $PvtIPNic1"
+{
+Write-Host "VM Static IP - Nic1: $PvtIPNic1"
 Subnet-Match $Subnet1
 }
 If ($ConfigIPs -eq "StatPvtNoPubDual")
-{ 
-Write-Host "Nic1: $PvtIPNic1"
-Write-Host "Nic2: $PvtIPNic2"
+{
+Write-Host "VM Static IP - Nic1: $PvtIPNic1"
+Write-Host "VM Static IP - Nic2: $PvtIPNic2"
 Subnet-Match $Subnet1
 Subnet-Match $Subnet2
 }
 If ($ConfigIPs -eq "Single")
-{ 
+{
 Subnet-Match $Subnet1
 }
 If ($ConfigIPs -eq "NoPubSingle")
-{ 
+{
 Subnet-Match $Subnet1
 }
 If ($ConfigIPs -eq "Dual")
-{ 
+{
 Subnet-Match $Subnet1
 Subnet-Match $Subnet2
 }
 If ($ConfigIPs -eq "PvtSingleStat")
-{ 
+{
 Subnet-Match $Subnet1
-Write-Host "Nic1: $PvtIPNic1"
+Write-Host "VM Static IP - Nic1: $PvtIPNic1"
 }
 If ($ConfigIPs -eq "PvtDualStat")
-{ 
+{
 Subnet-Match $Subnet1
 Subnet-Match $Subnet2
-Write-Host "Nic1: $PvtIPNic1"
-Write-Host "Nic2: $PvtIPNic2"
+Write-Host "VM Static IP - Nic1: $PvtIPNic1"
+Write-Host "VM Static IP - Nic2: $PvtIPNic2"
 }
-
-
 }
 
 Function Host-Summary {
-
 Write-Host "VM Name: $VMName " -ForegroundColor White
+Write-Host "VM Resource Group: $rg"
 Write-Host "Server Type: $vmMarketImage"
 Write-Host "Geo Location: $Location"
-Write-Host "VM Resource Group: $rg"
 Write-Host "Storage Resource Group: $storerg"
 Write-Host "Storage Account Name: $script:StorageNameVerified"
 Write-Host "Storage Account Type: $StorageType"
 Write-Host "Disk Storage Type: $vmstrtype" -ForegroundColor White
-
-
 }
 
 #region Show VM Configuration
@@ -3605,15 +3682,10 @@ Write-Host "                                                               "
 $time = " Start Time " + (Get-Date -UFormat "%d-%m-%Y %H:%M:%S")
 Write-Host VM CONFIGURATION - $time -ForegroundColor Cyan
 Write-Host "                                                               "
-
-
+Host-Summary
 HostNic-Summary
-Write-Host "Storage Resource Group: $storerg"
-Write-Host "Storage Account Name: $script:StorageNameVerified"
-Write-Host "Storage Account Type: $StorageType"
-Write-Host "Disk Storage Type: $vmstrtype" -ForegroundColor White
 
-if($addssh)
+if($addssh -or $batchaddssh -eq 'True')
 	   {
 Write-Host "Adding Public SSH Key to $VMName"
 	   }
@@ -3633,13 +3705,13 @@ Write-Host "Create storage share to 'True'"
 Write-Host "Share Name:  '$ShareName'"
 	}
 if($AddAvailabilitySet -or $BatchAddAvset -eq 'True') {
-Write-Host "Availability Set to 'True'"
+Write-Host "Add VM to Availability Set 'True'"
 Write-Host "Availability Set Name:  '$AvailSetName'"
 Write-Host "                                                               "
 }
 else
 {
-Write-Host "Availability Set to 'False'" -ForegroundColor White
+Write-Host "Add VM to Availability Set 'False'" -ForegroundColor White
 Write-Host "                                                               "
 }
 }
@@ -3666,7 +3738,6 @@ if($CreateLoadBalancer -or $BatchCreateLB -eq 'True')
 	{
 Write-Host "Creating Load Balancer $LBName"
 }
-
 
 Write-Host "                                                               "
 }
@@ -3854,7 +3925,7 @@ Function Configure-ExistingStorage {
 Function Create-VM {
 	param(
 	[string]$VMName = $VMName,
-	[ValidateSet("w2k12","w2k8","w2k16","nano","sql2016","sql2014","biztalk2013","tfs","biztalk2016","vs2015","dev15","incredibuild","msnav2016","red67","red72","suse","free","ubuntu14","ubuntu16","centos72","centos68","chef","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","horton-dp","serverr","horton-hdp","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack","hadoop","neos","tomcat","redis","gitlab","jruby","tableau","cloudera","datastax","O365-suite","ads-linuxdatascience","ads-datascience","cloud-conn","CoreOs","CoreContainers")]
+	[ValidateSet("w2k12","w2k8","w2k16","nano","sql2016","sql2014","biztalk2013","tfs","biztalk2016","vs2015","dev15","incredibuild","msnav2016","red67","red72","suse","free","ubuntu14","ubuntu16","centos72","centos68","chef-server","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","horton-dp","serverr","horton-hdp","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack","hadoop","neos","tomcat","redis","gitlab","jruby","tableau","cloudera","datastax","O365-suite","ads-linuxdatascience","ads-datascience","cloud-conn","CoreOs","CoreContainers")]
 	[string]
 	$vmMarketImage = $vmMarketImage,
 	[string]
@@ -4815,6 +4886,38 @@ if(!$strexists)
 	$script:StorageNameVerified = $StorageName.ToLower()
 }
 	}
+Function Configure-DSCMof {
+	param(
+	$StorageName = $script:StorageNameVerified,
+	$dsccontainername = $dsccontainername,
+	$rg = $rg,
+	$localFolder = $dscdir,
+	$dscfilename = $dscfilename
+	)
+		$Keys = Get-AzureRmStorageAccountKey -ResourceGroupName $rg -Name $StorageName;
+		$StorageContext = New-AzureStorageContext -StorageAccountName $StorageName -StorageAccountKey $Keys[0].Value;
+		New-AzureStorageContainer -Context $StorageContext -Name $dsccontainername -WarningAction SilentlyContinue -ErrorAction SilentlyContinue -Permission Blob -ServerTimeoutPerRequest 60;
+		$storageAccountKey = Get-AzureRmStorageAccountKey -ResourceGroupName $rg -Name $StorageName;
+		$blobContext = New-AzureStorageContext -StorageAccountName $StorageName -StorageAccountKey $Keys[0].Value;
+		$files = Get-ChildItem $localFolder
+		foreach($file in $files)
+		{
+		  $fileName = "$localfolder\$file"
+		  $blobName = "$file"
+
+			Set-AzureStorageBlobContent -File $fileName -Container $dsccontainername -Blob $blobName -Context $blobContext -Force -BlobType Append -WarningAction SilentlyContinue -ErrorAction SilentlyContinue -Confirm:$false | Out-Null
+		 $templateuri = Get-AzureStorageBlob -Container $dsccontainername -Context $blobContext -Blob $blobName -WarningAction SilentlyContinue
+}
+				$mofurl = -join "https://" + $StorageName + ".blob.core.windows.net/" + $dsccontainername + "/" + $dscfilename
+				$Keys = Get-AzureRmStorageAccountKey -ResourceGroupName $rg -Name $StorageName
+				$Key1 = $Keys[0].Value
+				$PublicSetting = "{`"FileUri`":`"$mofurl`" ,`"Mode`": `"Push`"}"
+				$PrivateSetting = "{`"storageAccountName`":`"$StorageName`",`"storageAccountKey`":`"$Key1`"}"
+
+				Write-Host "https://$StorageName.blob.core.windows.net/$dsccontainername/$dscfilename"
+
+				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "DSCForLinux" -ExtensionType "DSCForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.3" -InformationAction SilentlyContinue -SettingString $PublicSetting -ProtectedSettingString $PrivateSetting -Verbose -DisableAutoUpgradeMinorVersion
+}
 
 function Install-Ext_File {
 		param(
@@ -4889,10 +4992,11 @@ switch ($extname)
 		"linaccess" {
 				Verify-ExtLinux
 				Write-Host "Linux VM Access Agent VM Image Preparation in Process"
-			$PublicSetting = "{}"
+				$PublicSetting = "{}"
+
 				$PrivateSetting = "{`"username`":`"$locadmin`",`"password`":`"$locpassword`",`"ssh_key`":`"$sshPublicKey`",`"reset_ssh`":`"True`"}"
 
-				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "VMAccessForLinux" -ExtensionType "VMAccessForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "1.4" -InformationAction SilentlyContinue -Verbose -SettingString $PublicSetting -ProtectedSettingString $PrivateSetting | Out-Null
+				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "VMAccessForLinux" -ExtensionType "VMAccessForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "1.4" -InformationAction SilentlyContinue -Verbose -ProtectedSettingString $PrivateSetting | Out-Null
 				$LogOut = "VM Access Agent Deployed to $VMName"
 				Log-Command -Description $LogOut -LogFile $LogOutFile
 						Write-Results
@@ -4963,20 +5067,18 @@ switch ($extname)
 }
 		"linuxospatch" {
 				Verify-ExtLinux
-				$PublicSetting = "{`"disabled`": `"$False`",`"stop`" : `"$False`"}"
-				Write-Host "Adding Azure OS Patching Linux"
-				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OSPatch" -ExtensionType "OSPatchingForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.0" -InformationAction SilentlyContinue -ErrorAction Stop -SettingString $PublicSetting -WarningAction SilentlyContinue | Out-Null
-
-				 $LogOut = "Added VM OS Patching Extension"
-				Log-Command -Description $LogOut -LogFile $LogOutFile
+				Check-linuxos-NullValues
+				linuxos-Patching
 						Write-Results
 		}
 		"linuxbackup" {
 				Verify-ExtLinux
-				$PublicSetting = "{`"commandToExecute`": `"snapshot`",`"commandStartTimeUTCTicks`" : `"635809046306353843`"}"
-
+				$PublicSetting = ConvertTo-Json -InputObject @{
+				"commandStartTimeUTCTicks" = "635809046306353843";
+				"commandToExecute" = "snapshot";
+				}
 				Write-Host "Adding Linux VMBackup to $VMName in the resource group $rg"
-				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "VMBackupForLinuxExtension" -ExtensionType "VMBackupForLinuxExtension" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "0.1" -InformationAction SilentlyContinue -Verbose
+				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "VMBackupForLinuxExtension" -ExtensionType "VMBackupForLinuxExtension" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "0.1" -InformationAction SilentlyContinue -Verbose -SettingString $PublicSetting
 				 $LogOut = "Added VM Backup Extension"
 				Log-Command -Description $LogOut -LogFile $LogOutFile
 				Write-Results
@@ -5003,22 +5105,33 @@ switch ($extname)
 						Write-Results
 }
 		"opsinsightLinux" {
-				Verify-ExtLinux
 				Write-Host "Adding Linux Insight Agent"
-				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OperationalInsights" -ExtensionType "OmsAgentForLinux" -Publisher "Microsoft.EnterpriseCloud.Monitoring" -typeHandlerVersion "1.0" -InformationAction SilentlyContinue -Verbose | Out-Null
-				Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "OperationalInsights"
-				 $LogOut = "Added OpsInsight Extension"
+				$PublicSetting = "{`"workspaceId`":`"$omswrkspaceid`",`"stopOnMultipleConnections`":`"$false`"}"
+				$PrivateSetting = "{`"workspaceKey`":`"$omswrkspacekey`"}"
+
+				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OperationalInsights" -ExtensionType "OmsAgentForLinux" -Publisher "Microsoft.EnterpriseCloud.Monitoring" -typeHandlerVersion "1.0" -InformationAction SilentlyContinue  -ErrorAction Stop -SettingString $PublicSetting -ProtectedSettingString $PrivateSetting | Out-Null
+				Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "OperationalInsights" | Out-Null
+				$LogOut = "Ops Insight Deployed to $VMName"
 				Log-Command -Description $LogOut -LogFile $LogOutFile
-				Write-Results
+						Write-Results
 }
 		"opsinsightWin" {
 				Verify-ExtWindows
+
+					$PublicSetting = ConvertTo-Json -InputObject @{
+					"workspaceId" = $omswrkspaceid;
+					"stopOnMultipleConnections" = $false;
+				}
+					$PrivateSetting = ConvertTo-Json -InputObject @{
+					"workspaceKey" = $omswrkspacekey;
+				}
+
 				Write-Host "Adding Windows Insight Agent"
-				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OperationalInsights" -ExtensionType "MicrosoftMonitoringAgent" -Publisher "Microsoft.EnterpriseCloud.Monitoring" -typeHandlerVersion "1.0" -InformationAction SilentlyContinue -Verbose | Out-Null
-				Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "OperationalInsights"
-				 $LogOut = "Added OpsInsight Extension"
+				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OperationalInsights" -ExtensionType "MicrosoftMonitoringAgent" -Publisher "Microsoft.EnterpriseCloud.Monitoring" -typeHandlerVersion "1.0" -InformationAction SilentlyContinue  -ErrorAction Stop  -Verbose  -SettingString $PublicSetting -ProtectedSettingString $PrivateSetting | Out-Null
+				Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "OperationalInsights" | Out-Null
+				$LogOut = "Widows Insight Deployed to $VMName"
 				Log-Command -Description $LogOut -LogFile $LogOutFile
-				Write-Results
+						Write-Results
 }
 		"ESET" {
 				Verify-ExtWindows
@@ -5028,6 +5141,13 @@ switch ($extname)
 				Log-Command -Description $LogOut -LogFile $LogOutFile
 						Write-Results
 }
+		"linuxpushdsc" {
+				Verify-ExtLinux
+				Configure-DSCMof
+				Write-Host "Pushing DSC to $VMName in the $rg Resource Group"
+						Write-Results
+}
+
 		"PushDSC" {
 				Verify-StorageExists
 				Configure-DSC
@@ -5090,8 +5210,8 @@ Function Check-Orphans {
 
 if($extvm)
 {
-	Write-Host "Host VM Found, please use a different VMName for Provisioning or manually delete the existing VM" -ForegroundColor Yellow
-	Start-sleep 10
+	Write-Host "Host VM Found $VMName, please use a different VMName for provisioning" -ForegroundColor Yellow
+	Start-sleep 5
 	Exit
 }
 else {if($nic1)
@@ -5146,7 +5266,7 @@ Function Action-Type {
 					Check-Orphans # Verifies no left overs
 					Verify-NIC # Verifies required fields have data
 					if(!$useexiststorage)
-					{ Check-StorageName}
+					{ Check-StorageName }
 					else
 						{ Check-StorageNameNotExists }
 					 # Verifies Storage Account Name does not exist
@@ -5272,8 +5392,8 @@ if(Get-Module -ListAvailable |
 		select version -ExpandProperty version
 		Write-Host "current Azure PowerShell Version:" $ver
 	$currentver = $ver
-		if($currentver-le '3.6.0'){
-		Write-Host "expected version 3.6.0 found $ver" -ForegroundColor DarkRed
+		if($currentver-le '4.0.0'){
+		Write-Host "expected version 4.0.1 found $ver" -ForegroundColor DarkRed
 		exit
 			}
 }
@@ -5406,7 +5526,7 @@ Function Eval-extdepends
 
 	if($extenable -eq 'True')
 	{
-			Write-Host "Extensions Enabled"
+
 	}
 	else
 	{ Write-Host "Extensions Disabled"
