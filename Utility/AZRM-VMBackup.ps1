@@ -4,6 +4,7 @@ Written By John Lewis
 email: jonos@live.com
 Ver 1.1
 
+v 1.2 updates - minor fixes
 v 1.1 updates - Added Pre-Checks
 v 1.0 updates - RTM
 
@@ -45,7 +46,7 @@ Deploys Azure Backup Vault and configures Azure VMs to leverage vault. Provides 
 .EXAMPLE
 .\AZRM-VMBackup.ps1 -action createpolicy -vaultname myvault -vaultrg myres -policyname mypolicy
 .EXAMPLE
-.\AZRM-VMBackup.ps1 -action createvault -vaultname myvault - myres
+.\AZRM-VMBackup.ps1 -action createvault -vaultname myvault -vaultrg myres
 .EXAMPLE
 .\AZRM-VMBackup.ps1 -action addvmcreatevault -backupvmname myvm -backupvmrg myres -vaultname myvault -vaultrg myres
 .EXAMPLE
@@ -55,27 +56,23 @@ Deploys Azure Backup Vault and configures Azure VMs to leverage vault. Provides 
 [CmdletBinding(DefaultParameterSetName = 'default')]
 Param(
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateNotNullorEmpty()]
 [ValidateSet("createpolicy","createvault","addvmcreatevault","addvmtovault","restorevm","executebackup","getstatus")]
 [string]
 $Action = 'createvault',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$SubscriptionID = '',
+$vaultrg = "vault",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$TenantID = '',
+$storeagerg = $createvmrg,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateNotNullorEmpty()]
+[string]
+$location = "East US",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$vaultrg = "",
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[string]
-$storeagerg = '',
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[string]
-$location = "West US",
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[string]
-$vaultname = "testvault",
+$vaultname = "vault",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $backupvmname = '',
@@ -83,14 +80,31 @@ $backupvmname = '',
 [string]
 $backupvmrg = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateNotNullorEmpty()]
+[string]
+$backupvmlocation = $location,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $createvmname = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $createvmrg = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateNotNullorEmpty()]
 [string]
-$policyname = 'rmppolicy',
+$createvmlocation = $location,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=4)]
+[ValidateNotNullorEmpty()]
+[Alias("createvmvnet")]
+[string]
+$VNetName = 'vnet',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateNotNullorEmpty()]
+[string]
+$vnetrg = $createvmrg,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$policyname = 'policy',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $containertype = 'AzureVM',
@@ -117,6 +131,10 @@ $GenerateName = -join ((65..90) + (97..122) | Get-Random -Count 6 | % {[char]$_}
 [string]
 $StorageName = $createvmname + 'str',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateSet("Standard_LRS","Standard_GRS")]
+[string]
+$StorageType = 'Standard_GRS',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [Alias("int1")]
 [string]
@@ -125,25 +143,19 @@ $InterfaceName1 = $createvmname + '_nic1',
 [Alias("int2")]
 [string]
 $InterfaceName2 = $createvmname + "_nic2",
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=4)]
-[ValidateNotNullorEmpty()]
-[Alias("vnet")]
-[string]
-$VNetName = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[ValidateNotNullorEmpty()]
 [string]
-$vnetrg = "",
+$SubscriptionID = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[ValidateSet("Standard_LRS","Standard_GRS")]
 [string]
-$StorageType = 'Standard_GRS',
+$TenantID = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateSet("InProgress","Completed")]
 [string]
 $status = 'InProgress',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateRange(0,8)]
+[ValidateNotNullorEmpty()]
 [Alias("createvmsubnet")]
 [Int]
 $Subnet1 = 4
@@ -224,7 +236,7 @@ Function Check-Vnet {
 $vnetexists = Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
 if(!$vnetexists)
 	{ 
-	Write-Host "$VNetName doed not exists!"
+	Write-Host "$VNetName does not exists!"
 		break
 	}
 	else
@@ -247,6 +259,16 @@ if(!$vnetexists)
 			Write-Host "Subnet Ranges: $sub "
 			Write-Host "Subnet Names: $subname "
 		}
+}
+
+Function Check-VaultExists {
+$vaultexists = Get-AzureRmRecoveryServicesVault -Name $vaultname -ResourceGroupName $vaultrg -ErrorAction Stop -WarningAction SilentlyContinue -InformationAction SilentlyContinue
+if(!$vaultexists)
+	{ 
+	Write-Host "Specified vault $vaultname does not exist!" -ForegroundColor Red
+		break
+	}
+
 }
 
 function Check-VaultNullValues {
@@ -344,6 +366,14 @@ param($provider = $provider)
 Register-AzureRmResourceProvider -ProviderNamespace $provider
 }
 
+Function Provision-RG
+{
+	Param(
+		[string]$rg = $vaultrg
+	)
+New-AzureRmResourceGroup -Name $rg -Location $Location –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
+}
+
 Function Check-VMExists {
 	param(
 	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
@@ -383,19 +413,28 @@ switch ($action)
 				Check-VaultNullValues
 				Write-Host "Creating new Backup Vault $vaultname"
 				Write-Config
+				Provision-RG
 				Create-Vault
+				Get-CurrentPolicies
+				Create-Policy
+				Write-Completion
 }
 		"createpolicy" {
 				Write-Host "Creating new Policy"
 				Write-Config
+				Check-VaultExists
+				Get-CurrentPolicies
 				Create-Policy
+				Write-Completion
 		}
 		"addvmtovault" {
 				Check-VMExists
+				Check-VaultExists
 				Write-Host "Adding VM $backupvmname to $vaultname"
 				Write-Config
 				Get-CurrentPolicies
 				AddVM-Vault
+				Write-Completion
 		}
 		"executebackup" {
 				Write-Host "Executing backup of $backupvmname to $vaultname"
@@ -404,18 +443,22 @@ switch ($action)
 				Check-BackupVMNullValues
 				Get-CurrentPolicies
 				TriggerBackup-Vault
+				Write-Completion
 		}
 		"addvmcreatevault" {
 			Check-VaultNullValues
 			Write-Host "Creating new Backup Vault $vaultname"
 			Write-Config
+			Provision-RG
 			Create-Vault
 			Create-Policy
 			Check-BackupVMNullValues
+			Check-VaultExists
 			Check-VMExists
 			Write-Host "Adding VM $backupvmname to $vaultname"
 			Get-CurrentPolicies
 			AddVM-Vault
+			Write-Completion
 		}
 		"restorevm" {
 			Check-CreateVMNullValues
@@ -428,6 +471,7 @@ switch ($action)
 			Write-Config
 			Restore-VMVHD
 			Create-VM
+			Write-Completion
 		}
 		"getstatus" {
 				Write-Host "Obtaining current job information"
@@ -476,6 +520,8 @@ $policyname = $policyname,
 $wrkloadtype = $wrkloadtype
 )
 Get-AzureRmRecoveryServicesVault -Name $vaultname | Set-AzureRmRecoveryServicesVaultContext
+$schPol = Get-AzureRmRecoveryServicesBackupSchedulePolicyObject -WorkloadType $wrkloadtype
+$retPol = Get-AzureRmRecoveryServicesBackupRetentionPolicyObject -WorkloadType $wrkloadtype
 New-AzureRmRecoveryServicesBackupProtectionPolicy -Name $policyname -WorkloadType $wrkloadtype -RetentionPolicy $retPol -SchedulePolicy $schPol -ErrorAction SilentlyContinue -WarningAction SilentlyContinue -InformationAction SilentlyContinue
 $script:pol = Get-AzureRmRecoveryServicesBackupProtectionPolicy -Name $policyname
 }
@@ -510,7 +556,8 @@ param(
 $vaultname = $vaultname,
 $backupvmname = $backupvmname,
 $containertype = "AzureVM",
-$vaultrg = $backupvmrg
+$vaultrg = $backupvmrg,
+$policyname = $policyname
 )
 Get-AzureRmRecoveryServicesVault -Name $vaultname | Set-AzureRmRecoveryServicesVaultContext
 $script:pol = Get-AzureRmRecoveryServicesBackupProtectionPolicy -Name $policyname
@@ -541,6 +588,20 @@ Write-Host "                                                               "
 Write-Host "Operation: $Action " -ForegroundColor White
 Write-Host "                                                               "
 }
+
+Function Write-Completion {
+param(
+
+)
+
+Write-Host "                                                               "
+$time = " End Time " + (Get-Date -UFormat "%d-%m-%Y %H:%M:%S")
+Write-Host BACKUP/RESTORE CONFIGURATION - $time -ForegroundColor Cyan
+Write-Host "                                                               "
+Write-Host "Completed operation: $Action " -ForegroundColor White
+Write-Host "                                                               "
+}
+
 
 function Restore-VMVHD {
 param(
@@ -590,25 +651,36 @@ foreach($dd in $obj.'properties.StorageProfile'.DataDisks)
  $vm = Add-AzureRmVMDataDisk -VM $vm -Name "datadisk1" -VhdUri $dd.vhd.Uri -DiskSizeInGB 128 -Lun $dd.Lun -CreateOption "Attach"
  }
 Write-Host "Completed data disk configuration"
-$pip = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $createvmrg -Location $Location -AllocationMethod "Dynamic" –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop -Force -InformationAction SilentlyContinue
+$pip = New-AzureRmPublicIpAddress -Name $InterfaceName1 -ResourceGroupName $createvmrg -Location $createvmlocation -AllocationMethod "Dynamic" –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop -Force -InformationAction SilentlyContinue
 Write-Host "Completed public ip creation"
 $script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $createvmrg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $pip.Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop -EnableIPForwarding -Force
-$script:VirtualMachine = Add-AzureRmVMNetworkInterface -VM $vm -Id $script:Interface1.Id -Primary -WarningAction SilentlyContinue  -ErrorAction Stop
+$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $createvmrg -Location $createvmlocation -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $pip.Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop -EnableIPForwarding -Force
+$script:VirtualMachine = Add-AzureRmVMNetworkInterface -VM $vm -Id $script:Interface1.Id -Primary -WarningAction SilentlyContinue  -ErrorAction Stop -InformationAction SilentlyContinue
 Write-Host "Completed vm prep"
 }
 
+Function Login-AddAzureRmProfile
+{
+Add-AzureRmAccount -WarningAction SilentlyContinue
 
-
-
-
-
+}
 
 Function Create-VM
 {
 	Write-Host "Creating VM"
-	New-AzureRmVM -ResourceGroupName $createvmrg -Location $location -VM $script:VirtualMachine
+	New-AzureRmVM -ResourceGroupName $createvmrg -Location $createvmlocation -VM $script:VirtualMachine
 }
+
+
+try {
+Get-AzureRmResourceGroup -Location $Location -ErrorAction Stop | Out-Null
+}
+catch {
+	Write-Host -foregroundcolor Yellow `
+	"User has not authenticated, use Add-AzureRmAccount or $($_.Exception.Message)"; `
+	Login-AddAzureRmProfile
+}
+
 
 Reg-Provider
 
@@ -623,4 +695,11 @@ if($csvimport) {
 	}
 }
 
-Configure-Backup
+try {
+	Configure-Backup
+	}
+	catch {
+	Write-Host -foregroundcolor Yellow `
+	"$($_.Exception.Message)"; `
+	break
+	}

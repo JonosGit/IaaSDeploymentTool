@@ -2,19 +2,30 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 1.3
+Ver 1.4
 
+v 1.4 Updates - Fixes issue with removal of NICs due to Azure PS updates.
 v 1.3 Updates - Updated Remove VM function to cleanup after a VM is removed. Added Managed Disks to cleanup process. 
 
 .DESCRIPTION
 This script removes existing VMs, RGs, Storage, Availability Sets, VNETs, NSGs and Azure Extensions
 
 .PARAMETER Remove-Object
-Sets the type of removal operation
+
 .PARAMETER VMName
 Sets the name of the VM to remove
 .PARAMETER rg
 The name of the resource group to remove.
+
+.EXAMPLE
+\.AZRM-RemoveResource.ps1 -csvimport -csvfile C:\temp\iaasdeployment.csv
+.EXAMPLE
+\.AZRM-RemoveResource.ps1 -removeobject vm -VMName myvm -rg myres
+.EXAMPLE
+\.AZRM-RemoveResource.ps1 -removeobject rg -rg myres
+.EXAMPLE
+\.AZRM-RemoveResource.ps1 -removeobject nsg -nsgname mynsg -rg nsgrg
+
 
 .NOTES
 
@@ -73,32 +84,39 @@ $AzExtConfig = 'diag',
 $StorageName = $VMName + 'str',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [switch]
-$clobber
+$clobber,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[switch]
+$csvimport,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$csvfile = -join $workfolder + "\azrm-remove.csv"
 )
 
 $Error.Clear()
 Set-StrictMode -Version Latest
 Trap [System.SystemException] {("Exception" + $_ ) ; break}
 
-#region Validate Profile
 Function validate-profile {
 $comparedate = (Get-Date).AddDays(-14)
 $fileexist = Test-Path $ProfileFile -NewerThan $comparedate
   if($fileexist)
   {
-  Select-AzureRmProfile -Path $ProfileFile | Out-Null
+  $az = Import-AzureRmContext -Path $ProfileFile 
+	  $subid = $az.Context.Subscription.Id
+	  
+	Set-AzureRmContext -SubscriptionId $subid | Out-Null
 		Write-Host "Using $ProfileFile"
   }
   else
   {
   Write-Host "Please enter your credentials"
   Add-AzureRmAccount
-  Save-AzureRmProfile -Path $ProfileFile -Force
+  Save-AzureRmContext -Path $ProfileFile -Force
   Write-Host "Saved Profile to $ProfileFile"
   exit
   }
 }
-#endregion
 
 #region Create Log
 Function Log-Command ([string]$Description, [string]$logFile, [string]$VMName){
@@ -156,6 +174,29 @@ if($RemoveExtension -and !$rg) {
 	Write-Host "Please Enter -vmname VM Name"
 	exit
 	}
+}
+
+
+Function csv-run {
+param(
+[string] $csvin = $csvfile
+)
+try {
+	$GetPath = test-path -Path $csvin
+	if(!$GetPath)
+	{ exit }
+	else {
+	Write-Host $csvin "File Exists"
+		import-csv -Path $csvin -Delimiter ',' | ForEach-Object{.\AZRM-RemoveResource.ps1 -RemoveObject $_.RemoveObject -VMName $_.VMName -rg $_.rg }
+	}
+}
+catch {
+	Write-Host -foregroundcolor Yellow `
+	"$($_.Exception.Message)"; `
+	$LogOut = "$($_.Exception.Message)"
+	Log-Command -Description $LogOut -LogFile $LogOutFile
+	break
+}
 }
 
 #region Get Resource Providers
@@ -414,7 +455,7 @@ function Remove-azVM  {
 					'Name' = $VMName;
 					'ResourceGroupName' = $ResourceGroupName
 				}
-				$vm = Get-AzureRmVm @commonParams
+				$vm = Get-AzureRmVm @commonParams -WarningAction SilentlyContinue -ErrorAction Stop -InformationAction SilentlyContinue
 
 				$azResourceParams = @{
 					'ResourceName' = $VMName
@@ -445,15 +486,19 @@ function Remove-azVM  {
 					
 					Get-AzureRmStorageAccount @saParams | Get-AzureStorageContainer | where { $_.Name-eq $diagContainerName } | Remove-AzureStorageContainer -Force
 				}
-
+				$vm =  Get-AzureRmVM -ResourceGroupName $rg -Name $VMName
+				$extcnt = $vm.Extensions.Count
+				if($extcnt -ge 1)
+				{}
 
 				Write-Host 'Removing the Azure VM...'
 				$null = $vm | Remove-AzureRmVM -Force
+				$vmnic = 
 				Write-Host 'Removing the Azure network interface...'
-				foreach($nicUri in $vm.NetworkInterfaceIDs)
+				foreach($nicUri in $vm.NetworkProfile.NetworkInterfaces.Id)
 				{
 					$nic = Get-AzureRmNetworkInterface -ResourceGroupName $vm.ResourceGroupName -Name $nicUri.Split('/')[-1]
-					Remove-AzureRmNetworkInterface -Name $nic.Name -ResourceGroupName $vm.ResourceGroupName -Force
+					Remove-AzureRmNetworkInterface -Name $nic.Name -ResourceGroupName $vm.ResourceGroupName -Force -InformationAction SilentlyContinue -WarningAction SilentlyContinue -ErrorAction SilentlyContinue
 					foreach($ipConfig in $nic.IpConfigurations)
 					{
 						if($ipConfig.PublicIpAddress -ne $null)
@@ -628,7 +673,8 @@ Param(
 #region Remove Component
 Function Remove-Component {
 	param(
-		[string]$RemoveObject = $RemoveObject
+		[string]$RemoveObject = $RemoveObject,
+		[string]$rg = $rg
 	)
 
 switch ($RemoveObject)
@@ -690,8 +736,8 @@ if(Get-Module -ListAvailable |
 		select version -ExpandProperty version
 		Write-Host "current Azure PowerShell Version:" $ver
 	$currentver = $ver
-		if($currentver-le '2.0.0'){
-		Write-Host "expected version 3.0.0 found $ver" -ForegroundColor DarkRed
+		if($currentver-le '4.0.0'){
+		Write-Host "expected version 4.0.1 found $ver" -ForegroundColor DarkRed
 		exit
 			}
 }
@@ -713,6 +759,12 @@ if(!$logdirexists)
 	}
 }
 #endregion
+
+Function Login-AddAzureRmProfile
+{
+Add-AzureRmAccount -WarningAction SilentlyContinue
+
+}
 
 Function Register-ResourceProviders {
 	 $resourceProviders = @("microsoft.compute","microsoft.network","microsoft.storage");
@@ -738,18 +790,18 @@ Verify-AzureVersion # Verifies Azure client Powershell Version
 validate-profile # Attempts to use json file for auth, falls back on Add-AzureRmAccount
 
 try {
-Get-AzureRmResourceGroup -Location $Location -ErrorAction Stop | Out-Null
+Get-AzureRmResourceGroup -Location $Location -ErrorAction Stop -WarningAction SilentlyContinue -InformationAction SilentlyContinue| Out-Null
 }
 catch {
 	Write-Host -foregroundcolor Yellow `
 	"User has not authenticated, use Add-AzureRmAccount or $($_.Exception.Message)"; `
-	continue
+	Login-AddAzureRmProfile
 }
 
 Register-ResourceProviders
 
 Create-Dir
-
+if($csvimport) { csv-run }
 					if($RemoveObject)
 						{
 						Check-RemoveObject
