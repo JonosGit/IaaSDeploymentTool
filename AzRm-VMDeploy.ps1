@@ -2,7 +2,7 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 10.0
+Ver 10.2
 
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerous Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
@@ -12,6 +12,8 @@ This script supports Load Balanced configurations for both internal and external
 
 The script will create three directories if they do not exist in the runtime directory, Log, Scripts, DSC.
 
+v10.2 updates - Added -preview option to allow preview of operations. Added ASR Backup Extension Option -extname addvmbackupvault
+v10.1 updates - Added Public DNS option for External LB Public IP
 v10 updates - Azure PowerShell 4.0.x updates
 v9.1 updates - Extensive updates to LB Creation Process as well as NSG Creation.
 v9.0 updates - Updated -csvimport process to include managed disks, ssh and storage rg. Made updates to Availability Sets to handle managed disks. Updates for all extensions, chef extension now available for Linux and Windows.
@@ -39,8 +41,8 @@ v7.2 updates - added support for Cisco, Citrix, Nessus and Debian
 Deploys 55 different Market Images on a new or existing VNET. Supports post deployment configuration through Azure Extensions.
 Market Images supported: Redhat 6.7 and 7.2, PFSense 2.5, Windows 2008 R2, Windows 2012 R2, Ubuntu 14.04, CentOs 7.2, SUSE, SQL 2016 (on W2K12R2), R Server on Windows, Windows 2016 (Preview), Checkpoint Firewall, FreeBsd, Puppet, Splunk, Bitnami Lamp, Bitnami PostGresSql, Bitnami nodejs, Bitnami Elastics, Bitnami MySql, SharePoint 2013/2016, Barracuda NG, Barracuda SPAM, F5 BigIP, F5 App Firewall, Bitnami JRuby, Bitnami Neos, Bitnami TomCat, Bitnami redis, Bitnami hadoop, Incredibuild, VS 2015, Dev15 Preview, Tableau, MS NAV, TFS, Ads Data Science Server, Biztalk 2013/2016, HortonWorks, Cloudera, DataStax
 
-.PARAMETER ActionType
-Sets the type of action for the script to execute
+.PARAMETER vmstrtype
+Sets the type of storage to use for the VM
 .PARAMETER vmMarketImage
 Sets the type of image to be deloyed.
 .PARAMETER VMName
@@ -137,14 +139,6 @@ VNET Subnet5 Name
 VNET Subnet6
 .PARAMETER SubnetNameAddPrefix6
 VNET Subnet6 Name
-.PARAMETER SubnetAddPrefix7
-VNET Subnet7
-.PARAMETER SubnetNameAddPrefix7
-VNET Subnet7 Name
-.PARAMETER SubnetAddPrefix8
-VNET Subnet8
-.PARAMETER SubnetNameAddPrefix8
-VNET Subnet8 Name
 .PARAMETER Azautoacct
 Azure Automation Account (Extension Deloyemnt)
 .PARAMETER Profile
@@ -207,19 +201,19 @@ Allows user specify an existing storage account for VM deployment
 .EXAMPLE
 \.AZRM-VMDeploy.ps1 -csvimport -csvfile C:\temp\iaasdeployment.csv
 .EXAMPLE
-\.AZRM-VMDeploy.ps1 -ActionType Create -vmstrtype managed -vm pf001 -image pfsense -rg ResGroup1 -vnetrg ResGroup2 -addvnet -vnet VNET -sub1 3 -sub2 4 -ConfigIPs DualPvtNoPub -Nic1 10.120.2.7 -Nic2 10.120.3.7
+\.AZRM-VMDeploy.ps1 -vmstrtype managed -vm pf001 -image pfsense -rg ResGroup1 -vnetrg ResGroup2 -addvnet -vnet VNET -sub1 3 -sub2 4 -ConfigIPs DualPvtNoPub -Nic1 10.120.2.7 -Nic2 10.120.3.7
 .EXAMPLE
-\.AZRM-VMDeploy.ps1 -ActionType Create -vm red76 -image red67 -vmstrtype managed -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -sub1 7 -ConfigIPs SinglePvtNoPub -Nic1 10.120.6.124 -Ext linuxchefagent -addssh
+\.AZRM-VMDeploy.ps1 -vm red76 -image red67 -vmstrtype managed -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -sub1 7 -ConfigIPs SinglePvtNoPub -Nic1 10.120.6.124 -Ext linuxchefagent -addssh
 .EXAMPLE
-\.AZRM-VMDeploy.ps1 -ActionType Create -vm win006 -image w2k12 -vmstrtype managed -rg ResGroup1 -vnetrg ResGroup2 -storerg storagerg -vnet VNET -sub1 2 -ConfigIPs Single -CreateNSG -NSGName NSG
+\.AZRM-VMDeploy.ps1 -vm win006 -image w2k12 -vmstrtype managed -rg ResGroup1 -vnetrg ResGroup2 -storerg storagerg -vnet VNET -sub1 2 -ConfigIPs Single -CreateNSG -NSGName NSG
 .EXAMPLE
-\.AZRM-VMDeploy.ps1 -ActionType Create -vm win008 -image w2k16 -vmstrtype managed -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -sub1 5 -ConfigIPs PvtSingleStat -Nic1 10.120.4.169 -AddFQDN -fqdn mydns1
+\.AZRM-VMDeploy.ps1 -vm win008 -image w2k16 -vmstrtype managed -rg ResGroup1 -vnetrg ResGroup2 -vnet VNET -sub1 5 -ConfigIPs PvtSingleStat -Nic1 10.120.4.169 -AddFQDN -fqdn mydns1
 .EXAMPLE
-\.AZRM-VMDeploy.ps1 -ActionType Create -vm ubu004 -image ubuntu -vmstrtype managed -RG ResGroup1 -vnetrg ResGroup2 -VNet VNET -ConfigIPs Single -AddLB -LBType external -LBSubnet 2 -CreateLoadBalancer -LBName mylb -AddAvailabilitySet -AvailSetName myavsetname
+\.AZRM-VMDeploy.ps1 -vm ubu004 -image ubuntu -vmstrtype managed -RG ResGroup1 -vnetrg ResGroup2 -VNet VNET -ConfigIPs Single -AddLB -LBType external -LBSubnet 2 -CreateLoadBalancer -LBName mylb -AddAvailabilitySet -AvailSetName myavsetname
 .EXAMPLE
-\.AZRM-VMDeploy.ps1 -ActionType Create -vm ubu004 -image ubuntu -vmstrtype managed -RG ResGroup1 -vnetrg ResGroup2 -VNet VNET -ConfigIPs Single -AddLB -LBType internal -LBPvtIP 172.10.4.15 -CreateLoadBalancer -LBName mylb -AddAvailabilitySet -AvailSetName myavsetname
+\.AZRM-VMDeploy.ps1 -vm ubu004 -image ubuntu -vmstrtype managed -RG ResGroup1 -vnetrg ResGroup2 -VNet VNET -ConfigIPs Single -AddLB -LBType internal -LBPvtIP 172.10.4.15 -CreateLoadBalancer -LBName mylb -AddAvailabilitySet -AvailSetName myavsetname
 .EXAMPLE
-\.AZRM-VMDeploy.ps1 -ActionType Create -vm ubu001 -image ubuntu -vmstrtype managed -RG ResGroup1 -vnetrg ResGroup2 -VNet VNET -sub1 6 -ConfigIPs PvtSingleStat -Nic1 10.120.5.169 -AddFQDN fqdn mydns2 -addssh
+\.AZRM-VMDeploy.ps1 -vm ubu001 -image ubuntu -vmstrtype managed -RG ResGroup1 -vnetrg ResGroup2 -VNet VNET -sub1 6 -ConfigIPs PvtSingleStat -Nic1 10.120.5.169 -AddFQDN fqdn mydns2 -addssh
 
 .EXAMPLE
 .\AZRM-VMDeploy.ps1 -ActionType update -UploadSharedFiles -StorageName test001str -rg resx
@@ -297,8 +291,8 @@ Allows user specify an existing storage account for VM deployment
 			msav – Adds Azure Antivirus Extension
 			customscript – Adds Custom Script for Execution (Requires Table Storage Configuration first)
 			linuxcustscript – Adds Custom Script for Execution (Requires Table Storage Configuration first)
-			linuxpushdsc - Deploys DSC Configuration to Linux Azure VM	
-			pushdsc - Deploys DSC Configuration to Windows Azure VM
+			linuxpushdsc - Deploys DSC Configuration to Linux Azure VM
+			winpushdsc - Deploys DSC Configuration to Windows Azure VM
 			diag – Adds Azure Diagnostics Extension
 			linuxospatch - Deploy Latest updates for Linux platforms
 			linaccess - Adds Azure Access Extension to Linux VM
@@ -311,6 +305,7 @@ Allows user specify an existing storage account for VM deployment
 			eset - File Security Ext
 			WinPuppet - Puppet Agent Install for Windows
 			Azure Storage Share -azshare
+			addvmbackupvault - Add VM to ASR Backup Vault
 .LINK
 https://github.com/JonosGit/IaaSDeploymentTool
 
@@ -320,22 +315,16 @@ https://github.com/JonosGit/IaaSDeploymentTool
 Param(
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
 [ValidateNotNullorEmpty()]
-[ValidateSet("create")]
-[Alias("action")]
+[Alias("storage")]
+[ValidateSet("unmanaged","managed")]
 [string]
-$ActionType = 'create',
+$vmstrtype = 'unmanaged',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=1)]
 [ValidateNotNullorEmpty()]
 [ValidateSet("w2k12","w2k8","w2k16","nano","sql2016","sql2014","biztalk2013","tfs","biztalk2016","vs2015","dev15","jenk-opcenter","chef-compliance","incredibuild","debian","puppet","msnav2016","red67","red72","suse","free","ubuntu14","ubuntu16","centos68","centos72","chef-server","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","horton-dp","serverr","horton-hdp","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack","hadoop","neos","tomcat","redis","gitlab","jruby","tableau","cloudera","datastax","O365-suite","ads-linuxdatascience","ads-datascience","cloud-conn","cisco750","CoreOS","CoreContainers")]
 [Alias("image")]
 [string]
 $vmMarketImage = 'w2k12',
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[ValidateNotNullorEmpty()]
-[Alias("storage")]
-[ValidateSet("unmanaged","managed")]
-[string]
-$vmstrtype = 'unmanaged',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=2)]
 [ValidateNotNullorEmpty()]
 [Alias("vm")]
@@ -352,7 +341,7 @@ $rg = '',
 $ConfigIPs = 'Single',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [switch]
-$AddVnet,
+$AddVnet = $true,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=4)]
 [ValidateNotNullorEmpty()]
 [Alias("vnet")]
@@ -418,7 +407,7 @@ $locadmin = 'locadmin',
 [Parameter(Mandatory=$false,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [string]
-$locpassword = 'P@ssw0Rd!',
+$locpassword = 'P@ssW0rd!',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [string]
@@ -508,7 +497,7 @@ $SubnetAddPrefix1 = "172.10.0.0/24",
 $SubnetNameAddPrefix1 = "gatewaysubnet",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$SubnetAddPrefix2 = "172.10.1.0/25",
+$SubnetAddPrefix2 = "172.10.1.0/24",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $SubnetNameAddPrefix2 = 'perimeter',
@@ -517,45 +506,33 @@ $SubnetNameAddPrefix2 = 'perimeter',
 $SubnetAddPrefix3 = "172.10.2.0/24",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$SubnetNameAddPrefix3 = "data",
+$SubnetNameAddPrefix3 = "web",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $SubnetAddPrefix4 = "172.10.3.0/24",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$SubnetNameAddPrefix4 = "monitor",
+$SubnetNameAddPrefix4 = "application",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $SubnetAddPrefix5 =  "172.10.4.0/24",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$SubnetNameAddPrefix5 = "reporting",
+$SubnetNameAddPrefix5 = "platform",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $SubnetAddPrefix6 = "172.10.5.0/24",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$SubnetNameAddPrefix6 = "analytics",
+$SubnetNameAddPrefix6 = "monitoring",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$SubnetAddPrefix7 = "172.10.6.0/24",
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[string]
-$SubnetNameAddPrefix7 = "management",
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[string]
-$SubnetAddPrefix8 = "172.10.7.0/24",
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[string]
-$SubnetNameAddPrefix8 = "deployment",
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[string]
-$Azautoacct = "OMSAuto",
+$Azautoacct = "Auto",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $Profile = "profile",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[ValidateSet("diag","msav","bginfo","winaccess","linaccess","linuxbackup","linuxospatch","linuxchefagent","windowschefagent","eset","customscript","linuxcustomscript","opsinsightLinux","opsinsightWin","WinPuppet","domjoin","RegisterAzDSC","PushDSC","linuxpushdsc")]
+[ValidateSet("diag","msav","bginfo","winaccess","linaccess","linuxbackup","linuxospatch","linuxchefagent","windowschefagent","eset","customscript","linuxcustomscript","opsinsightLinux","opsinsightWin","WinPuppet","domjoin","RegisterAzDSC","winpushdsc","linuxpushdsc","addvmbackupvault")]
 [Alias("ext")]
 [string]
 $extname = 'RegisterAzDSC',
@@ -577,9 +554,9 @@ $CustomScriptUpload = 'True',
 [switch]
 $AddNSG,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[Alias("dscscriptname")]
+[Alias("dscfilename")]
 [string]
-$DSCConfig = 'AssertHADC',
+$WinDSCConfig = 'WindowsUpdate',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("configname")]
 [string]
@@ -597,7 +574,7 @@ $scriptname = 'installbase.sh',
 $dsccontainername = 'dscforlinux',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$dscfilename = 'localhost.mof',
+$LinDSCConfig= 'localhost.mof',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("customscriptname2")]
 [string]
@@ -627,8 +604,11 @@ $localsoftwarefolder = "$scriptfolder\software",
 [switch]
 $csvimport,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[switch]
+$addlbfqdn,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$csvfile = -join $workfolder + "\azrm-vmdeploy-qa.csv",
+$csvfile = -join $workfolder + "\test-vmdeploy-ha.csv",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("h")]
 [Alias("?")]
@@ -647,6 +627,12 @@ $BatchAddExtension = 'False',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $BatchAddFQDN,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$batchaddlbfqdn,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$lbfqdn = 'rmpstgvip',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $BatchAddNSG = 'False',
@@ -724,14 +710,17 @@ $DiskOSType = 'Linux',
 [switch]
 $useexiststorage,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[switch]
+$preview,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $batchuseexistingstorage = 'False',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$chefvalidationpem = ".\admin.pem",
+$chefvalidationpem = "",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$chefclientrb =  ".\knife.rb",
+$chefclientrb =  "",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateSet("oneoff","scheduled","disabled")]
 [string]
@@ -741,8 +730,22 @@ $linuxpatchtype = '',
 $omswrkspaceid = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$omswrkspacekey = ''
-
+$omswrkspacekey = '',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$vaultname = 'rmpbackup',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$vaultrg = 'rmp-vault',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$policyname = 'rmppolicy',
+[Parameter(Mandatory=$False)]
+[ValidateNotNullorEmpty()]
+[ValidateSet("create")]
+[Alias("action")]
+[string]
+$ActionType = 'create'
 )
 
 $sshPublicKey = Get-Content '.\Pspub.txt'
@@ -803,6 +806,7 @@ Write-Host "Remove RG:"
 Write-Host "azurerm_vmdeploy.ps1 -ActionType Remove -RG ResGroup1 -RemoveObject rg"
 Write-Host "                                                       "
 Write-Host "Required command switches"
+
 Write-Host "              -actiontype - type of action to perform"
 Write-Host "              -vmname - Name of VM to create"
 Write-Host "              -configips - configures network interfaces"
@@ -834,15 +838,15 @@ Write-Host $Output -ForegroundColor white
 #region Use CSV
 Function csv-run {
 param(
-[string] $csvin = $csvfile
-)
+[string] $csvin = $csvfile,
+[bool] $BatchAddVnet)
 try {
 	$GetPath = test-path -Path $csvin
 	if(!$GetPath)
 	{ exit }
 	else {
 	Write-Host "Located $csvin. CSV import starting..."
-		import-csv -Path $csvin -Delimiter ',' | ForEach-Object{.\AZRM-VMDeploy.ps1 -ActionType $_.ActionType -VMName $_.VMName -vmMarketImage $_.Image -rg $_.rg -vNetrg $_.vnetrg -VNetName $_.VNetName -ConfigIPs $_.ConfigIPs -subnet1 $_.Subnet1 -subnet2 $_.Subnet2 -PvtIPNic1 $_.PvtIPNic1 -PvtIPNic2 $_.PvtIPNic2 -DNLabel $_.DNLabel  -BatchAddVnet $_.BatchAddVnet -BatchCreateLB $_.BatchCreateLB -BatchAddLB $_.BatchAddLB -LBSubnet $_.LBSubnet -LBPvtIp $_.LBPvtIp -LBName $_.LBName -LBType $_.LBType -BatchAddNSG $_.BatchAddNSG -BatchCreateNSG $_.BatchCreateNSG -NSGName $_.NSGName -extname $_.extname -BatchAddExtension $_.BatchAddExtension -BatchAddAvSet $_.BatchAddAvSet -AvailSetName $_.AvailSetName -BatchAddFqdn $_.BatchAddFqdn -CustomScriptUpload $_.CustomScriptUpload -scriptname $_.scriptname -containername $_.containername -scriptfolder $_.scriptfolder -customextname $_.customextname -batchAddShare $_.BatchAddShare -sharedirectory $_.sharedirectory -sharename $_.sharename -localsoftwarefolder $_.localsoftwarefolder -ConfigurationName $_.ConfigurationName -vmstrtype $_.vmstrtype -storerg $_.storerg -Batchaddmngdatadisk $_.Batchadddatadisk -Batchaddssh $_.Batchaddssh -linuxpatchtype $_.linuxpatchtype -batchuseexistingstorage $_.batchuseexistingstorage }
+		import-csv -Path $csvin -Delimiter ',' | ForEach-Object{.\AZRM-VMDeploy.ps1 -ActionType $_.ActionType -VMName $_.VMName -vmMarketImage $_.Image -rg $_.rg -vNetrg $_.vnetrg -VNetName $_.VNetName -ConfigIPs $_.ConfigIPs -subnet1 $_.Subnet1 -subnet2 $_.Subnet2 -PvtIPNic1 $_.PvtIPNic1 -PvtIPNic2 $_.PvtIPNic2 -DNLabel $_.DNLabel -BatchAddVnet $_.BatchAddVnet -BatchCreateLB $_.BatchCreateLB -BatchAddLB $_.BatchAddLB -LBSubnet $_.LBSubnet -LBPvtIp $_.LBPvtIp -LBName $_.LBName -LBType $_.LBType -BatchAddNSG $_.BatchAddNSG -BatchCreateNSG $_.BatchCreateNSG -NSGName $_.NSGName -extname $_.extname -BatchAddExtension $_.BatchAddExtension -BatchAddAvSet $_.BatchAddAvSet -AvailSetName $_.AvailSetName -BatchAddFqdn $_.BatchAddFqdn -CustomScriptUpload $_.CustomScriptUpload -scriptname $_.scriptname -containername $_.containername -scriptfolder $_.scriptfolder -customextname $_.customextname -batchAddShare $_.BatchAddShare -sharedirectory $_.sharedirectory -sharename $_.sharename -localsoftwarefolder $_.localsoftwarefolder -ConfigurationName $_.ConfigurationName -vmstrtype $_.vmstrtype -storerg $_.storerg -Batchaddmngdatadisk $_.Batchadddatadisk -Batchaddssh $_.Batchaddssh -linuxpatchtype $_.linuxpatchtype -batchuseexistingstorage $_.batchuseexistingstorage -batchaddlbfqdn $_.batchaddlbfqdn -lbfqdn $_.lbfqdn -WinDSCConfig $_.WinDSCConfig -LinDSCConfig $_.LinDSCConfig }
 	}
 }
 catch {
@@ -873,6 +877,7 @@ Function Verify-PvtIp {
 			[int]$subnet = $Subnet1
 			$ip = $PvtIPNic1
 			$array = $ip.Split(".")
+			[int]$subnetint0 = $array[3]
 			[int]$subnetint = $array[2]
 			[int]$subnetcalc = ($subnetint)
 				if($subnetcalc -ne $subnet){
@@ -1114,6 +1119,22 @@ if($ostype -eq 'Windows')
 		}
 		}
 
+function Check-OSImage {
+$vm =  Get-AzureRmVM -ResourceGroupName $rg -Name $VMName -InformationAction SilentlyContinue -WarningAction SilentlyContinue -ErrorAction SilentlyContinue
+
+if(!$vm)
+	{
+	Write-Host "VM does not exist!"
+		break
+	}
+	else
+	{
+		$Script:strpublisher = $vm.StorageProfile.ImageReference.Publisher
+		$Script:stroffer = $vm.StorageProfile.ImageReference.Offer
+		$Script:strsku = $vm.StorageProfile.ImageReference.Sku
+	}
+		}
+
 Function Verify-SubnetIndex {
 	param(
 	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
@@ -1160,6 +1181,32 @@ if(!$vnetexists)
 		}
 }
 
+Function Check-VnetPreview {
+$vnetexists = Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+if(!$vnetexists)
+	{ Write-ConfigVnetPreview }
+	else
+		{ $existvnet = Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg
+
+			$addspace = $existvnet.AddressSpace | Select-Object -ExpandProperty AddressPrefixes
+			$namespace = $existvnet.Name
+			$existvnet = Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg
+			$addsubnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $existvnet
+
+			$sub = $addsubnet.AddressPrefix
+			$subname = $addsubnet.Name
+			$nsg = $addsubnet.NetworkSecurityGroup
+			$subnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $existvnet | ft Name,AddressPrefix -AutoSize -Wrap -HideTableHeaders
+			Write-Host "                                                               "
+			Write-Host "PREVIEW VNET CONFIGURATION - Existing VNET" -ForegroundColor Cyan
+			Write-Host "                                                               "
+			Write-Host "Active VNET: $VnetName in resource group $vnetrg"
+			Write-Host "Address Space: $addspace "
+			Write-Host "Subnet Ranges: $sub "
+			Write-Host "Subnet Names: $subname "
+		}
+}
+
 Function Check-NSG-NoMsg {
 $nsgexists = Get-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Name $NSGName
 if(!$nsgexists)
@@ -1169,6 +1216,18 @@ if(!$nsgexists)
 			$existnsg = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg | Set-AzureRmNetworkSecurityGroup
 			Write-Host "VM NSG: $NSGName "
 			 }
+}
+
+Function Get-OMSInfo {
+	param(
+		$omsrg = 'automation-rmp',
+		$omsname = 'rmpautoact'
+	)
+
+	$key = Get-AzureRmOperationalInsightsWorkspaceSharedKeys -Name $omsname -ResourceGroupName $omsrg
+	$primary = $key.PrimarySharedKey
+	$oms =  Get-AzureRmOperationalInsightsWorkspace -ResourceGroupName $omsrg -Name $omsname
+	$omsurl = $oms.PortalUrl
 }
 
 Function Check-NSG-Msg {
@@ -1198,23 +1257,23 @@ if(!$vnetexists)
 #region Check Values of runtime params
 function Check-NullValues {
 if(!$rg) {
-Write-Host "Please Enter Resource Group Name -rg"
+Write-Host "Please Enter Resource Group Name -rg"  -ForegroundColor Red
 exit
 }
 	elseif(!$VMName) {
-	Write-Host "Please Enter -vmName"
+	Write-Host "Please Enter -vmName" -ForegroundColor Red
 	exit
 	}
 				elseif(!$Location) {
-				Write-Host "Please Enter -Location"
+				Write-Host "Please Enter -Location" -ForegroundColor Red
 				exit
 				}
 						elseif(!$VNetName) {
-						Write-Host "Please Enter -vnetname"
+						Write-Host "Please Enter -vnetname" -ForegroundColor Red
 						exit
 				}
 							elseif(!$vmstrtype) {
-						Write-Host "Please Enter -vmstrtype"
+						Write-Host "Please Enter -vmstrtype" -ForegroundColor Red
 						exit
 				}
 }
@@ -1225,7 +1284,7 @@ Write-Host "Please select -linuxpatchtype"
 exit
 }
 	elseif($extname -eq 'linuxospatch' -and $linuxpatchtype -eq 'oneoff') {
-	Write-Host "Deploying Linux OS Patch - OneOff"
+	Write-Host "Deploying Linux OS Patch - One Off"
 	}
 				elseif($extname -eq 'linuxospatch' -and $linuxpatchtype -eq 'scheduled')  {
 	Write-Host "Deploying Linux OS Patch - Scheduled"
@@ -1385,7 +1444,10 @@ Function Check-StorageName
 		[string]$StorageName  = $StorageName
 	)
 $extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $storerg -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
-	if($extvm) {exit}
+	if($extvm) {
+		Write-Host "Host VM Exists, verification failed" $VMName
+		exit
+	}
 	if($useexiststorage)
 	{		$script:StorageNameVerified = $StorageName.ToLower()
 		Write-Host "Storage Name:" $StorageNameVerified}
@@ -1553,109 +1615,6 @@ switch ($ConfigIPs)
 		}
 }
 #endregion
-
-Function Configure-NicsBySubnetName {
-	param(
-	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-	[string]$vnetrg = $vnetrg,
-	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-	[string]$Location = $Location,
-	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-	[string]$rg = $rg,
-	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-	[string]$InterfaceName1 = $InterfaceName1,
-	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-	[string]$InterfaceName2 = $InterfaceName2,
-	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-	[string]$SubnetName1 = 'data',
-	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-	[string]$SubnetName2 = 'perimeter',
-	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-	[ipaddress]$PvtIPNic1 = $PvtIPNic1,
-	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-	[ipaddress]$PvtIPNic2 = $PvtIPNic2,
-	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-	[string]$ConfigIps = $ConfigIps
-	)
-
-	Try
-	{
-switch ($ConfigIPs)
-	{
-		"PvtDualStat" {
-			Write-Host "Dual IP Configuration - Static"
-			Configure-PubIpDNS
-			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -Subnet $SubnetName1 -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
-			$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id -PrivateIpAddress $PvtIPNic2 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
-}
-		"PvtSingleStat" {
-			Write-Host "Single IP Configuration - Static"
-			Configure-PubIpDNS
-			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location  -Subnet $SubnetName1 -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
-}
-		"StatPvtNoPubDual" {
-			Write-Host "Dual IP Configuration- Static - No Public"
-			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location  -Subnet $SubnetName1 -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
-			$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -Subnet $SubnetName2 -PrivateIpAddress $PvtIPNic2 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
-}
-		"StatPvtNoPubSingle" {
-			Write-Host "Single IP Configuration - Static - No Public"
-			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location  -Subnet $SubnetName1 -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
-}
-		"Single" {
-			Write-Host "Default Single IP Configuration"
-			Configure-PubIpDNS
-			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location  -Subnet $SubnetName1 -PublicIpAddressId $PIp.Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop -EnableIPForwarding
-}
-		"Dual" {
-			Write-Host "Default Dual IP Configuration"
-			Configure-PubIpDNS
-			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location  -Subnet $SubnetName1 -PublicIpAddressId $PIp.Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop -EnableIPForwarding
-			$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location  -Subnet $SubnetName2 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
-}
-		"NoPubSingle" {
-			Write-Host "Single IP - No Public"
-			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
-}
-		"NoPubDual" {
-			Write-Host "Dual IP - No Public"
-			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
-			$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
-}
-		"LoadBalancedDual" {
-			Write-Host "Dual IP - Load Balanced"
-			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-			$script:besubnet =	Get-AzureRmVirtualNetworkSubnetConfig -Name $LBName -VirtualNetwork $script:VNet -WarningAction SilentlyContinue
-			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PrivateIpAddress $PvtIPNic1 -LoadBalancerBackendAddressPool $lb.BackendAddressPools[0] -LoadBalancerInboundNatRule $lb.InboundNatRules[0]
-			$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id -PrivateIpAddress $PvtIPNic2 -LoadBalancerBackendAddressPool $lb.BackendAddressPools[0] -LoadBalancerInboundNatRule $lb.InboundNatRules[0] –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
-}
-		"LoadBalancedSingle" {
-			Write-Host "Single IP - Load Balanced"
-			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-			$besubnet =	Get-AzureRmVirtualNetworkSubnetConfig -Name $LBName -VirtualNetwork $script:VNet -WarningAction SilentlyContinue
-			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -Subnet $besubnet -PrivateIpAddress $PvtIPNic1 -LoadBalancerBackendAddressPool $lb.BackendAddressPools[0] -LoadBalancerInboundNatRule $lb.InboundNatRules[0]
-}
-		default{"Nothing matched entry criteria"}
-}
-	}
-	Catch
-		{
-		Write-Host -foregroundcolor Yellow `
-		"Exception Encountered"; `
-		$ErrorMessage = $_.Exception.Message
-		$LogOut  = 'Error '+$ErrorMessage
-		Log-Command -Description $LogOut -LogFile $LogOutFile
-		break
-		}
-}
 
 #region Add Dual Nics
 Function Add-NICs {
@@ -2744,11 +2703,11 @@ Function MakeImagePlanInfo_Pfsense {
 param(
 	[string]$VMName = $VMName,
 	[string]$Publisher = 'netgate',
-	[string]$offer = 'netgate-pfsense-appliance',
-	[string]$Skus = 'pfsense-fw-vpn-router-233_1',
+	[string]$offer = 'pfsense-fw-vpn-router-community_support',
+	[string]$Skus = 'pfsense-azure-234-cs',
 	[string]$version = 'latest',
-	[string]$Product = 'netgate-pfsense-appliance',
-	[string]$name = 'pfsense-fw-vpn-router-233_1'
+	[string]$Product = 'pfsense-fw-vpn-router-community_support',
+	[string]$name = 'pfsense-azure-234-cs'
 )
 Write-Host "Image Creation in Process - Plan Info - Pfsense" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
@@ -3425,15 +3384,7 @@ param(
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]$SubnetAddPrefix6 = $SubnetAddPrefix6,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[string]$SubnetNameAddPrefix6 = $SubnetNameAddPrefix6,
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[string]$SubnetAddPrefix7 = $SubnetAddPrefix7,
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[string]$SubnetNameAddPrefix7 = $SubnetNameAddPrefix7,
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[string]$SubnetAddPrefix8 = $SubnetAddPrefix8,
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[string]$SubnetNameAddPrefix8 = $SubnetNameAddPrefix8
+[string]$SubnetNameAddPrefix6 = $SubnetNameAddPrefix6
 )
 
 Write-ConfigVNet
@@ -3444,11 +3395,9 @@ Write-ConfigVNet
 	$subnet4 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix $SubnetAddPrefix4 -Name $SubnetNameAddPrefix4
 	$subnet5 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix $SubnetAddPrefix5 -Name $SubnetNameAddPrefix5
 	$subnet6 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix $SubnetAddPrefix6 -Name $SubnetNameAddPrefix6
-	$subnet7 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix $SubnetAddPrefix7 -Name $SubnetNameAddPrefix7
-	$subnet8 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix $SubnetAddPrefix8 -Name $SubnetNameAddPrefix8
 	Try
 	{
-	New-AzureRmVirtualNetwork -Location $Location -Name $VNetName -ResourceGroupName $vnetrg -AddressPrefix $AddRange -Subnet $subnet1,$subnet2,$subnet3,$subnet4,$subnet5,$subnet6,$subnet7,$subnet8 –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
+	New-AzureRmVirtualNetwork -Location $Location -Name $VNetName -ResourceGroupName $vnetrg -AddressPrefix $AddRange -Subnet $subnet1,$subnet2,$subnet3,$subnet4,$subnet5 –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
 	Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Get-AzureRmVirtualNetworkSubnetConfig -WarningAction SilentlyContinue | Out-Null
 	Write-Host "Network Preparation completed" -ForegroundColor White
 	$LogOut = "Completed Network Configuration of $VNetName"
@@ -3464,6 +3413,23 @@ Write-ConfigVNet
 	}
 }
 #endregion
+
+Function Create-ExtLBIp
+{
+param(
+)
+		$script:lbpublicip = New-AzureRmPublicIpAddress -Name 'lbip' -ResourceGroupName $vnetrg -Location $Location -AllocationMethod Dynamic -WarningAction SilentlyContinue -Force -Confirm:$False
+}
+
+Function Create-ExtLBIpwDNS
+{
+param(
+$lbfqdn = $lbfqdn
+)
+		$script:lbpublicip = New-AzureRmPublicIpAddress -Name 'lbip' -ResourceGroupName $vnetrg -Location $Location -AllocationMethod Dynamic -WarningAction SilentlyContinue -Force -Confirm:$False -DomainNameLabel $lbfqdn
+		$LogOut = "Completed Public DNS record creation $lbfqdn.$Location.cloudapp.azure.com"
+		Log-Command -Description $LogOut -LogFile $LogOutFile
+}
 
 Function Create-LB
 {
@@ -3491,8 +3457,12 @@ Function Create-LB
 	$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
 	Write-Host "Creating Public Ip, Pools, Probe and Inbound NAT Rules"
 
-		$lbpublicip = New-AzureRmPublicIpAddress -Name 'lbip' -ResourceGroupName $vnetrg -Location $Location -AllocationMethod Dynamic -WarningAction SilentlyContinue -Force -Confirm:$False
-		$frtend = New-AzureRmLoadBalancerFrontendIpConfig -Name $frtpool -PublicIpAddress $lbpublicip -WarningAction SilentlyContinue
+	if($addlbfqdn -or $batchaddlbfqdn -eq 'True')
+		{Create-ExtLBIpwDNS}
+		else
+		{Create-ExtLBIp}
+
+		$frtend = New-AzureRmLoadBalancerFrontendIpConfig -Name $frtpool -PublicIpAddress $script:lbpublicip -WarningAction SilentlyContinue
 		$backendpool = New-AzureRmLoadBalancerBackendAddressPoolConfig -Name $backpool  -WarningAction SilentlyContinue
 		$probecfg = New-AzureRmLoadBalancerProbeConfig -Name 'probecfg' -Protocol Tcp -Port 443 -IntervalInSeconds 30 -ProbeCount 2 -WarningAction SilentlyContinue
 		$inboundnat1 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'inboundnat1' -FrontendIpConfiguration $frtend -Protocol Tcp -FrontendPort 443 -BackendPort 443 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
@@ -3561,6 +3531,20 @@ Function Create-IntLB
 	Log-Command -Description $LogOut -LogFile $LogOutFile
 	break
 	}
+}
+
+Function Get-Preview {
+Check-StorageName
+Check-NSGName # Verifies required fields have data
+Check-AvailabilitySet # Verifies required fields have data
+Check-FQDN # Verifies required fields have data
+Check-NullValues # Verifies required fields have data
+Check-Orphans # Verifies no left overs
+Verify-NIC
+Check-VnetPreview
+
+Write-ConfigVMPreview
+Write-PreviewResults
 }
 
 #region Create NSG
@@ -3661,6 +3645,7 @@ Write-Host "VM Static IP - Nic2: $PvtIPNic2"
 }
 
 Function Host-Summary {
+Write-Host "Action Type:" $ActionType
 Write-Host "VM Name: $VMName " -ForegroundColor White
 Write-Host "VM Resource Group: $rg"
 Write-Host "Server Type: $vmMarketImage"
@@ -3668,7 +3653,31 @@ Write-Host "Geo Location: $Location"
 Write-Host "Storage Resource Group: $storerg"
 Write-Host "Storage Account Name: $script:StorageNameVerified"
 Write-Host "Storage Account Type: $StorageType"
+
+	if($addextension -or $BatchAddExtension -eq 'True')
+		{
+		Write-Host "Extension selected for deployment: $extname "
+		if($extname -eq 'winpushdsc')
+			{
+			Write-Host "Push DSC Config File: $WinDSCConfig"
+			}
+			elseif($extname -eq 'linpushdsc')
+			{
+			Write-Host "Push DSC Config File: $LinDSCConfig"
+			}
+				elseif($extname -eq 'linuxcustomscript')
+					{
+					Write-Host "Linux Custom Script File: $scriptname"
+					}
+					elseif($extname -eq 'customscript')
+							{
+					Write-Host "Custom Script File: $scriptname"
+							}
+		}
+
 Write-Host "Disk Storage Type: $vmstrtype" -ForegroundColor White
+Write-Host "VM Size: $VMSize"
+Write-Host "VM Deployment VNET Subnet ID: $script:Subnet1"
 }
 
 #region Show VM Configuration
@@ -3696,9 +3705,6 @@ Write-Host "Adding $VMName $InterfaceName1 to Load Balancer $LBName"
 	}
 Select-NicDescrtipt
 
-if($AddExtension -or $BatchAddExtension -eq 'True') {
-Write-Host "Extension selected for deployment: $extname "
-}
 if($UploadSharedFiles -or $BatchAddShare -eq 'True')
 	{
 Write-Host "Create storage share to 'True'"
@@ -3716,6 +3722,75 @@ Write-Host "                                                               "
 }
 }
 #endregion
+
+Function Write-ConfigVMPreview {
+param(
+$Subnet1 = $script:Subnet1,
+$Subnet2 = $script:Subnet2
+)
+
+Write-Host "                                                               "
+$time = " Start Time " + (Get-Date -UFormat "%d-%m-%Y %H:%M:%S")
+Write-Host PREVIEW VM CONFIGURATION -ForegroundColor Cyan
+Write-Host "                                                               "
+Host-Summary
+HostNic-Summary
+
+if($addssh -or $batchaddssh -eq 'True')
+	   {
+Write-Host "Adding Public SSH Key to $VMName"
+	   }
+
+if($AddLB)
+	{
+Write-Host "Adding $VMName $InterfaceName1 to Load Balancer $LBName"
+	}
+Select-NicDescrtipt
+
+if($AddExtension -or $BatchAddExtension -eq 'True') {
+Write-Host "Extension selected for deployment: $extname "
+}
+	else
+	{
+Write-Host "No Extension selected for deployment "
+	}
+if($UploadSharedFiles -or $BatchAddShare -eq 'True')
+	{
+Write-Host "Create storage share to 'True'"
+Write-Host "Share Name:  '$ShareName'"
+	}
+if($AddAvailabilitySet -or $BatchAddAvset -eq 'True') {
+Write-Host "Add VM to Availability Set 'True'"
+Write-Host "Availability Set Name:  '$AvailSetName'"
+Write-Host "                                                               "
+}
+else
+{
+Write-Host "Add VM to Availability Set 'False'" -ForegroundColor White
+Write-Host "                                                               "
+}
+}
+
+Function Write-ConfigVnetPreview {
+Write-Host "                                                               "
+$time = " Start Time " + (Get-Date -UFormat "%d-%m-%Y %H:%M:%S")
+Write-Host PREVIEW VNET CONFIGURATION - $time -ForegroundColor Cyan
+Write-Host "                                                               "
+Write-Host "Geo Location: $Location"
+Write-Host "VNET Name: $vNetName"
+Write-Host "VNET Resource Group Name: $vnetrg"
+
+Write-Host "Address Range:  $AddRange"
+
+if($CreateNSG -or $BatchCreateNSG -eq 'True')
+{
+Write-Host "Creating NSG Name: $NSGName"
+}
+if($CreateLoadBalancer -or $BatchCreateLB -eq 'True')
+	{
+Write-Host "Creating Load Balancer $LBName"
+}
+}
 
 #region Show Network Config
 Function Write-ConfigVnet {
@@ -3743,6 +3818,48 @@ Write-Host "                                                               "
 }
 
 #endregion
+
+Function Write-PreviewResults {
+param(
+$Subnet1 = $script:Subnet1,
+$Subnet2 = $script:Subnet2
+)
+
+Write-Host "Completed Preview Deployment"  -ForegroundColor White
+Write-Host "Action Type: $ActionType | VM Name: $VMName | Server Type: $vmMarketImage"
+
+if($AddExtension -or $BatchAddExtension -eq 'True'){
+Write-Host "Extension deployed: $extname "
+}
+if($UploadSharedFiles -or $BatchAddShare -eq 'True')
+	{
+Write-Host "Create storage share to 'True'"
+Write-Host "Share Name:  '$ShareName'"
+	}
+
+if($CreateLoadBalancer -or $BatchCreateLB -eq 'True' -and $LBType -eq 'external')
+	{
+Write-Host "Completed creation of external load balancer: $LBName"
+	}
+if($CreateLoadBalancer -or $BatchCreateLB -eq 'True' -and $LBType -eq 'internal')
+	{
+Write-Host "Completed creation of internal load balancer: $LBName"
+	}
+if($AddLB)
+	{
+Write-Host "Completed adding $VMName to load balancer: $LBName"
+	}
+
+if($AddAvailabilitySet -or $BatchAddAvset -eq 'True') {
+Write-Host "Availability Set Configured"
+Write-Host "Availability Set Name: '$AvailSetName'"
+Write-Host "                                                               "
+}
+else
+{
+Write-Host "                                                               "
+}
+}
 
 #region Show Final Report
 Function Write-Results {
@@ -4660,8 +4777,10 @@ Function Create-VM {
 #region Verify Linux OS
 Function Verify-ExtLinux {
 Check-OS
+Check-OSImage
+$stroffer = $Script:stroffer
 $DiskOSType = $Script:DiskOSType
-if($DiskOSType -eq 'Linux') {Write-Host "Host OS: Linux"}
+if($DiskOSType -eq 'Linux' -and $stroffer -ne 'FreeBSD') {Write-Host "Host OS: Linux"}
 	else
 	{ Write-Host "No Compatble OS Found, please verify the extension is compatible with $VMName"
 		break
@@ -4685,18 +4804,18 @@ param(
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
- $DSCConfig = $DSCConfig,
+ $DSCConfig = $WinDSCConfig,
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
- $ConfigurationName = $DSCConfig,
+ $ConfigurationName = $WinDSCConfig,
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
  $ArchiveBlobName = "$DSCConfig.ps1.zip",
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
- $ConfigurationPath = $dscdir + '\' + $DSCConfig+ '.ps1',
+ $ConfigurationPath = $dscdir + '\' + $DSCConfig + '.ps1',
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
@@ -4708,9 +4827,28 @@ param(
 
 )
 	Publish-AzureRmVMDscConfiguration -ResourceGroupName $rg -ConfigurationPath $ConfigurationPath -StorageAccountName $storageAccountName -Force
-	Set-AzureRmVMDscExtension -ResourceGroupName $rg -VMName $VMName -ArchiveBlobName $ArchiveBlobName -ArchiveStorageAccountName $storageAccountName -ConfigurationName $ConfigurationName -Version 2.19
+	Set-AzureRmVMDscExtension -ResourceGroupName $rg -VMName $VMName -ArchiveBlobName $ArchiveBlobName -ArchiveStorageAccountName $storageAccountName -ConfigurationName $ConfigurationName -Version 2.19 -Force -Location $Location -Confirm:$false -InformationAction SilentlyContinue -WarningAction SilentlyContinue -ErrorAction Stop
 	$LogOut = "Added VM DSC to Storage Account $storageAccountName from file $ConfigurationPath"
 	Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+function AddVM-Vault {
+param(
+$vaultname = $vaultname,
+$VMName = $VMName,
+$containertype = "AzureVM",
+$rg = $rg
+)
+Get-AzureRmRecoveryServicesVault -Name $vaultname | Set-AzureRmRecoveryServicesVaultContext
+$script:pol = Get-AzureRmRecoveryServicesBackupProtectionPolicy -Name $policyname
+Enable-AzureRmRecoveryServicesBackupProtection -Policy $script:pol -Name $VMName -ResourceGroupName $rg
+$namedContainer = Get-AzureRmRecoveryServicesBackupContainer -ContainerType $containertype -Status "Registered" -FriendlyName $VMName
+$item = Get-AzureRmRecoveryServicesBackupItem -Container $namedContainer -WorkloadType "AzureVM"
+$job = Backup-AzureRmRecoveryServicesBackupItem -Item $item
+$job
+
+$LogOut = "Completed adding $VMName to $vaultname"
+Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
 #region Verify Upload Resources
@@ -4886,17 +5024,27 @@ if(!$strexists)
 	$script:StorageNameVerified = $StorageName.ToLower()
 }
 	}
+
+Function Check-VaultExists {
+$vaultexists = Get-AzureRmRecoveryServicesVault -Name $vaultname -ResourceGroupName $vaultrg -ErrorAction Stop -WarningAction SilentlyContinue -InformationAction SilentlyContinue
+if(!$vaultexists)
+	{
+	Write-Host "Specified vault $vaultname does not exist!" -ForegroundColor Red
+		break
+	}
+}
+
 Function Configure-DSCMof {
 	param(
 	$StorageName = $script:StorageNameVerified,
-	$dsccontainername = $dsccontainername,
+	$containername = $dsccontainername,
 	$rg = $rg,
 	$localFolder = $dscdir,
-	$dscfilename = $dscfilename
+	$filename = $LinDSCConfig
 	)
 		$Keys = Get-AzureRmStorageAccountKey -ResourceGroupName $rg -Name $StorageName;
 		$StorageContext = New-AzureStorageContext -StorageAccountName $StorageName -StorageAccountKey $Keys[0].Value;
-		New-AzureStorageContainer -Context $StorageContext -Name $dsccontainername -WarningAction SilentlyContinue -ErrorAction SilentlyContinue -Permission Blob -ServerTimeoutPerRequest 60;
+		New-AzureStorageContainer -Context $StorageContext -Name $containername -WarningAction SilentlyContinue -ErrorAction SilentlyContinue -Permission Blob -ServerTimeoutPerRequest 60 -InformationAction SilentlyContinue | Out-Null;
 		$storageAccountKey = Get-AzureRmStorageAccountKey -ResourceGroupName $rg -Name $StorageName;
 		$blobContext = New-AzureStorageContext -StorageAccountName $StorageName -StorageAccountKey $Keys[0].Value;
 		$files = Get-ChildItem $localFolder
@@ -4905,18 +5053,43 @@ Function Configure-DSCMof {
 		  $fileName = "$localfolder\$file"
 		  $blobName = "$file"
 
-			Set-AzureStorageBlobContent -File $fileName -Container $dsccontainername -Blob $blobName -Context $blobContext -Force -BlobType Append -WarningAction SilentlyContinue -ErrorAction SilentlyContinue -Confirm:$false | Out-Null
-		 $templateuri = Get-AzureStorageBlob -Container $dsccontainername -Context $blobContext -Blob $blobName -WarningAction SilentlyContinue
+			Set-AzureStorageBlobContent -File $fileName -Container $containername -Blob $blobName -Context $blobContext -Force -BlobType Append -WarningAction SilentlyContinue -ErrorAction SilentlyContinue -Confirm:$false | Out-Null
 }
-				$mofurl = -join "https://" + $StorageName + ".blob.core.windows.net/" + $dsccontainername + "/" + $dscfilename
+
+				$mofurl = -join "https://" + $StorageName + ".blob.core.windows.net/" + $dsccontainername + "/" + $LinDSCConfig
 				$Keys = Get-AzureRmStorageAccountKey -ResourceGroupName $rg -Name $StorageName
 				$Key1 = $Keys[0].Value
 				$PublicSetting = "{`"FileUri`":`"$mofurl`" ,`"Mode`": `"Push`"}"
 				$PrivateSetting = "{`"storageAccountName`":`"$StorageName`",`"storageAccountKey`":`"$Key1`"}"
 
-				Write-Host "https://$StorageName.blob.core.windows.net/$dsccontainername/$dscfilename"
+				Write-Host "Applying Configuration at $mofurl"
 
-				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "DSCForLinux" -ExtensionType "DSCForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.3" -InformationAction SilentlyContinue -SettingString $PublicSetting -ProtectedSettingString $PrivateSetting -Verbose -DisableAutoUpgradeMinorVersion
+				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "DSCForLinux" -ExtensionType "DSCForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.3" -InformationAction SilentlyContinue -SettingString $PublicSetting -ProtectedSettingString $PrivateSetting -WarningAction SilentlyContinue -ErrorAction Stop -Confirm:$false | Out-Null
+
+					$LogOut = "Applied $LinDSCConfig to $VMName from file $mofurl"
+					Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+function Validate-WinDscName {
+	param(
+		[string]$instring = $WinDSCConfig
+	)
+
+if($instring -like "*.*") {
+Write-Host "Please remove file extension from configuration name, example WindowsUpdate" -ForegroundColor Yellow
+	break
+ }
+}
+
+function Validate-LinDscName {
+	param(
+		[string]$instring = $LinDSCConfig
+	)
+
+if($instring -notlike "*.*") {
+Write-Host "Please add file extension to Linux DSC Config name, example localhost.mof" -ForegroundColor Yellow
+	break
+ }
 }
 
 function Install-Ext_File {
@@ -5071,6 +5244,11 @@ switch ($extname)
 				linuxos-Patching
 						Write-Results
 		}
+		"addvmbackupvault" {
+						Check-VaultExists
+						AddVM-Vault
+						Write-Results
+		}
 		"linuxbackup" {
 				Verify-ExtLinux
 				$PublicSetting = ConvertTo-Json -InputObject @{
@@ -5141,20 +5319,23 @@ switch ($extname)
 				Log-Command -Description $LogOut -LogFile $LogOutFile
 						Write-Results
 }
-		"linuxpushdsc" {
-				Verify-ExtLinux
-				Configure-DSCMof
-				Write-Host "Pushing DSC to $VMName in the $rg Resource Group"
-						Write-Results
-}
-
-		"PushDSC" {
-				Verify-StorageExists
+		"winpushdsc" {
+				Verify-ExtWindows
+				Validate-WinDscName
 				Configure-DSC
 				Write-Host "Pushing DSC to $VMName in the $rg Resource Group"
-				$LogOut = "Added DSC Configuration"
-				Log-Command -Description $LogOut -LogFile $LogOutFile
+						Write-Results
+
+										  break
+}
+		"linuxpushdsc" {
+				Verify-ExtLinux
+				Validate-LinDscName
+				Configure-DSCMof
+				Write-Host "Pushing DSC to $VMName in the $rg Resource Group"
 				Write-Results
+
+										  break
 }
 		"RegisterAzDSC" {
 				Write-Host "Registering with Azure Automation DSC"
@@ -5382,6 +5563,16 @@ Function Action-Type {
 }
 #endregion
 
+function convert-bool {
+param($inputstring = $inputstring)
+	if($inputstring -eq '1')
+		{$script:output = $true }
+			elseif($inputstring -eq 'True')
+						{$script:output = $true }
+				else
+							{$script:output = $false }
+}
+
 #region Azure Version
 Function Verify-AzureVersion {
 $name='Azure'
@@ -5526,7 +5717,6 @@ Function Eval-extdepends
 
 	if($extenable -eq 'True')
 	{
-
 	}
 	else
 	{ Write-Host "Extensions Disabled"
@@ -5575,7 +5765,7 @@ Get-AzureRmResourceGroup -Location $Location -ErrorAction Stop | Out-Null
 catch {
 	Write-Host -foregroundcolor Yellow `
 	"User has not authenticated, use Add-AzureRmAccount or $($_.Exception.Message)"; `
-	continue
+	Login-AddAzureRmProfile
 }
 
 Register-ResourceProviders
@@ -5590,5 +5780,11 @@ if($summaryinfo)
 Write-Summary
 		exit
 	}
+
+if($preview)
+{
+Get-Preview
+	exit
+}
 
 Action-Type
