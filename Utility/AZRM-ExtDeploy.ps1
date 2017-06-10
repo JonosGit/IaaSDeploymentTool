@@ -2,9 +2,10 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 1.6
+Ver 1.7
 Extensions deployment
 
+v 1.7 added -subscriptionid context option for context file creation
 v 1.6 consolidated pushdsc params, added preview switch
 v 1.5 update OMS and linux security patch management, added linux DSC
 v 1.4 updated chef agent deployment
@@ -253,6 +254,7 @@ Set-StrictMode -Version Latest
 Trap [System.SystemException] {("Exception" + $_ ) ; break}
 
 #region Validate Profile
+#region Validate Profile
 Function validate-profile {
 $comparedate = (Get-Date).AddDays(-14)
 $fileexist = Test-Path $ProfileFile -NewerThan $comparedate
@@ -267,9 +269,14 @@ $fileexist = Test-Path $ProfileFile -NewerThan $comparedate
   else
   {
   Write-Host "Please enter your credentials"
-  Add-AzureRmAccount
+	  if($SubscriptionID)
+ { Add-AzureRmAccount -SubscriptionId $SubscriptionID
   Save-AzureRmContext -Path $ProfileFile -Force
-  Write-Host "Saved Profile to $ProfileFile"
+  Write-Host "Saved Profile to $ProfileFile" }
+	  else
+ { Add-AzureRmAccount
+  Save-AzureRmContext -Path $ProfileFile -Force
+  Write-Host "Saved Profile to $ProfileFile" }
   exit
   }
 }

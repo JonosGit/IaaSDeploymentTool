@@ -2,7 +2,7 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 10.2
+Ver 10.3
 
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerous Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
@@ -12,6 +12,7 @@ This script supports Load Balanced configurations for both internal and external
 
 The script will create three directories if they do not exist in the runtime directory, Log, Scripts, DSC.
 
+v10.3 updates Added Boot Diagnostics enable/disable flag -enablebootdiag
 v10.2 updates - Added -preview option to allow preview of operations. Added ASR Backup Extension Option -extname addvmbackupvault
 v10.1 updates - Added Public DNS option for External LB Public IP
 v10 updates - Azure PowerShell 4.0.x updates
@@ -608,7 +609,7 @@ $csvimport,
 $addlbfqdn,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$csvfile = -join $workfolder + "\test-vmdeploy-ha.csv",
+$csvfile = -join $workfolder + "\vmdeploy-ha.csv",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("h")]
 [Alias("?")]
@@ -632,7 +633,7 @@ $BatchAddFQDN,
 $batchaddlbfqdn,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$lbfqdn = 'rmpstgvip',
+$lbfqdn = 'LB1vip',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $BatchAddNSG = 'False',
@@ -733,19 +734,26 @@ $omswrkspaceid = '',
 $omswrkspacekey = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$vaultname = 'rmpbackup',
+$vaultname = 'backup',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$vaultrg = 'rmp-vault',
+$vaultrg = 'vault',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$policyname = 'rmppolicy',
+$policyname = 'policy',
 [Parameter(Mandatory=$False)]
 [ValidateNotNullorEmpty()]
 [ValidateSet("create")]
 [Alias("action")]
 [string]
-$ActionType = 'create'
+$ActionType = 'create',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[switch]
+$enablebootdiag = $True,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$batchenablebootdiag = 'True'
+
 )
 
 $sshPublicKey = Get-Content '.\Pspub.txt'
@@ -766,20 +774,45 @@ $fileexist = Test-Path $ProfileFile -NewerThan $comparedate
   {
   $az = Import-AzureRmContext -Path $ProfileFile
 	  $subid = $az.Context.Subscription.Id
-
 	Set-AzureRmContext -SubscriptionId $subid | Out-Null
-		Write-Host "Using $ProfileFile"
+				Write-Host "Using $ProfileFile with SubscriptionID: $subid"
+	  if($SubscriptionID)
+	  {
+		  $subid = $SubscriptionID
+			Set-AzureRmContext -SubscriptionId $subid | Out-Null
+				Write-Host "Using $ProfileFile with SubscriptionID: $subid"
+	  }
   }
   else
   {
   Write-Host "Please enter your credentials"
-  Add-AzureRmAccount
+	  if($SubscriptionID)
+ { Add-AzureRmAccount -SubscriptionId $SubscriptionID
   Save-AzureRmContext -Path $ProfileFile -Force
-  Write-Host "Saved Profile to $ProfileFile"
+  Write-Host "Saved Profile to $ProfileFile" }
+	  else
+ { Add-AzureRmAccount
+  Save-AzureRmContext -Path $ProfileFile -Force
+  Write-Host "Saved Profile to $ProfileFile" }
   exit
   }
 }
 #endregion
+
+Function Check-DiagStr {
+	$extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $storerg -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+	$vmstrg = [regex]::match($extvm.DiagnosticsProfile.bootDiagnostics.storageUri, '^http[s]?://(.+?)\.').groups[1].value
+	if(!$extvm)
+	{Write-Host "VM $VMName not found"
+	}
+	elseif($vmstrg)
+	{
+	$vmstrg = [regex]::match($extvm.DiagnosticsProfile.bootDiagnostics.storageUri, '^http[s]?://(.+?)\.').groups[1].value
+		Write-Host "VM Diagnostics located on $vmstrg"
+	}
+		Else
+		{Write-Host "VM Diagnostics Disabled"}
+}
 
 Function Login-AddAzureRmProfile
 {
@@ -846,7 +879,7 @@ try {
 	{ exit }
 	else {
 	Write-Host "Located $csvin. CSV import starting..."
-		import-csv -Path $csvin -Delimiter ',' | ForEach-Object{.\AZRM-VMDeploy.ps1 -ActionType $_.ActionType -VMName $_.VMName -vmMarketImage $_.Image -rg $_.rg -vNetrg $_.vnetrg -VNetName $_.VNetName -ConfigIPs $_.ConfigIPs -subnet1 $_.Subnet1 -subnet2 $_.Subnet2 -PvtIPNic1 $_.PvtIPNic1 -PvtIPNic2 $_.PvtIPNic2 -DNLabel $_.DNLabel -BatchAddVnet $_.BatchAddVnet -BatchCreateLB $_.BatchCreateLB -BatchAddLB $_.BatchAddLB -LBSubnet $_.LBSubnet -LBPvtIp $_.LBPvtIp -LBName $_.LBName -LBType $_.LBType -BatchAddNSG $_.BatchAddNSG -BatchCreateNSG $_.BatchCreateNSG -NSGName $_.NSGName -extname $_.extname -BatchAddExtension $_.BatchAddExtension -BatchAddAvSet $_.BatchAddAvSet -AvailSetName $_.AvailSetName -BatchAddFqdn $_.BatchAddFqdn -CustomScriptUpload $_.CustomScriptUpload -scriptname $_.scriptname -containername $_.containername -scriptfolder $_.scriptfolder -customextname $_.customextname -batchAddShare $_.BatchAddShare -sharedirectory $_.sharedirectory -sharename $_.sharename -localsoftwarefolder $_.localsoftwarefolder -ConfigurationName $_.ConfigurationName -vmstrtype $_.vmstrtype -storerg $_.storerg -Batchaddmngdatadisk $_.Batchadddatadisk -Batchaddssh $_.Batchaddssh -linuxpatchtype $_.linuxpatchtype -batchuseexistingstorage $_.batchuseexistingstorage -batchaddlbfqdn $_.batchaddlbfqdn -lbfqdn $_.lbfqdn -WinDSCConfig $_.WinDSCConfig -LinDSCConfig $_.LinDSCConfig }
+		import-csv -Path $csvin -Delimiter ',' | ForEach-Object{.\AZRM-VMDeploy.ps1 -ActionType $_.ActionType -VMName $_.VMName -vmMarketImage $_.Image -rg $_.rg -vNetrg $_.vnetrg -VNetName $_.VNetName -ConfigIPs $_.ConfigIPs -subnet1 $_.Subnet1 -subnet2 $_.Subnet2 -PvtIPNic1 $_.PvtIPNic1 -PvtIPNic2 $_.PvtIPNic2 -DNLabel $_.DNLabel -BatchAddVnet $_.BatchAddVnet -BatchCreateLB $_.BatchCreateLB -BatchAddLB $_.BatchAddLB -LBSubnet $_.LBSubnet -LBPvtIp $_.LBPvtIp -LBName $_.LBName -LBType $_.LBType -BatchAddNSG $_.BatchAddNSG -BatchCreateNSG $_.BatchCreateNSG -NSGName $_.NSGName -extname $_.extname -BatchAddExtension $_.BatchAddExtension -BatchAddAvSet $_.BatchAddAvSet -AvailSetName $_.AvailSetName -BatchAddFqdn $_.BatchAddFqdn -CustomScriptUpload $_.CustomScriptUpload -scriptname $_.scriptname -containername $_.containername -scriptfolder $_.scriptfolder -customextname $_.customextname -batchAddShare $_.BatchAddShare -sharedirectory $_.sharedirectory -sharename $_.sharename -localsoftwarefolder $_.localsoftwarefolder -ConfigurationName $_.ConfigurationName -vmstrtype $_.vmstrtype -storerg $_.storerg -Batchaddmngdatadisk $_.Batchadddatadisk -Batchaddssh $_.Batchaddssh -linuxpatchtype $_.linuxpatchtype -batchuseexistingstorage $_.batchuseexistingstorage -batchaddlbfqdn $_.batchaddlbfqdn -lbfqdn $_.lbfqdn -WinDSCConfig $_.WinDSCConfig -LinDSCConfig $_.LinDSCConfig -StorageType $_.StorageType }
 	}
 }
 catch {
@@ -1004,8 +1037,9 @@ $PublicSetting = ConvertTo-Json -InputObject @{
 	"stop" = $false;
 	"rebootAfterPatch" = "Required";
 	"category" = "ImportantAndRecommended";
-	"installDuration" = "00:30";
+	"installDuration" = "00:60";
 	"oneoff" = $true;
+	"distUpgradeAll" = $true;
 }
 Write-Host "Adding Azure OS Patching Linux - One Off"
 Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OSPatch" -ExtensionType "OSPatchingForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.0" -InformationAction SilentlyContinue -ErrorAction Stop -SettingString $PublicSetting -WarningAction SilentlyContinue | Out-Null
@@ -3397,7 +3431,7 @@ Write-ConfigVNet
 	$subnet6 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix $SubnetAddPrefix6 -Name $SubnetNameAddPrefix6
 	Try
 	{
-	New-AzureRmVirtualNetwork -Location $Location -Name $VNetName -ResourceGroupName $vnetrg -AddressPrefix $AddRange -Subnet $subnet1,$subnet2,$subnet3,$subnet4,$subnet5 –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
+	New-AzureRmVirtualNetwork -Location $Location -Name $VNetName -ResourceGroupName $vnetrg -AddressPrefix $AddRange -Subnet $subnet1,$subnet2,$subnet3,$subnet4,$subnet5,$subnet6 –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
 	Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Get-AzureRmVirtualNetworkSubnetConfig -WarningAction SilentlyContinue | Out-Null
 	Write-Host "Network Preparation completed" -ForegroundColor White
 	$LogOut = "Completed Network Configuration of $VNetName"
@@ -3861,6 +3895,24 @@ Write-Host "                                                               "
 }
 }
 
+Function Set-BootDiag {
+param(
+$enablediag = $enablebootdiag
+
+)
+
+if($enablebootdiag -or $batchenablebootdiag -eq 'True' )
+	{
+Write-Host "Setting Boot Diags"
+$script:VirtualMachine = Set-AzureRmVMBootDiagnostics -VM $VirtualMachine -Enable -ResourceGroupName $rg -StorageAccountName $StorageName
+	}
+	else
+	{
+		Write-Host "Setting Boot Diags to disabled"
+		$script:VirtualMachine = Set-AzureRmVMBootDiagnostics -VM $VirtualMachine -ResourceGroupName $rg -Enable:$false
+	}
+}
+
 #region Show Final Report
 Function Write-Results {
 param(
@@ -3870,6 +3922,7 @@ $Subnet2 = $script:Subnet2
 
 Write-Host "Completed Deployment"  -ForegroundColor White
 Write-Host "Action Type: $ActionType | VM Name: $VMName | Server Type: $vmMarketImage"
+Check-DiagStr
 Check-VMExtension
 Write-Host "                                                               "
 
@@ -4093,6 +4146,8 @@ Function Create-VM {
 			MakeImagePlanInfo_Pfsense # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+
+						Set-BootDiag
 			Provision-Vm
 }
 		"*free*" {
@@ -4103,6 +4158,8 @@ Function Create-VM {
 			MakeImageNoPlanInfo_FreeBsd  # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+
+						Set-BootDiag
 			Provision-Vm
 }
 		"*red72*" {
@@ -4113,6 +4170,8 @@ Function Create-VM {
 			MakeImageNoPlanInfo_RedHat72  # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
+
 			Provision-Vm
 }
 		"*red67*" {
@@ -4123,6 +4182,7 @@ Function Create-VM {
 			MakeImageNoPlanInfo_RedHat67  # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*w2k12*" {
@@ -4135,6 +4195,7 @@ Function Create-VM {
 			MakeImageNoPlanInfo_w2k12  # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*MSNav2016*" {
@@ -4145,6 +4206,7 @@ Function Create-VM {
 			MakeImageNoPlanInfo_MSNAV2016  # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*sql2016*" {
@@ -4155,6 +4217,7 @@ Function Create-VM {
 			MakeImageNoPlanInfo_sql2k16  # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*sql2014*" {
@@ -4165,6 +4228,7 @@ Function Create-VM {
 			MakeImageNoPlanInfo_sql2k14  # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*check*" {
@@ -4175,6 +4239,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Checkpoint  # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*cloudera*" {
@@ -4185,6 +4250,7 @@ Function Create-VM {
 			MakeImagePlanInfo_cloudera # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*datastax*" {
@@ -4195,6 +4261,7 @@ Function Create-VM {
 			MakeImagePlanInfo_datastax # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+			Set-BootDiag
 			Provision-Vm
 }
 		"*centos68" {
@@ -4205,6 +4272,8 @@ Function Create-VM {
 			MakeImageNoPlanInfo_CentOs68  # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+
+			Set-BootDiag
 			Provision-Vm
 }
 		"*centos72" {
@@ -4215,6 +4284,8 @@ Function Create-VM {
 			MakeImageNoPlanInfo_CentOs72  # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+			Set-BootDiag
+
 			Provision-Vm
 }
 		"*CoreOS" {
@@ -4225,6 +4296,8 @@ Function Create-VM {
 			MakeImageNoPlanInfo_CoreOS_CoreOS  # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
+
 			Provision-Vm
 }
 		"*CoreContainers" {
@@ -4235,6 +4308,8 @@ Function Create-VM {
 			MakeImageNoPlanInfo_CoreOS_ContainerLinux  # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
+
 			Provision-Vm
 }
 
@@ -4246,6 +4321,8 @@ Function Create-VM {
 			MakeImageNoPlanInfo_Suse  # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+
+						Set-BootDiag
 			Provision-Vm
 }
 		"*w2k8*" {
@@ -4256,6 +4333,8 @@ Function Create-VM {
 			MakeImageNoPlanInfo_w2k8  # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+
+						Set-BootDiag
 			Provision-Vm
 }
 		"*w2k16*" {
@@ -4266,6 +4345,8 @@ Function Create-VM {
 			MakeImageNoPlanInfo_w2k16  # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+
+						Set-BootDiag
 			Provision-Vm
 }
 		"*nano" {
@@ -4276,6 +4357,8 @@ Function Create-VM {
 			MakeImageNoPlanInfo_w2k16Nano  # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
+
 			Provision-Vm
 }
 		"*chef-server*" {
@@ -4286,6 +4369,8 @@ Function Create-VM {
 			MakeImagePlanInfo_Chef  # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+
+						Set-BootDiag
 			Provision-Vm
 }
 		"*ads-datascience*" {
@@ -4296,6 +4381,8 @@ Function Create-VM {
 			MakeImagenoPlanInfo_ads_stddatascience # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+
+						Set-BootDiag
 			Provision-Vm
 }
 		"*ads-linuxdatascience*" {
@@ -4306,6 +4393,8 @@ Function Create-VM {
 			MakeImagenoPlanInfo_ads_datascience # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+
+						Set-BootDiag
 			Provision-Vm
 }
 		"*tableau*" {
@@ -4316,6 +4405,7 @@ Function Create-VM {
 			MakeImagePlanInfo_tableau # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*RevoAn-Lin*" {
@@ -4326,6 +4416,7 @@ Function Create-VM {
 			MakeImagePlanInfo_RevAnalytics_cent # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*RevoAn-Win*" {
@@ -4336,6 +4427,7 @@ Function Create-VM {
 			MakeImagePlanInfo_RevAnalytics_win # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*lamp*" {
@@ -4346,6 +4438,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Bitnami_Lamp # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*mongodb*" {
@@ -4356,6 +4449,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Bitnami_mongodb # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*mysql*" {
@@ -4366,6 +4460,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Bitnami_mysql # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*elastics*" {
@@ -4376,6 +4471,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Bitnami_elastic # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*nodejs*" {
@@ -4386,6 +4482,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Bitnami_nodejs # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*nginxstack*" {
@@ -4396,6 +4493,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Bitnami_nginxstack # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*postgressql*" {
@@ -4406,6 +4504,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Bitnami_postgresql # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*incredibuild*" {
@@ -4416,6 +4515,7 @@ Function Create-VM {
 			MakeImagePlanInfo_incredibuild # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*horton-dp*" {
@@ -4426,6 +4526,7 @@ Function Create-VM {
 			MakeImagePlanInfo_hortonwowk_dp  # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*horton-hdp*" {
@@ -4436,6 +4537,7 @@ Function Create-VM {
 			MakeImagePlanInfo_hortonwowk_hdp # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*puppet*" {
@@ -4446,6 +4548,7 @@ Function Create-VM {
 			MakeImagePlanInfo_puppet_puppetent # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 
@@ -4457,6 +4560,7 @@ Function Create-VM {
 			MakeImageNoPlanInfo_SharePoint2k13 # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*tfs*" {
@@ -4467,6 +4571,7 @@ Function Create-VM {
 			MakeImageNoPlanInfo_TeamFoundationServer # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*VS2015*" {
@@ -4477,6 +4582,7 @@ Function Create-VM {
 			MakeImagenoPlanInfo_w2012r2vs2015 # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*DEV15*" {
@@ -4487,6 +4593,7 @@ Function Create-VM {
 			MakeImagenoPlanInfo_w2012r2dev15 # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*biztalk2013*" {
@@ -4497,6 +4604,7 @@ Function Create-VM {
 			MakeImageNoPlanInfo_Biztalk-Enterprise # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*biztalk2016*" {
@@ -4507,6 +4615,7 @@ Function Create-VM {
 			MakeImageNoPlanInfo_Biztalk2016-PreRelease # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*share2016*" {
@@ -4517,6 +4626,7 @@ Function Create-VM {
 			MakeImageNoPlanInfo_SharePoint2k16 # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*serverr*" {
@@ -4527,6 +4637,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Microsoft_Serverr # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*ubuntu14*" {
@@ -4537,6 +4648,7 @@ Function Create-VM {
 			MakeImageNoPlanInfo_Ubuntu14 # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*ubuntu16*" {
@@ -4547,6 +4659,7 @@ Function Create-VM {
 			MakeImageNoPlanInfo_Ubuntu16 # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*nessus*" {
@@ -4557,6 +4670,7 @@ Function Create-VM {
 			makeimage_withinfo_te-te-serv-nes-byol-azure0 # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*netscaler*" {
@@ -4567,6 +4681,7 @@ Function Create-VM {
 			makeimage_withinfo_ci-ne-netscalervpx # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*debian*" {
@@ -4577,6 +4692,7 @@ Function Create-VM {
 			makeimage_withinfo_cr-De-8 # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*f5bigip*" {
@@ -4587,6 +4703,7 @@ Function Create-VM {
 			MakeImagePlanInfo_f5_bigip_good_byol # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*f5appfire*" {
@@ -4597,6 +4714,7 @@ Function Create-VM {
 			MakeImagePlanInfo_f5_webappfire_byol # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*barrahourngfw*" {
@@ -4607,6 +4725,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Barracuda_ng_firewall_hourly # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*barrabyolngfw*" {
@@ -4617,6 +4736,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Barracuda_ng_firewall_byol # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*barrahourspam*" {
@@ -4627,6 +4747,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Barracuda_spam_firewall_hourly # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*barrabyolspam*" {
@@ -4637,6 +4758,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Barracuda_spam_firewall_byol # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*O365-Suite*" {
@@ -4647,6 +4769,7 @@ Function Create-VM {
 			MakeImagePlanInfo_metavistech # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*hadoop*" {
@@ -4657,6 +4780,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Bitnami_hadoop # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*tomcat*" {
@@ -4667,6 +4791,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Bitnami_tomcat # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*splunk*" {
@@ -4677,6 +4802,7 @@ Function Create-VM {
 			makeimage_withinfo_sp-sp-splunk-on-ubuntu-14-04-lts # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*redis*" {
@@ -4687,6 +4813,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Bitnami_redis # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*neos*" {
@@ -4697,6 +4824,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Bitnami_neos # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*cisco750*" {
@@ -4707,6 +4835,7 @@ Function Create-VM {
 			makeimage_withinfo_ci-vw-vwaas-azure-750 # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*jenk-opcenter" {
@@ -4717,6 +4846,7 @@ Function Create-VM {
 			makeimage_withinfo_cl-je-jenkins-operations-center # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*jruby*" {
@@ -4727,6 +4857,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Bitnami_jrubystack # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*tig-windows*" {
@@ -4737,6 +4868,7 @@ Function Create-VM {
 			makeimage_withinfo_ti-ba-windowsbackupasaservice # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*tig-linux*" {
@@ -4747,6 +4879,7 @@ Function Create-VM {
 			makeimage_withinfo_ti-ba-linuxbackupasaservice # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*chef-compliance*" {
@@ -4757,6 +4890,7 @@ Function Create-VM {
 			makeimage_withinfo_ch-ch-azure_marketplace_100 # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		"*jenkins*" {
@@ -4767,6 +4901,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Bitnami_jenkins # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
+						Set-BootDiag
 			Provision-Vm
 }
 		default{"An unsupported image was referenced"}
