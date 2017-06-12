@@ -2,8 +2,9 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 1.4
+Ver 1.5
 
+v 1.5 Updates for Extension Removal -extname
 v 1.4 Updates - Fixes issue with removal of NICs due to Azure PS updates.
 v 1.3 Updates - Updated Remove VM function to cleanup after a VM is removed. Added Managed Disks to cleanup process. 
 
@@ -23,6 +24,8 @@ The name of the resource group to remove.
 \.AZRM-RemoveResource.ps1 -removeobject vm -VMName myvm -rg myres
 .EXAMPLE
 \.AZRM-RemoveResource.ps1 -removeobject rg -rg myres
+.EXAMPLE
+\.AZRM-RemoveResource.ps1 -removeobject vm -VMName myvm -rg myres -extname opsinsightLinux
 .EXAMPLE
 \.AZRM-RemoveResource.ps1 -removeobject nsg -nsgname mynsg -rg nsgrg
 
@@ -75,10 +78,10 @@ $TenantID = '',
 [string]
 $Profile = "profile",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[ValidateSet("diag","msav","bginfo","access","linuxbackup","chefagent","eset","customscript","opsinsightLinux","opsinsightWin","WinPuppet","domjoin","RegisterAzDSC","PushDSC")]
+[ValidateSet("azshare","diag","msav","linaccess","winaccess","linuxbackup","linuxospatch","linchefagent","winchefagent","eset","customscript","linuxcustomscript","opsinsightLinux","opsinsightWin","WinPuppet","domjoin","RegisterAzDSC","linuxpushdsc","winpushdsc","bginfo","RegisterLinuxDSC")]
 [Alias("ext")]
 [string]
-$AzExtConfig = 'diag',
+$extname = 'diag',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $StorageName = $VMName + 'str',
@@ -97,23 +100,29 @@ $Error.Clear()
 Set-StrictMode -Version Latest
 Trap [System.SystemException] {("Exception" + $_ ) ; break}
 
+#region Validate Profile
 Function validate-profile {
 $comparedate = (Get-Date).AddDays(-14)
 $fileexist = Test-Path $ProfileFile -NewerThan $comparedate
   if($fileexist)
   {
-  $az = Import-AzureRmContext -Path $ProfileFile 
+  $az = Import-AzureRmContext -Path $ProfileFile
 	  $subid = $az.Context.Subscription.Id
-	  
+
 	Set-AzureRmContext -SubscriptionId $subid | Out-Null
 		Write-Host "Using $ProfileFile"
   }
   else
   {
   Write-Host "Please enter your credentials"
-  Add-AzureRmAccount
+	  if($SubscriptionID)
+ { Add-AzureRmAccount -SubscriptionId $SubscriptionID
   Save-AzureRmContext -Path $ProfileFile -Force
-  Write-Host "Saved Profile to $ProfileFile"
+  Write-Host "Saved Profile to $ProfileFile" }
+	  else
+ { Add-AzureRmAccount
+  Save-AzureRmContext -Path $ProfileFile -Force
+  Write-Host "Saved Profile to $ProfileFile" }
   exit
   }
 }
@@ -177,6 +186,38 @@ if($RemoveExtension -and !$rg) {
 }
 
 
+Function Remove-ExtensionRM 
+{
+	param(
+		$rg = $rg,
+		$VMName = $VMName,
+		$RemoveExtName = $RemoveExtName
+
+
+	)
+
+					Remove-AzureRmVMAccessExtension -ResourceGroupName $rg -VMName $VMName -Name $RemoveExtName -Force -Confirm:$false
+
+}
+
+Function Check-VM {
+	param(
+	[string]$Location = $Location,
+	[string]$rg = $rg,
+	[string]$VMName = $VMName
+	)
+	$extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $rg -InformationAction SilentlyContinue -WarningAction SilentlyContinue -ErrorAction SilentlyContinue 
+
+if(!$extvm)
+{
+	Write-Host "Host VM $VMName Not Found, unable to proceed" -ForegroundColor Red
+	Start-sleep 3
+	Exit
+}
+} #
+
+
+
 Function csv-run {
 param(
 [string] $csvin = $csvfile
@@ -224,21 +265,21 @@ Function UnInstall-Ext {
 		$VMName = $VMName,
 		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 		[string]
-		$AzExtConfig = $AzExtConfig
+		$extname = $extname
 
 	)
-switch ($AzExtConfig)
+switch ($extname)
 	{
 		"access" {
 				Write-Host "VM Access Agent VM Image Removal in Process"
-				Remove-AzureRmVMAccessExtension -ResourceGroupName $rg -VMName $VMName -Name "VMAccess" -Force -Confirm:$false
+				Remove-ExtensionRM -ResourceGroupName $rg -VMName $VMName -RemoveExtName "VMAccess"
 				$LogOut = "Removed VM Access Extension"
 				Log-Command -Description $LogOut -LogFile $LogOutFile
 						exit
 }
 		"msav" {
 				Write-Host "MSAV Agent VM Image Removal in Process"
-				Remove-AzureRmVMExtension -Name "MSAVExtension" -ResourceGroupName $rg -VMName $VMName -Confirm:$false -Force
+				Remove-ExtensionRM -ResourceGroupName $rg -VMName $VMName -RemoveExtName "MSAVExtension"
 				$LogOut = "Removed MSAV Extension"
 				Log-Command -Description $LogOut -LogFile $LogOutFile
 						exit
@@ -250,6 +291,14 @@ switch ($AzExtConfig)
 				Log-Command -Description $LogOut -LogFile $LogOutFile
 					exit
 		}
+		"linuxcustomscript" {
+				Write-Host "Removing custom script"
+				Remove-ExtensionRM -ResourceGroupName $rg -VMName $VMName -RemoveExtName "CustomscriptLinux"
+				$LogOut = "Removed Custom Script  Linux Extension"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+					exit
+		}
+
 		"diag" {
 				Write-Host "Removing Azure Enhanced Diagnostics"
 				Remove-AzureRmVMAEMExtension -ResourceGroupName $rg -VMName $VMName
@@ -262,36 +311,50 @@ switch ($AzExtConfig)
 		}
 		"linuxOsPatch" {
 				Write-Host "Removing Azure OS Patching Linux"
-				Remove-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "OSPatch"
+				Remove-ExtensionRM -ResourceGroupName $rg -VMName $VMName -RemoveExtName "OSPatch"
 				$LogOut = "Removed Linux OS Patch Extension"
 				Log-Command -Description $LogOut -LogFile $LogOutFile
 						exit
 				}
 		"linuxbackup" {
 				Write-Host "Removing Linux VMBackup"
-				Remove-AzureRmVMBackup -ResourceGroupName $rg -VMName $VMName -Tag 'OSBackup'
+				Remove-ExtensionRM -ResourceGroupName $rg -VMName $VMName -RemoveExtName "VMBackupForLinuxExtension"
 				$LogOut = "Removed Linux OS Backup Extension"
 				Log-Command -Description $LogOut -LogFile $LogOutFile
 						exit
 				}
 		"chefAgent" {
 				Write-Host "Removing Chef Agent"
-				Remove-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "ChefStrap" -Force -Confirm:$false
+				Remove-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -RemoveExtName "ChefStrap" -Force -Confirm:$false
 				$LogOut = "Removed Chef Extension"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+				exit
+				}
+		"linuxCustomScript" {
+				Write-Host "Removing Custom Script"
+				Remove-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -RemoveExtName "CustomscriptLinux" -Force -Confirm:$false -ErrorAction Stop -WarningAction SilentlyContinue -InformationAction SilentlyContinue
+				$LogOut = "Removed Custom Script Extension"
 				Log-Command -Description $LogOut -LogFile $LogOutFile
 				exit
 				}
 		"opsinsightLinux" {
 				Write-Host "Removing Linux Insight Agent"
+				Remove-ExtensionRM -ResourceGroupName $rg -VMName $VMName -RemoveExtName "OperationalInsights"
+				$LogOut = "Removed OMS Extension"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+			
 			exit
 				}
 		"opsinsightWin" {
 				Write-Host "Removing Windows Insight Agent"
+				Remove-ExtensionRM -ResourceGroupName $rg -VMName $VMName -RemoveExtName "OperationalInsights"
+				$LogOut = "Removed OMS Extension"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
 			exit
 				}
 		"ESET" {
 				Write-Host "Removing File Security"
-				Remove-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "ESET" -Force -Confirm:$false
+				Remove-ExtensionRM -ResourceGroupName $rg -VMName $VMName -RemoveExtName "ESET"
 				$LogOut = "Removed File Security Extension"
 				Log-Command -Description $LogOut -LogFile $LogOutFile
 			exit
@@ -684,6 +747,7 @@ switch ($RemoveObject)
 		exit
 }
 		"vm" {
+		Check-VM
 		Remove-azVM
 			if($clobber)
 				{Remove-Orphans}	
@@ -713,11 +777,13 @@ switch ($RemoveObject)
 		exit
 }
 		"dsc" {
+		Check-VM
 		Remove-Dsc
 		exit
 }
 		"extension" {
-		UnInstall-Ext -AzExtConfig $AzExtConfig
+		Check-VM
+		UnInstall-Ext -extname $extname
 		exit
 }
 		default{"An unsupported uninstall Extension command was used"}
@@ -781,7 +847,7 @@ Function Register-ResourceProviders {
 $date = Get-Date -UFormat "%Y-%m-%d-%H-%M"
 $workfolder = Split-Path $script:MyInvocation.MyCommand.Path
 $logdir = $workfolder+'\'+'log'+'\'
-$LogOutFile = $logdir+$vmname+'-'+$date+'.log'
+$LogOutFile = $logdir+$RemoveObject+'-'+$date+'.log'
 $ProfileFile = $workfolder+'\'+$profile+'.json'
 $logdir = $workfolder+'\'+'log'+'\'
 

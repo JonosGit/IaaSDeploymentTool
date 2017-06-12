@@ -904,7 +904,7 @@ Write-Host "Setting LBName to $LBName"
 }
 }
 #region Verify IP
-Function Verify-PvtIp {
+Function Verify-PvtIp-Old {
 		if($PvtIPNic1)
 			{
 			[int]$subnet = $Subnet1
@@ -926,26 +926,57 @@ Function Verify-PvtIp {
 	}
 }
 
+Function Verify-PvtIp {
+		if($PvtIPNic1)
+			{
+			$myvnet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
+			$subcnt = $myvnet.Subnets.Count
+			if($subnet1 -gt $subcnt)
+				{
+				Write-Host "Subnet is out of range $subnet1 is greater then available range"
+				break
+				}
+
+			$existvnet = Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg
+			$addsubnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $existvnet
+			$sub = $addsubnet.AddressPrefix
+			$subname = $addsubnet.Name
+			$nsg = $addsubnet.NetworkSecurityGroup
+			$subnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $existvnet | ft Name,AddressPrefix -AutoSize -Wrap -HideTableHeaders
+			$sub0 = $subname[0]
+
+			if($sub0 -eq 'gatewaysubnet' -and $subnet1 -eq 0 )
+			{Write-Host "SubnetID 0: GatewaySubnet **Not Available for VM Deployment"
+			exit
+			}
+				}
+	}
+
 Function Verify-PvtIp2 {
 if($PvtIPNic2)
 			{
-			[int]$subnet = $Subnet2
-			$ip = $PvtIPNic2
-			$array = $ip.Split(".")
-			[int]$subnetint = $array[2]
-			[int]$subnetcalc = ($subnetint)
-				if($subnetcalc -ne $subnet){
-					$script:Subnet2 = $subnetcalc
-					Write-Host "Updating Subnet2 to correct subnet"
-					Write-Host "Subnet1: $script:Subnet2"
+			$myvnet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
+			$subcnt = $myvnet.Subnets.Count
+			if($subnet2 -gt $subcnt)
+				{
+				Write-Host "Subnet is out of range $subnet1 is greater then available range"
+				break
+				}
+
+			$existvnet = Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg
+			$addsubnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $existvnet
+			$sub = $addsubnet.AddressPrefix
+			$subname = $addsubnet.Name
+			$nsg = $addsubnet.NetworkSecurityGroup
+			$subnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $existvnet | ft Name,AddressPrefix -AutoSize -Wrap -HideTableHeaders
+			$sub0 = $subname[0]
+
+			if($sub0 -eq 'gatewaysubnet' -and $subnet2 -eq 0 )
+			{Write-Host "SubnetID 0: GatewaySubnet **Not Available for VM Deployment"
+			exit
 			}
-			else
-			{
-			Write-Host "Correct subnet verified"
-			$script:Subnet2 = $Subnet2
-			}
+				}
 	}
-}
 
 Function Verify-LBSubnet {
 if($CreateLoadBalancer -or $BatchCreateLB -eq 'True' -and $LBType -eq 'internal')
@@ -968,6 +999,39 @@ if($CreateLoadBalancer -or $BatchCreateLB -eq 'True' -and $LBType -eq 'internal'
 	}
 }
 
+Function Subnet-Verify {
+	param(
+		$subnet1 = $subnet1,
+		$VNetName = $VNetName,
+		$vnetrg = $vnetrg
+
+	)
+
+			$myvnet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
+			$subcnt = $myvnet.Subnets.Count
+			if($subnet1 -gt $subcnt)
+				{
+				Write-Host "Subnet is out of range $subnet1 is greater then available range"
+				break
+				}
+				else
+					{ Write-Host "Subnet range verified"
+											$script:Subnet1 = $Subnet1
+					}
+			$addsubnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $myvnet
+			$sub = $addsubnet.AddressPrefix
+			$subname = $addsubnet.Name
+			$nsg = $addsubnet.NetworkSecurityGroup
+			$subnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $myvnet | ft Name,AddressPrefix -AutoSize -Wrap -HideTableHeaders
+			$sub0 = $subname[0]
+
+			if($sub0 -eq 'gatewaysubnet' -and $subnet1 -eq 0 )
+			{
+				Write-Host "Subnet GW Check Failed SubnetID: 0 is a Gateway Subnet"
+							exit
+			}
+}
+
 Function Verify-NIC {
 	If ($ConfigIPs -eq "StatPvtNoPubSingle")
 	{
@@ -982,34 +1046,24 @@ Function Verify-NIC {
 	}
 	If ($ConfigIPs -eq "Single")
 	{
-		Write-Host "Dynamic IP - Skipping Subnet IP Validation"
-		if($Subnet1 -le 0)
-		{$subnet1 = 1}
-		$script:Subnet1 = $Subnet1
+		Write-Host "Dynamic IP - Checking subnet"
+		Subnet-Verify
 	}
 	If ($ConfigIPs -eq "NoPubSingle")
 	{
-		Write-Host "Dynamic IP - Skipping Subnet IP Validation"
-		if($Subnet1 -le 0)
-		{$subnet1 = 1}
-		$script:Subnet1 = $Subnet1
+		Write-Host "Dynamic IP - Checking subnet"
+		Subnet-Verify
 	}
 	If ($ConfigIPs -eq "NoPubDual")
 	{
 		Write-Host "Dynamic IP - Skipping Subnet IP Validation"
-		if($Subnet1 -le 0){$subnet1 = 0}
-		if($Subnet2 -le 0){$subnet2 = 1}
-		$script:Subnet1 = $Subnet1
-		$script:Subnet2 = $Subnet2
+			Subnet-Verify
 	}
 
 	If ($ConfigIPs -eq "Dual")
 	{
 		Write-Host "Dynamic IP - Skipping Subnet IP Validation"
-		if($Subnet1 -le 0){$subnet1 = 0}
-		if($Subnet2 -le 0){$subnet2 = 1}
-		$script:Subnet1 = $Subnet1
-		$script:Subnet2 = $Subnet2
+		Subnet-Verify
 	}
 	If ($ConfigIPs -eq "PvtSingleStat")
 	{
@@ -1205,6 +1259,7 @@ if(!$vnetexists)
 			$subname = $addsubnet.Name
 			$nsg = $addsubnet.NetworkSecurityGroup
 			$subnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $existvnet | ft Name,AddressPrefix -AutoSize -Wrap -HideTableHeaders
+			$sub0 = $subname[0]
 			Write-Host "                                                               "
 			Write-Host "VNET CONFIGURATION - Existing VNET" -ForegroundColor Cyan
 			Write-Host "                                                               "
@@ -1212,6 +1267,8 @@ if(!$vnetexists)
 			Write-Host "Address Space: $addspace "
 			Write-Host "Subnet Ranges: $sub "
 			Write-Host "Subnet Names: $subname "
+			if($sub0 -eq 'gatewaysubnet')
+			{Write-Host "SubnetID 0: GatewaySubnet **Not Available for VM Deployment"}
 		}
 }
 
@@ -1254,8 +1311,8 @@ if(!$nsgexists)
 
 Function Get-OMSInfo {
 	param(
-		$omsrg = 'automation-rmp',
-		$omsname = 'rmpautoact'
+		$omsrg = $omsrg,
+		$omsname = $omsname
 	)
 
 	$key = Get-AzureRmOperationalInsightsWorkspaceSharedKeys -Name $omsname -ResourceGroupName $omsrg
@@ -5430,7 +5487,6 @@ switch ($extname)
 }
 		"opsinsightWin" {
 				Verify-ExtWindows
-
 					$PublicSetting = ConvertTo-Json -InputObject @{
 					"workspaceId" = $omswrkspaceid;
 					"stopOnMultipleConnections" = $false;
