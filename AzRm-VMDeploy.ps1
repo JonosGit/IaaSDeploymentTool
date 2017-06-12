@@ -753,8 +753,8 @@ $enablebootdiag = $True,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $batchenablebootdiag = 'True'
-
 )
+
 
 $sshPublicKey = Get-Content '.\Pspub.txt'
 
@@ -1007,7 +1007,9 @@ Function Subnet-Verify {
 
 	)
 
-			$myvnet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
+			$myvnet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg -ErrorAction SilentlyContinue | Set-AzureRmVirtualNetwork
+			
+	
 			$subcnt = $myvnet.Subnets.Count
 			if($subnet1 -gt $subcnt)
 				{
@@ -1268,7 +1270,10 @@ if(!$vnetexists)
 			Write-Host "Subnet Ranges: $sub "
 			Write-Host "Subnet Names: $subname "
 			if($sub0 -eq 'gatewaysubnet')
-			{Write-Host "SubnetID 0: GatewaySubnet **Not Available for VM Deployment"}
+			{
+				Write-Host "SubnetID 0: GatewaySubnet **Not Available for VM Deployment" -ForegroundColor Yellow
+			
+			}
 		}
 }
 
@@ -5636,7 +5641,7 @@ Function Action-Type {
 					Check-FQDN # Verifies required fields have data
 					Check-NullValues # Verifies required fields have data
 					Check-Orphans # Verifies no left overs
-					Verify-NIC # Verifies required fields have data
+
 					if(!$useexiststorage)
 					{ Check-StorageName }
 					else
@@ -5665,7 +5670,7 @@ Function Action-Type {
 							Check-CreateIntLB
 							Create-IntLB
 							}
-
+					Verify-NIC # Verifies required fields have data
 					Check-Vnet
 					Create-VM # Configure Image
 
