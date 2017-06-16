@@ -12,7 +12,7 @@ This script supports Load Balanced configurations for both internal and external
 
 The script will create three directories if they do not exist in the runtime directory, Log, Scripts, DSC.
 
-v10.4 updates
+v10.4 updates Added CentOS 7.3
 v10.3 updates Added Boot Diagnostics enable/disable flag -enablebootdiag
 v10.2 updates - Added -preview option to allow preview of operations. Added ASR Backup Extension Option -extname addvmbackupvault
 v10.1 updates - Added Public DNS option for External LB Public IP
