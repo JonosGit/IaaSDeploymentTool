@@ -2,7 +2,7 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 10.4
+Ver 10.5
 
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerous Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
@@ -12,8 +12,9 @@ This script supports Load Balanced configurations for both internal and external
 
 The script will create three directories if they do not exist in the runtime directory, Log, Scripts, DSC.
 
-v10.4 updates Added CentOS 7.3
-v10.3 updates Added Boot Diagnostics enable/disable flag -enablebootdiag
+v10.5 updates - NSG now accepts -NSGAddRange when creating a new NSG as well as -NSGType (Web,MongoBE,MySQLBE and FULLFEBE default)
+v10.4 updates - sql 2014/2016 added centos7.3,
+v10.3 updates - Added Boot Diagnostics enable/disable flag -enablebootdiag
 v10.2 updates - Added -preview option to allow preview of operations. Added ASR Backup Extension Option -extname addvmbackupvault
 v10.1 updates - Added Public DNS option for External LB Public IP
 v10 updates - Azure PowerShell 4.0.x updates
@@ -243,6 +244,8 @@ Allows user specify an existing storage account for VM deployment
 			Free BSD – free
 			Suse – suse
 			CentOs 7.2 – centos
+			CentOs 7.3 – centos
+			CentOs 6.8 – centos
 			Ubuntu 14.04 – ubuntu14
 			Ubuntu 16.04 – ubuntu16
 			Redhat 6.7 – Red67
@@ -315,24 +318,24 @@ https://github.com/JonosGit/IaaSDeploymentTool
 
 [CmdletBinding(DefaultParameterSetName = 'default')]
 Param(
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [Alias("storage")]
 [ValidateSet("unmanaged","managed")]
 [string]
 $vmstrtype = 'unmanaged',
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=1)]
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
-[ValidateSet("w2k12","w2k8","w2k16","nano","sql2016","sql2014","biztalk2013","tfs","biztalk2016","vs2015","dev15","jenk-opcenter","chef-compliance","incredibuild","debian","puppet","msnav2016","red67","red72","suse","free","ubuntu14","ubuntu16","centos68","centos72","chef-server","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","horton-dp","serverr","horton-hdp","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack","hadoop","neos","tomcat","redis","gitlab","jruby","tableau","cloudera","datastax","O365-suite","ads-linuxdatascience","ads-datascience","cloud-conn","cisco750","CoreOS","CoreContainers")]
+[ValidateSet("w2k12","w2k8","w2k16","nano","sql2016","sql2014","biztalk2013","tfs","biztalk2016","vs2015","dev15","jenk-opcenter","chef-compliance","incredibuild","debian","puppet","msnav2016","red67","red72","suse","free","ubuntu14","ubuntu16","centos68","centos72","centos73","chef-server","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","horton-dp","serverr","horton-hdp","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack","hadoop","neos","tomcat","redis","gitlab","jruby","tableau","cloudera","datastax","O365-suite","ads-linuxdatascience","ads-datascience","cloud-conn","cisco750","CoreOS","CoreContainers")]
 [Alias("image")]
 [string]
 $vmMarketImage = 'w2k12',
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=2)]
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [Alias("vm")]
 [string]
 $VMName = '',
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=3)]
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [string]
 $rg = '',
@@ -344,7 +347,7 @@ $ConfigIPs = 'Single',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [switch]
 $AddVnet = $true,
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=4)]
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [Alias("vnet")]
 [string]
@@ -529,6 +532,9 @@ $SubnetAddPrefix6 = "172.10.5.0/24",
 $SubnetNameAddPrefix6 = "monitoring",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
+$NSGAddRange = $AddRange,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
 $Azautoacct = "Auto",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
@@ -555,6 +561,11 @@ $CustomScriptUpload = 'True',
 [Alias("addvmnsg")]
 [switch]
 $AddNSG,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[Alias("nsgconfig")]
+[ValidateSet("Web","BEMongo","BEMySQL","BESQL","FULLFEBE")]
+[string]
+$NSGType = 'FULLFEBE',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("dscfilename")]
 [string]
@@ -608,9 +619,12 @@ $csvimport,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [switch]
 $addlbfqdn,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
+[string]
+$csvfilename = ".\vmdeploy-staging.csv",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$csvfile = -join $workfolder + "\vmdeploy-ha.csv",
+$csvfile = -join $workfolder + $csvfilename,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("h")]
 [Alias("?")]
@@ -634,7 +648,7 @@ $BatchAddFQDN,
 $batchaddlbfqdn,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$lbfqdn = 'LB1vip',
+$lbfqdn = 'stgvip',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $BatchAddNSG = 'False',
@@ -719,10 +733,10 @@ $preview,
 $batchuseexistingstorage = 'False',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$chefvalidationpem = "",
+$chefvalidationpem = "\chef\admin.pem",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$chefclientrb =  "",
+$chefclientrb =  "\chef\knife.rb",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateSet("oneoff","scheduled","disabled")]
 [string]
@@ -753,14 +767,10 @@ $ActionType = 'create',
 $enablebootdiag = $True,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$batchenablebootdiag = 'True',
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[string]
-$omsurl = "",
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[string]
-$primary = ""
+$batchenablebootdiag = 'True'
 )
+
+$sshPublicKey = Get-Content '.\Pspub.txt'
 
 $SecureLocPassword = new-object -typename system.security.securestring
 $SecureLocPassword = Convertto-SecureString $locpassword –asplaintext -Force
@@ -956,6 +966,8 @@ Function Verify-PvtIp {
 				}
 	}
 
+
+
 Function Verify-PvtIp2 {
 if($PvtIPNic2)
 			{
@@ -1017,23 +1029,59 @@ Function Subnet-Verify {
 			}
 }
 
-
 Function Verify-LBSubnet {
+if($CreateLoadBalancer -or $BatchCreateLB -eq 'True' -and $LBType -eq 'internal')
+			{
+			[int]$subnet = $LBSubnet
+			$ip = $LBPvtIp
+			$array = $ip.Split(".")
+			[int]$subnetint = $array[2]
+			[int]$subnetcalc = ($subnetint)
+				if($subnetcalc -ne $subnet){
+					$script:LBSubnet = $subnetcalc
+					Write-Host "Updating LB Subnet to correct subnet"
+					Write-Host "LBSubnet: $script:LBSubnet"
+			}
+			else
+			{
+			Write-Host "Correct subnet verified"
+			$script:LBSubnet = $LBSubnet
+			}
+	}
+}
+
+Function Subnet-Verify {
 	param(
-		$subnet1 = $LBSubnet,
+		$subnet1 = $subnet1,
 		$VNetName = $VNetName,
 		$vnetrg = $vnetrg
 
 	)
 
-if($CreateLoadBalancer -or $BatchCreateLB -eq 'True' -and $LBType -eq 'internal')
+			$myvnet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
+			$subcnt = $myvnet.Subnets.Count
+			if($subnet1 -gt $subcnt)
+				{
+				Write-Host "Subnet is out of range"
+				exit
+				}
+				else
+					{ Write-Host "Subnet range verified"
+											$script:Subnet1 = $Subnet1
+					}
+			$addsubnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $myvnet
+			$sub = $addsubnet.AddressPrefix
+			$subname = $addsubnet.Name
+			$nsg = $addsubnet.NetworkSecurityGroup
+			$subnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $myvnet | ft Name,AddressPrefix -AutoSize -Wrap -HideTableHeaders
+			$sub0 = $subname[0]
+
+			if($sub0 -eq 'gatewaysubnet' -and $subnet1 -eq 0 )
 			{
-Subnet-Verify -subnet1 $LBSubnet -VNetName $VNetName -vnetrg $vnetrg
-	
+				Write-Host "SubnetID 0: GatewaySubnet **Not Available for VM Deployment"
+							exit
 			}
 }
-
-
 
 Function Verify-NIC {
 	If ($ConfigIPs -eq "StatPvtNoPubSingle")
@@ -1050,23 +1098,96 @@ Function Verify-NIC {
 	If ($ConfigIPs -eq "Single")
 	{
 		Write-Host "Dynamic IP - Checking subnet"
-		Subnet-Verify
+			$existvnet = Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg
+			$addsubnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $existvnet
+			$sub = $addsubnet.AddressPrefix
+			$subname = $addsubnet.Name
+			$nsg = $addsubnet.NetworkSecurityGroup
+			$subnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $existvnet | ft Name,AddressPrefix -AutoSize -Wrap -HideTableHeaders
+			$sub0 = $subname[0]
+			if($sub0 -eq 'gatewaysubnet' -and $subnet1 -eq 0 )
+			{Write-Host "SubnetID 0: GatewaySubnet **Not Available for VM Deployment"
+							exit
+			}
+			else
+				{
+						$script:Subnet1 = $Subnet1
+				}
 	}
 	If ($ConfigIPs -eq "NoPubSingle")
 	{
 		Write-Host "Dynamic IP - Checking subnet"
-		Subnet-Verify
+
+			$existvnet = Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg
+			$addsubnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $existvnet
+			$sub = $addsubnet.AddressPrefix
+			$subname = $addsubnet.Name
+			$nsg = $addsubnet.NetworkSecurityGroup
+			$subnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $existvnet | ft Name,AddressPrefix -AutoSize -Wrap -HideTableHeaders
+			$sub0 = $subname[0]
+
+			if($sub0 -eq 'gatewaysubnet' -and $subnet1 -eq 0 )
+			{Write-Host "SubnetID 0: GatewaySubnet **Not Available for VM Deployment"
+				exit
+			}
+			else
+				{
+						$script:Subnet1 = $Subnet1
+				}
 	}
 	If ($ConfigIPs -eq "NoPubDual")
 	{
 		Write-Host "Dynamic IP - Skipping Subnet IP Validation"
-			Subnet-Verify
+
+			$existvnet = Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg
+			$addsubnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $existvnet
+			$sub = $addsubnet.AddressPrefix
+			$subname = $addsubnet.Name
+			$nsg = $addsubnet.NetworkSecurityGroup
+			$subnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $existvnet | ft Name,AddressPrefix -AutoSize -Wrap -HideTableHeaders
+			$sub0 = $subname[0]
+
+		if($sub0 -eq 'gatewaysubnet' -and $subnet1 -eq 0 )
+			{Write-Host "SubnetID 0: GatewaySubnet **Not Available for VM Deployment"
+				exit
+			}
+			elseif($sub0 -eq 'gatewaysubnet' -and $subnet2 -eq 0)
+		{
+		Write-Host "SubnetID 0: GatewaySubnet **Not Available for VM Deployment"
+				exit
+		}
+			else
+				{
+				$script:Subnet1 = $Subnet1
+				$script:Subnet2 = $Subnet2
+				}
 	}
 
 	If ($ConfigIPs -eq "Dual")
 	{
 		Write-Host "Dynamic IP - Skipping Subnet IP Validation"
-		Subnet-Verify
+			$existvnet = Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg
+			$addsubnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $existvnet
+			$sub = $addsubnet.AddressPrefix
+			$subname = $addsubnet.Name
+			$nsg = $addsubnet.NetworkSecurityGroup
+			$subnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $existvnet | ft Name,AddressPrefix -AutoSize -Wrap -HideTableHeaders
+			$sub0 = $subname[0]
+
+			if($sub0 -eq 'gatewaysubnet' -and $subnet1 -eq 0 )
+			{Write-Host "SubnetID 0: GatewaySubnet **Not Available for VM Deployment"
+				exit
+			}
+			elseif($sub0 -eq 'gatewaysubnet' -and $subnet2 -eq 0)
+		{
+		Write-Host "SubnetID 0: GatewaySubnet **Not Available for VM Deployment"
+				exit
+		}
+			else
+				{
+				$script:Subnet1 = $Subnet1
+				$script:Subnet2 = $Subnet2
+				}
 	}
 	If ($ConfigIPs -eq "PvtSingleStat")
 	{
@@ -1270,11 +1391,13 @@ if(!$vnetexists)
 			Write-Host "Address Space: $addspace "
 			Write-Host "Subnet Ranges: $sub "
 			Write-Host "Subnet Names: $subname "
-			if($sub0 -eq 'gatewaysubnet')
+			if($nsg)
 			{
-				Write-Host "SubnetID 0: GatewaySubnet **Not Available for VM Deployment" -ForegroundColor Yellow
-			
+				Write-Host "NSG Name: $NSGName"
+				Write-Host	"NSG Address Space: $NSGAddRange"
 			}
+			if($sub0 -eq 'gatewaysubnet')
+			{Write-Host "SubnetID 0: GatewaySubnet **Not Available for VM Deployment"}
 		}
 }
 
@@ -1336,7 +1459,7 @@ if(!$nsgexists)
 			$existnsg = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg | Set-AzureRmNetworkSecurityGroup
 			$defrules = $existnsg.DefaultSecurityRules | ft Name,DestinationPortRange,SourcePortRange,Description,Access,Direction,Priority,Protocol
 			$defrules | Format-Table
-			$secrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access | Format-Table | Out-Null
+			$secrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access | Format-Table
 			$defsecrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg | Get-AzureRmNetworkSecurityRuleConfig -DefaultRules | Format-Table
 			 }
 }
@@ -2155,12 +2278,14 @@ Function Configure-Image-Unmanaged {
 		$script:createOption = "FromImage"
 		$script:OSDiskName = $VMName + "OSDisk"
 		$script:DataDiskName1 = $VMName + "Data1"
+		$script:DataDiskName2 = $VMName + "Data2"
 
 		$script:OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDiskName + ".vhd"
 		$script:DataDiskUri1 = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $DataDiskName1 + ".vhd"
-
+		$script:DataDiskUri2 = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $DataDiskName2 + ".vhd"
 
 		$script:VirtualMachine = Add-AzureRmVMDataDisk -VM $VirtualMachine -Name 'Data1' -Caching ReadOnly -DiskSizeInGB '160' -Lun 0 -VhdUri $script:DataDiskUri1 -CreateOption Empty
+		$script:VirtualMachine = Add-AzureRmVMDataDisk -VM $VirtualMachine -Name 'Data2' -Caching ReadOnly -DiskSizeInGB '160' -Lun 1 -VhdUri $script:DataDiskUri2 -CreateOption Empty
 
 		$script:VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption $script:createOption -Caching $osDiskCaching -WarningAction SilentlyContinue -InformationAction SilentlyContinue -ErrorAction Stop
 		 $LogOut = "Completed unmanaged disk creation"
@@ -2971,7 +3096,6 @@ $LogOut = "Completed image prep 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Sku
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
-
 Function MakeImageNoPlanInfo_CentOs68 {
 param(
 	[string]$VMName = $VMName,
@@ -3355,7 +3479,7 @@ Function MakeImageNoPlanInfo_sql2k16 {
 param(
 	[string]$VMName = $VMName,
 	[string]$Publisher = "MicrosoftSQLServer",
-	[string]$offer = "SQL2016-WS2012R2",
+	[string]$offer = "SQL2016SP1-WS2016",
 	[string]$Skus = "Enterprise",
 	[string]$version = "latest"
 )
@@ -3371,7 +3495,7 @@ Function MakeImageNoPlanInfo_sql2k14 {
 param(
 	[string]$VMName = $VMName,
 	[string]$Publisher = "MicrosoftSQLServer",
-	[string]$offer = "SQL2014-WS2012R2",
+	[string]$offer = "SQL2014SP2-WS2012R2",
 	[string]$Skus = "Enterprise",
 	[string]$version = "latest"
 )
@@ -3670,20 +3794,53 @@ Write-PreviewResults
 }
 
 #region Create NSG
+
+Function NSG-Create {
+	param(
+		[string]$NSGType = $NSGType
+	)
+
+switch ($NSGType)
+	{
+		"BEMongo" {
+		Create-DBNSG
+}
+		"BESQL" {
+		Create-DBNSG
+}
+		"Web" {
+		Create-AppNSG
+}
+		"BEMySQL" {
+		Create-DBNSG
+}
+		"FULLFEBE" {
+		Create-FULLFEBENSG
+}
+
+		default{"An unsupported NSGType was used"}
+	}
+}
+
 Function Create-NSG {
 param(
 [string]$NSGName = $NSGName,
 [string]$Location = $Location,
-[string]$vnetrg = $vnetrg
+[string]$vnetrg = $vnetrg,
+[string]$destinationaddprefix = $NSGAddRange
 )
 	Try
 	{
-			Write-Host "Network Security Group Preparation in Process.."
-		$httprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTP" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "80" -DestinationPortRange "80" -SourceAddressPrefix "*" -DestinationAddressPrefix "172.10.0.0/21" -Access Allow -Direction Inbound -Priority 200
-		$httpsrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTPS" -Description "HTTPS Exception for Web frontends" -Protocol Tcp -SourcePortRange "443" -DestinationPortRange "443" -SourceAddressPrefix "*" -DestinationAddressPrefix "172.10.0.0/21" -Access Allow -Direction Inbound -Priority 201
-		$sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_SSH" -Description "SSH Exception for Web frontends" -Protocol Tcp -SourcePortRange "22" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix "172.10.0.0/21" -Access Allow -Direction Inbound ` -Priority 203
-		$rdprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_RDP" -Description "RDP Exception for frontends" -Protocol Tcp -SourcePortRange "3389" -DestinationPortRange "3389" -SourceAddressPrefix "*" -DestinationAddressPrefix "172.10.0.0/21" -Access Allow -Direction Inbound ` -Priority 204
-		$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Location $Location -Name $NSGName -SecurityRules $httprule,$httpsrule,$sshrule,$rdprule –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
+			Write-Host "FE/BE Network Security Group Preparation in Process.."
+
+		$httprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTP" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "80" -DestinationPortRange "80" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 200
+		$httpsrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTPS" -Description "HTTPS Exception for Web frontends" -Protocol Tcp -SourcePortRange "443" -DestinationPortRange "443" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 201
+		$sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_SSH" -Description "SSH Exception for Web frontends" -Protocol Tcp -SourcePortRange "22" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 203
+		$rdprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_RDP" -Description "RDP Exception for frontends" -Protocol Tcp -SourcePortRange "3389" -DestinationPortRange "3389" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 204
+		$mysqlrule = New-AzureRmNetworkSecurityRuleConfig -Name "BackEnd_MySql" -Description "MySQL Allow" -Protocol Tcp -SourcePortRange "3306" -DestinationPortRange "3306" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 205
+		$mongorule = New-AzureRmNetworkSecurityRuleConfig -Name "Backend_Mongo" -Description "MongoDB Allow" -Protocol Tcp -SourcePortRange "27017" -DestinationPortRange "27017" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 206
+		$sqlrule = New-AzureRmNetworkSecurityRuleConfig -Name "BackEnd_Sql" -Description "SQL Allow" -Protocol Tcp -SourcePortRange "1443" -DestinationPortRange "1443" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 207
+		$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Location $Location -Name $NSGName -SecurityRules $httprule,$httpsrule,$sshrule,$rdprule,$mysqlrule,$mongorule,$sqlrule –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
 		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -WarningAction SilentlyContinue | Out-Null
 		Write-Host "Network Security Group configuration completed" -ForegroundColor White
 		$secrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access
@@ -3705,6 +3862,151 @@ param(
 	}
 }
 #endregion
+
+Function Create-FULLFEBENSG {
+param(
+[string]$NSGName = $NSGName,
+[string]$Location = $Location,
+[string]$vnetrg = $vnetrg,
+[string]$destinationaddprefix = $NSGAddRange
+)
+	Try
+	{
+			Write-Host "FE/BE Network Security Group Preparation in Process.."
+
+		$httprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTP" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "80" -DestinationPortRange "80" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 200
+		$httpsrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTPS" -Description "HTTPS Exception for Web frontends" -Protocol Tcp -SourcePortRange "443" -DestinationPortRange "443" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 201
+		$sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_SSH" -Description "SSH Exception for Web frontends" -Protocol Tcp -SourcePortRange "22" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 203
+		$rdprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_RDP" -Description "RDP Exception for frontends" -Protocol Tcp -SourcePortRange "3389" -DestinationPortRange "3389" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 204
+		$mysqlrule = New-AzureRmNetworkSecurityRuleConfig -Name "BackEnd_MySql" -Description "MySQL Allow" -Protocol Tcp -SourcePortRange "3306" -DestinationPortRange "3306" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 205
+		$mongorule = New-AzureRmNetworkSecurityRuleConfig -Name "Backend_Mongo" -Description "MongoDB Allow" -Protocol Tcp -SourcePortRange "27017" -DestinationPortRange "27017" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 206
+		$sqlrule = New-AzureRmNetworkSecurityRuleConfig -Name "BackEnd_Sql" -Description "SQL Allow" -Protocol Tcp -SourcePortRange "1443" -DestinationPortRange "1443" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 207
+		$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Location $Location -Name $NSGName -SecurityRules $httprule,$httpsrule,$sshrule,$rdprule,$mysqlrule,$mongorule,$sqlrule –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
+		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -WarningAction SilentlyContinue | Out-Null
+		Write-Host "Network Security Group configuration completed" -ForegroundColor White
+		$secrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access
+			$LogOut = "Security Rules added for $NSGName"
+			Log-Command -Description $LogOut -LogFile $LogOutFile
+
+		$defsecrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig -DefaultRules | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationAddressPrefix,SourceAddressPrefix,Access
+		$LogOut = "Completed NSG Configuration of $NSGName"
+		Log-Command -Description $LogOut -LogFile $LogOutFile
+	}
+	Catch
+	{
+	Write-Host -foregroundcolor Yellow `
+	"Exception Encountered"; `
+	$ErrorMessage = $_.Exception.Message
+	$LogOut  = 'Error '+$ErrorMessage
+	Log-Command -Description $LogOut -LogFile $LogOutFile
+	break
+	}
+}
+
+Function Create-RemoteAccessNSG {
+param(
+[string]$NSGName = $NSGName,
+[string]$Location = $Location,
+[string]$vnetrg = $vnetrg,
+[string]$destinationaddprefix = $NSGAddRange
+
+)
+	Try
+	{
+			Write-Host "RDP/SSH Network Security Group Preparation in Process.."
+		$sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_SSH" -Description "SSH Exception for Web frontends" -Protocol Tcp -SourcePortRange "22" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 200
+		$rdprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_RDP" -Description "RDP Exception for frontends" -Protocol Tcp -SourcePortRange "3389" -DestinationPortRange "3389" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 201
+		$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Location $Location -Name $NSGName -SecurityRules $sshrule,$rdprule –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
+		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -WarningAction SilentlyContinue | Out-Null
+		Write-Host "Network Security Group configuration completed" -ForegroundColor White
+		$secrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access
+			$LogOut = "Security Rules added for $NSGName"
+			Log-Command -Description $LogOut -LogFile $LogOutFile
+
+		$defsecrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig -DefaultRules | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationAddressPrefix,SourceAddressPrefix,Access
+		$LogOut = "Completed NSG Configuration of $NSGName"
+		Log-Command -Description $LogOut -LogFile $LogOutFile
+	}
+	Catch
+	{
+	Write-Host -foregroundcolor Yellow `
+	"Exception Encountered"; `
+	$ErrorMessage = $_.Exception.Message
+	$LogOut  = 'Error '+$ErrorMessage
+	Log-Command -Description $LogOut -LogFile $LogOutFile
+	break
+	}
+}
+
+Function Create-AppNSG {
+param(
+[string]$NSGName = $NSGName,
+[string]$Location = $Location,
+[string]$vnetrg = $vnetrg,
+[string]$destinationaddprefix = $NSGAddRange
+)
+	Try
+	{
+			Write-Host "Application Network Security Group Preparation in Process.."
+		$httprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTP" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "80" -DestinationPortRange "8080" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 200
+		$httpsrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTPS" -Description "HTTPS Exception for Web frontends" -Protocol Tcp -SourcePortRange "443" -DestinationPortRange "4434" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 201
+		$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Location $Location -Name $NSGName -SecurityRules $httprule,$httpsrule –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
+		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -WarningAction SilentlyContinue | Out-Null
+		Write-Host "Network Security Group configuration completed" -ForegroundColor White
+		$secrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access
+			$LogOut = "Security Rules added for $NSGName"
+			Log-Command -Description $LogOut -LogFile $LogOutFile
+
+		$defsecrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig -DefaultRules | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationAddressPrefix,SourceAddressPrefix,Access
+		$LogOut = "Completed NSG Configuration of $NSGName"
+		Log-Command -Description $LogOut -LogFile $LogOutFile
+	}
+	Catch
+	{
+	Write-Host -foregroundcolor Yellow `
+	"Exception Encountered"; `
+	$ErrorMessage = $_.Exception.Message
+	$LogOut  = 'Error '+$ErrorMessage
+	Log-Command -Description $LogOut -LogFile $LogOutFile
+	break
+	}
+}
+
+Function Create-DBNSG {
+param(
+[string]$NSGName = $NSGName,
+[string]$Location = $Location,
+[string]$vnetrg = $vnetrg,
+[string]$destinationaddprefix = $NSGAddRange
+
+)
+	Try
+	{
+			Write-Host "Back End Network Security Group Preparation in Process.."
+		$mysqlrule = New-AzureRmNetworkSecurityRuleConfig -Name "BackEnd_MySql" -Description "MySQL Allow" -Protocol Tcp -SourcePortRange "3306" -DestinationPortRange "3306" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 200
+		$mongorule = New-AzureRmNetworkSecurityRuleConfig -Name "Backend_Mongo" -Description "MongoDB Allow" -Protocol Tcp -SourcePortRange "27017" -DestinationPortRange "27017" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 201
+		$sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "BackEnd_SSH" -Description "SSH Exception for backends" -Protocol Tcp -SourcePortRange "22" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 202
+		$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Location $Location -Name $NSGName -SecurityRules $mysqlrule,$mongorule,$sshrule –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
+		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -WarningAction SilentlyContinue | Out-Null
+		Write-Host "Network Security Group configuration completed" -ForegroundColor White
+		$secrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access
+			$LogOut = "Security Rules added for $NSGName"
+			Log-Command -Description $LogOut -LogFile $LogOutFile
+
+		$defsecrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig -DefaultRules | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationAddressPrefix,SourceAddressPrefix,Access
+		$LogOut = "Completed Back End NSG Configuration of $NSGName"
+		Log-Command -Description $LogOut -LogFile $LogOutFile
+	}
+	Catch
+	{
+	Write-Host -foregroundcolor Yellow `
+	"Exception Encountered"; `
+	$ErrorMessage = $_.Exception.Message
+	$LogOut  = 'Error '+$ErrorMessage
+	Log-Command -Description $LogOut -LogFile $LogOutFile
+	break
+	}
+}
 
 Function Subnet-Match {
 	Param(
@@ -3907,6 +4209,7 @@ Write-Host "Address Range:  $AddRange"
 if($CreateNSG -or $BatchCreateNSG -eq 'True')
 {
 Write-Host "Creating NSG Name: $NSGName"
+Write-Host	"NSG Address Space: $NSGAddRange"
 }
 if($CreateLoadBalancer -or $BatchCreateLB -eq 'True')
 	{
@@ -3930,6 +4233,7 @@ Write-Host "Address Range:  $AddRange"
 if($CreateNSG -or $BatchCreateNSG -eq 'True')
 {
 Write-Host "Creating NSG Name: $NSGName"
+Write-Host	"NSG Address Space: $NSGAddRange"
 }
 if($CreateLoadBalancer -or $BatchCreateLB -eq 'True')
 	{
@@ -3951,12 +4255,12 @@ Write-Host "Completed Preview Deployment"  -ForegroundColor White
 Write-Host "Action Type: $ActionType | VM Name: $VMName | Server Type: $vmMarketImage"
 
 if($AddExtension -or $BatchAddExtension -eq 'True'){
-Write-Host "Extension deployed: $extname"
+Write-Host "Extension deployed: $extname "
 }
 if($UploadSharedFiles -or $BatchAddShare -eq 'True')
 	{
 Write-Host "Create storage share to 'True'"
-Write-Host "Share Name:  $ShareName"
+Write-Host "Share Name:  '$ShareName'"
 	}
 
 if($CreateLoadBalancer -or $BatchCreateLB -eq 'True' -and $LBType -eq 'external')
@@ -3974,7 +4278,7 @@ Write-Host "Completed adding $VMName to load balancer: $LBName"
 
 if($AddAvailabilitySet -or $BatchAddAvset -eq 'True') {
 Write-Host "Availability Set Configured"
-Write-Host "Availability Set Name: $AvailSetName1"
+Write-Host "Availability Set Name: '$AvailSetName'"
 Write-Host "                                                               "
 }
 else
@@ -4183,7 +4487,7 @@ Function Configure-ExistingStorage {
 Function Create-VM {
 	param(
 	[string]$VMName = $VMName,
-	[ValidateSet("w2k12","w2k8","w2k16","nano","sql2016","sql2014","biztalk2013","tfs","biztalk2016","vs2015","dev15","incredibuild","msnav2016","red67","red72","suse","free","ubuntu14","ubuntu16","centos72","centos68","chef-server","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","horton-dp","serverr","horton-hdp","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack","hadoop","neos","tomcat","redis","gitlab","jruby","tableau","cloudera","datastax","O365-suite","ads-linuxdatascience","ads-datascience","cloud-conn","CoreOs","CoreContainers")]
+	[ValidateSet("w2k12","w2k8","w2k16","nano","sql2016","sql2014","biztalk2013","tfs","biztalk2016","vs2015","dev15","incredibuild","msnav2016","red67","red72","suse","free","ubuntu14","ubuntu16","centos72","centos73","centos68","chef-server","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","horton-dp","serverr","horton-hdp","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack","hadoop","neos","tomcat","redis","gitlab","jruby","tableau","cloudera","datastax","O365-suite","ads-linuxdatascience","ads-datascience","cloud-conn","CoreOs","CoreContainers")]
 	[string]
 	$vmMarketImage = $vmMarketImage,
 	[string]
@@ -4235,7 +4539,7 @@ Function Create-VM {
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
 
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*free*" {
@@ -4247,7 +4551,7 @@ Function Create-VM {
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
 
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*red72*" {
@@ -4258,7 +4562,7 @@ Function Create-VM {
 			MakeImageNoPlanInfo_RedHat72  # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 
 			Provision-Vm
 }
@@ -4270,7 +4574,7 @@ Function Create-VM {
 			MakeImageNoPlanInfo_RedHat67  # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*w2k12*" {
@@ -4283,7 +4587,7 @@ Function Create-VM {
 			MakeImageNoPlanInfo_w2k12  # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*MSNav2016*" {
@@ -4294,7 +4598,7 @@ Function Create-VM {
 			MakeImageNoPlanInfo_MSNAV2016  # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*sql2016*" {
@@ -4305,7 +4609,7 @@ Function Create-VM {
 			MakeImageNoPlanInfo_sql2k16  # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*sql2014*" {
@@ -4316,7 +4620,7 @@ Function Create-VM {
 			MakeImageNoPlanInfo_sql2k14  # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*check*" {
@@ -4327,7 +4631,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Checkpoint  # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*cloudera*" {
@@ -4338,7 +4642,7 @@ Function Create-VM {
 			MakeImagePlanInfo_cloudera # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*datastax*" {
@@ -4376,7 +4680,7 @@ Function Create-VM {
 
 			Provision-Vm
 }
-		"*centos73" {
+					"*centos73" {
 			Write-ConfigVM
 			Create-Storage
 			Create-AvailabilitySet
@@ -4396,7 +4700,7 @@ Function Create-VM {
 			MakeImageNoPlanInfo_CoreOS_CoreOS  # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 
 			Provision-Vm
 }
@@ -4408,7 +4712,7 @@ Function Create-VM {
 			MakeImageNoPlanInfo_CoreOS_ContainerLinux  # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 
 			Provision-Vm
 }
@@ -4422,7 +4726,7 @@ Function Create-VM {
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
 
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*w2k8*" {
@@ -4434,7 +4738,7 @@ Function Create-VM {
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
 
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*w2k16*" {
@@ -4446,7 +4750,7 @@ Function Create-VM {
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
 
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*nano" {
@@ -4457,7 +4761,7 @@ Function Create-VM {
 			MakeImageNoPlanInfo_w2k16Nano  # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 
 			Provision-Vm
 }
@@ -4470,7 +4774,7 @@ Function Create-VM {
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
 
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*ads-datascience*" {
@@ -4482,7 +4786,7 @@ Function Create-VM {
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
 
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*ads-linuxdatascience*" {
@@ -4494,7 +4798,7 @@ Function Create-VM {
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
 
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*tableau*" {
@@ -4505,7 +4809,7 @@ Function Create-VM {
 			MakeImagePlanInfo_tableau # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*RevoAn-Lin*" {
@@ -4516,7 +4820,7 @@ Function Create-VM {
 			MakeImagePlanInfo_RevAnalytics_cent # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*RevoAn-Win*" {
@@ -4527,7 +4831,7 @@ Function Create-VM {
 			MakeImagePlanInfo_RevAnalytics_win # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*lamp*" {
@@ -4538,7 +4842,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Bitnami_Lamp # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*mongodb*" {
@@ -4549,7 +4853,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Bitnami_mongodb # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*mysql*" {
@@ -4560,7 +4864,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Bitnami_mysql # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*elastics*" {
@@ -4571,7 +4875,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Bitnami_elastic # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*nodejs*" {
@@ -4582,7 +4886,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Bitnami_nodejs # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*nginxstack*" {
@@ -4593,7 +4897,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Bitnami_nginxstack # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*postgressql*" {
@@ -4604,7 +4908,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Bitnami_postgresql # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*incredibuild*" {
@@ -4615,7 +4919,7 @@ Function Create-VM {
 			MakeImagePlanInfo_incredibuild # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*horton-dp*" {
@@ -4626,7 +4930,7 @@ Function Create-VM {
 			MakeImagePlanInfo_hortonwowk_dp  # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*horton-hdp*" {
@@ -4637,7 +4941,7 @@ Function Create-VM {
 			MakeImagePlanInfo_hortonwowk_hdp # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*puppet*" {
@@ -4648,7 +4952,7 @@ Function Create-VM {
 			MakeImagePlanInfo_puppet_puppetent # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 
@@ -4660,7 +4964,7 @@ Function Create-VM {
 			MakeImageNoPlanInfo_SharePoint2k13 # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*tfs*" {
@@ -4671,7 +4975,7 @@ Function Create-VM {
 			MakeImageNoPlanInfo_TeamFoundationServer # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*VS2015*" {
@@ -4682,7 +4986,7 @@ Function Create-VM {
 			MakeImagenoPlanInfo_w2012r2vs2015 # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*DEV15*" {
@@ -4693,7 +4997,7 @@ Function Create-VM {
 			MakeImagenoPlanInfo_w2012r2dev15 # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*biztalk2013*" {
@@ -4704,7 +5008,7 @@ Function Create-VM {
 			MakeImageNoPlanInfo_Biztalk-Enterprise # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*biztalk2016*" {
@@ -4715,7 +5019,7 @@ Function Create-VM {
 			MakeImageNoPlanInfo_Biztalk2016-PreRelease # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*share2016*" {
@@ -4726,7 +5030,7 @@ Function Create-VM {
 			MakeImageNoPlanInfo_SharePoint2k16 # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*serverr*" {
@@ -4737,7 +5041,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Microsoft_Serverr # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*ubuntu14*" {
@@ -4748,7 +5052,7 @@ Function Create-VM {
 			MakeImageNoPlanInfo_Ubuntu14 # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*ubuntu16*" {
@@ -4759,7 +5063,7 @@ Function Create-VM {
 			MakeImageNoPlanInfo_Ubuntu16 # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*nessus*" {
@@ -4770,7 +5074,7 @@ Function Create-VM {
 			makeimage_withinfo_te-te-serv-nes-byol-azure0 # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*netscaler*" {
@@ -4781,7 +5085,7 @@ Function Create-VM {
 			makeimage_withinfo_ci-ne-netscalervpx # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*debian*" {
@@ -4792,7 +5096,7 @@ Function Create-VM {
 			makeimage_withinfo_cr-De-8 # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*f5bigip*" {
@@ -4803,7 +5107,7 @@ Function Create-VM {
 			MakeImagePlanInfo_f5_bigip_good_byol # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*f5appfire*" {
@@ -4814,7 +5118,7 @@ Function Create-VM {
 			MakeImagePlanInfo_f5_webappfire_byol # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*barrahourngfw*" {
@@ -4825,7 +5129,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Barracuda_ng_firewall_hourly # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*barrabyolngfw*" {
@@ -4836,7 +5140,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Barracuda_ng_firewall_byol # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*barrahourspam*" {
@@ -4847,7 +5151,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Barracuda_spam_firewall_hourly # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*barrabyolspam*" {
@@ -4858,7 +5162,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Barracuda_spam_firewall_byol # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*O365-Suite*" {
@@ -4869,7 +5173,7 @@ Function Create-VM {
 			MakeImagePlanInfo_metavistech # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*hadoop*" {
@@ -4880,7 +5184,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Bitnami_hadoop # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*tomcat*" {
@@ -4891,7 +5195,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Bitnami_tomcat # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*splunk*" {
@@ -4902,7 +5206,7 @@ Function Create-VM {
 			makeimage_withinfo_sp-sp-splunk-on-ubuntu-14-04-lts # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*redis*" {
@@ -4913,7 +5217,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Bitnami_redis # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*neos*" {
@@ -4924,7 +5228,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Bitnami_neos # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*cisco750*" {
@@ -4935,7 +5239,7 @@ Function Create-VM {
 			makeimage_withinfo_ci-vw-vwaas-azure-750 # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*jenk-opcenter" {
@@ -4946,7 +5250,7 @@ Function Create-VM {
 			makeimage_withinfo_cl-je-jenkins-operations-center # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*jruby*" {
@@ -4957,7 +5261,7 @@ Function Create-VM {
 			MakeImagePlanInfo_Bitnami_jrubystack # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*tig-windows*" {
@@ -4968,7 +5272,7 @@ Function Create-VM {
 			makeimage_withinfo_ti-ba-windowsbackupasaservice # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*tig-linux*" {
@@ -4979,7 +5283,7 @@ Function Create-VM {
 			makeimage_withinfo_ti-ba-linuxbackupasaservice # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*chef-compliance*" {
@@ -4990,7 +5294,7 @@ Function Create-VM {
 			makeimage_withinfo_ch-ch-azure_marketplace_100 # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		"*jenkins*" {
@@ -5001,13 +5305,34 @@ Function Create-VM {
 			MakeImagePlanInfo_Bitnami_jenkins # Begins Image Creation
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
-			Set-BootDiag
+						Set-BootDiag
 			Provision-Vm
 }
 		default{"An unsupported image was referenced"}
 	}
 }
 #endregion
+
+Function Register-DSCLinux {
+	param(
+	$primary = $primary,
+	$omsurl = $omsurl
+	)
+
+	$PrivateSetting = ConvertTo-Json -InputObject @{
+	"RegistrationUrl" = $omsurl;
+	"RegistrationKey" = $primary;
+	}
+
+	$publicConfig = '{
+	  "ExtensionAction" : "Register",
+	  "NodeConfigurationName": "$VMName",
+	  "RefreshFrequencyMins": "30",
+	  "ConfigurationMode": "ApplyAndMonitor",
+	  "ConfigurationModeFrequencyMins": "30"
+	}'
+Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "DSCForLinux" -ExtensionType "DSCForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.3" -InformationAction SilentlyContinue -SettingString $publicConfig -ProtectedSettingString $PrivateSetting | Out-Null
+}
 
 #region Verify Linux OS
 Function Verify-ExtLinux {
@@ -5240,29 +5565,6 @@ Function Upload-sharefiles {
 		write-host "All files in $localSoftwareFolder uploaded to $Directory!"
 }
 #endregion
-
-
-
-Function Register-DSCLinux {
-	param(
-	$primary = $primary,
-	$omsurl = $omsurl
-	)
-
-	$PrivateSetting = ConvertTo-Json -InputObject @{
-	"RegistrationUrl" = $omsurl;
-	"RegistrationKey" = $primary;
-	}
-
-	$publicConfig = '{
-	  "ExtensionAction" : "Register",
-	  "NodeConfigurationName": "$VMName",
-	  "RefreshFrequencyMins": "30",
-	  "ConfigurationMode": "ApplyAndMonitor",
-	  "ConfigurationModeFrequencyMins": "30"
-	}'
-Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "DSCForLinux" -ExtensionType "DSCForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.3" -InformationAction SilentlyContinue -SettingString $publicConfig -ProtectedSettingString $PrivateSetting | Out-Null
-}
 
 Function Verify-StorageExists {
 	param(
@@ -5594,14 +5896,14 @@ switch ($extname)
 
 										  break
 }
-		"RegisterWinDSC" {
+		"RegisterAzDSC" {
 				Write-Host "Registering with Azure Automation DSC"
 				$ActionAfterReboot = 'ContinueConfiguration'
 				$configmode = 'ApplyAndAutocorrect'
 				$AutoAcctName = $Azautoacct
 				$NodeName = $VMName
 				$azautomrg = $azautomrg
-				$ConfigurationName = "config.$VMName"
+				$ConfigurationName = $ConfigurationName
 				Register-AzureRmAutomationDscNode -AutomationAccountName $AutoAcctName -AzureVMName $VMName -ActionAfterReboot $ActionAfterReboot -ConfigurationMode $configmode -RebootNodeIfNeeded $True -ResourceGroupName $azautomrg -NodeConfigurationName $ConfigurationName -AzureVMLocation $Location -AzureVMResourceGroup $rg -Verbose | Out-Null
 				 $LogOut = "Registered with Azure Automation DSC"
 				Log-Command -Description $LogOut -LogFile $LogOutFile
@@ -5709,7 +6011,7 @@ Function Action-Type {
 					Check-FQDN # Verifies required fields have data
 					Check-NullValues # Verifies required fields have data
 					Check-Orphans # Verifies no left overs
-
+					# Verifies required fields have data
 					if(!$useexiststorage)
 					{ Check-StorageName }
 					else
@@ -5724,7 +6026,7 @@ Function Action-Type {
 
 					if($CreateNSG -or $BatchCreateNSG -eq 'True')
 							{
-								Create-NSG
+								NSG-Create
 							} # Creates NSG and Security Groups
 					if($CreateLoadBalancer -or $BatchCreateLB -eq 'True' -and $LBType -eq 'external')
 							{
@@ -5738,7 +6040,7 @@ Function Action-Type {
 							Check-CreateIntLB
 							Create-IntLB
 							}
-					Verify-NIC # Verifies required fields have data
+					Verify-NIC
 					Check-Vnet
 					Create-VM # Configure Image
 
@@ -5882,10 +6184,7 @@ if(!$logdirexists)
 		New-Item -Path $dscdir -ItemType Directory -Force | Out-Null
 		Write-Host "Created directory" $dscdir
 }
-
-
 }
-#endregion
 
 Function Create-SSHFile {
 			$sshfileexists = Test-Path -Path $sshfile
@@ -5894,9 +6193,8 @@ if(!$sshfileexists)
 	New-Item -Path $sshfile -ItemType File -Force | Out-Null
 		Write-Host "Created SSH Text File" $sshfile
 	}
-
-
 }
+
 Function Write-Summary {
 param(
 		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=1)]
@@ -6047,11 +6345,12 @@ catch {
 }
 
 Register-ResourceProviders
-Create-SSHFile
+
 Create-Dir
+Create-SSHFile
 
 if($csvimport) { csv-run }
-
+Get-Dependencies
 
 if($summaryinfo)
 	{
