@@ -2,7 +2,7 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 10.5
+Ver 10.5.1
 
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerous Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
@@ -12,6 +12,7 @@ This script supports Load Balanced configurations for both internal and external
 
 The script will create three directories if they do not exist in the runtime directory, Log, Scripts, DSC.
 
+v10.5.1 updates - add version info summary
 v10.5 updates - NSG now accepts -NSGAddRange when creating a new NSG as well as -NSGType (Web,MongoBE,MySQLBE and FULLFEBE default)
 v10.4 updates - sql 2014/2016 added centos7.3,
 v10.3 updates - Added Boot Diagnostics enable/disable flag -enablebootdiag
@@ -244,8 +245,6 @@ Allows user specify an existing storage account for VM deployment
 			Free BSD – free
 			Suse – suse
 			CentOs 7.2 – centos
-			CentOs 7.3 – centos
-			CentOs 6.8 – centos
 			Ubuntu 14.04 – ubuntu14
 			Ubuntu 16.04 – ubuntu16
 			Redhat 6.7 – Red67
@@ -402,7 +401,7 @@ $LBSubnet = '3',
 $LBPvtIp = '172.10.5.10',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
-[ValidateSet("Standard_A3","Standard_A4","Standard_A2")]
+[ValidateSet("Standard_A3","Standard_A4","Standard_A2","Standard_DS11v2","Standard_DS12","Standard_D3")]
 [string]
 $VMSize = 'Standard_A3',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
@@ -412,7 +411,7 @@ $locadmin = 'locadmin',
 [Parameter(Mandatory=$false,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [string]
-$locpassword = 'P@ssW0rd!',
+$locpassword = 'P@ssw0rd1',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [string]
@@ -535,10 +534,10 @@ $SubnetNameAddPrefix6 = "monitoring",
 $NSGAddRange = $AddRange,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$Azautoacct = "Auto",
+$Azautoacct = "OMSAuto",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$Profile = "profile",
+$Profile = "fuji",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateSet("diag","msav","bginfo","winaccess","linaccess","linuxbackup","linuxospatch","linuxchefagent","windowschefagent","eset","customscript","linuxcustomscript","opsinsightLinux","opsinsightWin","WinPuppet","domjoin","RegisterAzDSC","winpushdsc","linuxpushdsc","addvmbackupvault")]
 [Alias("ext")]
@@ -621,7 +620,7 @@ $csvimport,
 $addlbfqdn,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
 [string]
-$csvfilename = ".\vmdeploy-staging.csv",
+$csvfilename = ".\rmp-vmdeploy-staging.csv",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $csvfile = -join $workfolder + $csvfilename,
@@ -648,7 +647,7 @@ $BatchAddFQDN,
 $batchaddlbfqdn,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$lbfqdn = 'stgvip',
+$lbfqdn = 'rmpstgvip',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $BatchAddNSG = 'False',
@@ -768,10 +767,11 @@ $enablebootdiag = $True,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $batchenablebootdiag = 'True'
+
 )
 
+$verinfo = "10.5.1"
 $sshPublicKey = Get-Content '.\Pspub.txt'
-
 $SecureLocPassword = new-object -typename system.security.securestring
 $SecureLocPassword = Convertto-SecureString $locpassword –asplaintext -Force
 $Credential1 = New-Object -typename System.Management.Automation.PSCredential -argumentlist $locadmin,$SecureLocPassword
@@ -890,10 +890,12 @@ param(
 try {
 	$GetPath = test-path -Path $csvin
 	if(!$GetPath)
-	{ exit }
+	{ 
+		Write-Host "$csvin Path not found!"
+		exit }
 	else {
 	Write-Host "Located $csvin. CSV import starting..."
-		import-csv -Path $csvin -Delimiter ',' | ForEach-Object{.\AZRM-VMDeploy.ps1 -ActionType $_.ActionType -VMName $_.VMName -vmMarketImage $_.Image -rg $_.rg -vNetrg $_.vnetrg -VNetName $_.VNetName -ConfigIPs $_.ConfigIPs -subnet1 $_.Subnet1 -subnet2 $_.Subnet2 -PvtIPNic1 $_.PvtIPNic1 -PvtIPNic2 $_.PvtIPNic2 -DNLabel $_.DNLabel -BatchAddVnet $_.BatchAddVnet -BatchCreateLB $_.BatchCreateLB -BatchAddLB $_.BatchAddLB -LBSubnet $_.LBSubnet -LBPvtIp $_.LBPvtIp -LBName $_.LBName -LBType $_.LBType -BatchAddNSG $_.BatchAddNSG -BatchCreateNSG $_.BatchCreateNSG -NSGName $_.NSGName -extname $_.extname -BatchAddExtension $_.BatchAddExtension -BatchAddAvSet $_.BatchAddAvSet -AvailSetName $_.AvailSetName -BatchAddFqdn $_.BatchAddFqdn -CustomScriptUpload $_.CustomScriptUpload -scriptname $_.scriptname -containername $_.containername -scriptfolder $_.scriptfolder -customextname $_.customextname -batchAddShare $_.BatchAddShare -sharedirectory $_.sharedirectory -sharename $_.sharename -localsoftwarefolder $_.localsoftwarefolder -ConfigurationName $_.ConfigurationName -vmstrtype $_.vmstrtype -storerg $_.storerg -Batchaddmngdatadisk $_.Batchadddatadisk -Batchaddssh $_.Batchaddssh -linuxpatchtype $_.linuxpatchtype -batchuseexistingstorage $_.batchuseexistingstorage -batchaddlbfqdn $_.batchaddlbfqdn -lbfqdn $_.lbfqdn -WinDSCConfig $_.WinDSCConfig -LinDSCConfig $_.LinDSCConfig -StorageType $_.StorageType }
+		import-csv -Path $csvin -Delimiter ',' | ForEach-Object{.\AZRM-VMDeploy.ps1 -ActionType $_.ActionType -VMName $_.VMName -vmMarketImage $_.Image -rg $_.rg -vNetrg $_.vnetrg -VNetName $_.VNetName -ConfigIPs $_.ConfigIPs -subnet1 $_.Subnet1 -subnet2 $_.Subnet2 -PvtIPNic1 $_.PvtIPNic1 -PvtIPNic2 $_.PvtIPNic2 -DNLabel $_.DNLabel -BatchAddVnet $_.BatchAddVnet -BatchCreateLB $_.BatchCreateLB -BatchAddLB $_.BatchAddLB -LBSubnet $_.LBSubnet -LBPvtIp $_.LBPvtIp -LBName $_.LBName -LBType $_.LBType -BatchAddNSG $_.BatchAddNSG -BatchCreateNSG $_.BatchCreateNSG -NSGName $_.NSGName -extname $_.extname -BatchAddExtension $_.BatchAddExtension -BatchAddAvSet $_.BatchAddAvSet -AvailSetName $_.AvailSetName -BatchAddFqdn $_.BatchAddFqdn -CustomScriptUpload $_.CustomScriptUpload -scriptname $_.scriptname -containername $_.containername -scriptfolder $_.scriptfolder -customextname $_.customextname -batchAddShare $_.BatchAddShare -sharedirectory $_.sharedirectory -sharename $_.sharename -localsoftwarefolder $_.localsoftwarefolder -ConfigurationName $_.ConfigurationName -vmstrtype $_.vmstrtype -storerg $_.storerg -Batchaddmngdatadisk $_.Batchadddatadisk -Batchaddssh $_.Batchaddssh -linuxpatchtype $_.linuxpatchtype -batchuseexistingstorage $_.batchuseexistingstorage -batchaddlbfqdn $_.batchaddlbfqdn -lbfqdn $_.lbfqdn -WinDSCConfig $_.WinDSCConfig -LinDSCConfig $_.LinDSCConfig -StorageType $_.StorageType -NSGAddRange $_.NSGAddRange -NSGType $_.NSGType }
 	}
 }
 catch {
@@ -1391,7 +1393,8 @@ if(!$vnetexists)
 			Write-Host "Address Space: $addspace "
 			Write-Host "Subnet Ranges: $sub "
 			Write-Host "Subnet Names: $subname "
-			if($nsg)
+			$nsgexists = Get-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Name $NSGName -ErrorAction SilentlyContinue -WarningAction SilentlyContinue -InformationAction SilentlyContinue
+			if($nsgexists)
 			{
 				Write-Host "NSG Name: $NSGName"
 				Write-Host	"NSG Address Space: $NSGAddRange"
@@ -1458,9 +1461,8 @@ if(!$nsgexists)
 		{
 			$existnsg = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg | Set-AzureRmNetworkSecurityGroup
 			$defrules = $existnsg.DefaultSecurityRules | ft Name,DestinationPortRange,SourcePortRange,Description,Access,Direction,Priority,Protocol
-			$defrules | Format-Table
-			$secrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access | Format-Table
-			$defsecrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg | Get-AzureRmNetworkSecurityRuleConfig -DefaultRules | Format-Table
+			Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Direction,SourcePortRange,DestinationPortRange
+			Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig -DefaultRules | Ft Name,Direction,SourcePortRange,DestinationPortRange
 			 }
 }
 
@@ -1661,7 +1663,7 @@ Function Check-StorageName
 {
 	param(
 		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-		[string]$StorageName  = $StorageName
+		[string]$StorageName  = $Script:ChkStorageName
 	)
 $extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $storerg -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
 	if($extvm) {
@@ -1673,9 +1675,10 @@ $extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $storerg -ErrorAction Si
 		Write-Host "Storage Name:" $StorageNameVerified}
 	else
 	{
-	$checkname =  Get-AzureRmStorageAccountNameAvailability -Name $StorageName | Select-Object -ExpandProperty NameAvailable
+	$checkname =  Get-AzureRmStorageAccountNameAvailability -Name $Script:ChkStorageName | Select-Object -ExpandProperty NameAvailable
 if($checkname -ne 'True') {
 	Write-Host "Storage Account Name in use, generating random name for storage..."
+	Get-AzureRmStorageAccountNameAvailability -Name $StorageName | Select-Object -ExpandProperty Message
 	Start-Sleep 5
 	$script:StorageNameVerified = $GenerateName.ToLower()
 	Write-Host "Storage Name Check Completed for:" $StorageNameVerified }
@@ -1688,15 +1691,28 @@ if($checkname -ne 'True') {
 }
 #endregion
 
+Function Check-StorageNameFormat
+{
+	param(
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+		[string]$Script:ChkStorageName = $StorageName.ToLower()
+	)
+$Script:ChkStorageName = $Script:ChkStorageName -replace "-", ""
+	$Script:ChkStorageName = $Script:ChkStorageName -replace "_", ""
+Write-Host "Standardized storage name $Script:ChkStorageName"
+
+}
+
 #region Check Storage
 Function Check-StorageNameNotExists
 {
 	param(
 		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-		[string]$StorageName  = $StorageName
+		[string]$StorageName  = $StorageName.ToLower()
 	)
 
-	$checkname =  Get-AzureRmStorageAccountNameAvailability -Name $StorageName | Select-Object -ExpandProperty NameAvailable
+
+	$checkname =  Get-AzureRmStorageAccountNameAvailability -Name $Script:ChkStorageName | Select-Object -ExpandProperty NameAvailable
 if($checkname -ne 'True') {
 	Write-Host "Storage Account Name in use, using existing storage..."
 	Start-Sleep 5
@@ -3333,10 +3349,10 @@ param(
 	[string]$VMName = $VMName,
 	[string]$Publisher = "MicrosoftDynamicsNAV",
 	[string]$offer = "DynamicsNAV",
-	[string]$Skus = "2016",
+	[string]$Skus = "2017",
 	[string]$version = "latest"
 )
-Write-Host "Image Creation in Process - No Plan Info - MS Nav 2016" -ForegroundColor White
+Write-Host "Image Creation in Process - No Plan Info - MS Nav 2017" -ForegroundColor White
 Write-Host 'Publisher:'$Publisher 'Offer:'$offer 'Sku:'$Skus 'Version:'$version
 $script:VirtualMachine = Set-AzureRmVMOperatingSystem -VM $VirtualMachine -Windows -ComputerName $VMName -Credential $Credential1 -ProvisionVMAgent -EnableAutoUpdate -WinRMHttp -Verbose
 $script:VirtualMachine = Set-AzureRmVMSourceImage -VM $VirtualMachine -PublisherName $Publisher -Offer $offer -Skus $Skus -Version $version
@@ -3841,7 +3857,7 @@ param(
 		$mongorule = New-AzureRmNetworkSecurityRuleConfig -Name "Backend_Mongo" -Description "MongoDB Allow" -Protocol Tcp -SourcePortRange "27017" -DestinationPortRange "27017" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 206
 		$sqlrule = New-AzureRmNetworkSecurityRuleConfig -Name "BackEnd_Sql" -Description "SQL Allow" -Protocol Tcp -SourcePortRange "1443" -DestinationPortRange "1443" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 207
 		$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Location $Location -Name $NSGName -SecurityRules $httprule,$httpsrule,$sshrule,$rdprule,$mysqlrule,$mongorule,$sqlrule –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
-		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -WarningAction SilentlyContinue | Out-Null
+		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -WarningAction SilentlyContinue | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access
 		Write-Host "Network Security Group configuration completed" -ForegroundColor White
 		$secrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access
 			$LogOut = "Security Rules added for $NSGName"
@@ -3884,11 +3900,8 @@ param(
 		$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Location $Location -Name $NSGName -SecurityRules $httprule,$httpsrule,$sshrule,$rdprule,$mysqlrule,$mongorule,$sqlrule –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
 		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -WarningAction SilentlyContinue | Out-Null
 		Write-Host "Network Security Group configuration completed" -ForegroundColor White
-		$secrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access
-			$LogOut = "Security Rules added for $NSGName"
-			Log-Command -Description $LogOut -LogFile $LogOutFile
+		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access
 
-		$defsecrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig -DefaultRules | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationAddressPrefix,SourceAddressPrefix,Access
 		$LogOut = "Completed NSG Configuration of $NSGName"
 		Log-Command -Description $LogOut -LogFile $LogOutFile
 	}
@@ -3950,14 +3963,12 @@ param(
 			Write-Host "Application Network Security Group Preparation in Process.."
 		$httprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTP" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "80" -DestinationPortRange "8080" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 200
 		$httpsrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTPS" -Description "HTTPS Exception for Web frontends" -Protocol Tcp -SourcePortRange "443" -DestinationPortRange "4434" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 201
-		$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Location $Location -Name $NSGName -SecurityRules $httprule,$httpsrule –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
-		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -WarningAction SilentlyContinue | Out-Null
-		Write-Host "Network Security Group configuration completed" -ForegroundColor White
-		$secrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access
-			$LogOut = "Security Rules added for $NSGName"
+		$sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_SSH" -Description "SSH Exception for Web frontends" -Protocol Tcp -SourcePortRange "22" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 202
+		$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Location $Location -Name $NSGName -SecurityRules $httprule,$httpsrule,$sshrule –Confirm:$false -WarningAction SilentlyContinue -Force
+		$LogOut = "Security Rules added for $NSGName"
 			Log-Command -Description $LogOut -LogFile $LogOutFile
-
-		$defsecrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig -DefaultRules | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationAddressPrefix,SourceAddressPrefix,Access
+		Write-Host "Network Security Group configuration completed" -ForegroundColor White
+		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Direction,SourcePortRange,DestinationPortRange
 		$LogOut = "Completed NSG Configuration of $NSGName"
 		Log-Command -Description $LogOut -LogFile $LogOutFile
 	}
@@ -3986,14 +3997,11 @@ param(
 		$mysqlrule = New-AzureRmNetworkSecurityRuleConfig -Name "BackEnd_MySql" -Description "MySQL Allow" -Protocol Tcp -SourcePortRange "3306" -DestinationPortRange "3306" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 200
 		$mongorule = New-AzureRmNetworkSecurityRuleConfig -Name "Backend_Mongo" -Description "MongoDB Allow" -Protocol Tcp -SourcePortRange "27017" -DestinationPortRange "27017" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 201
 		$sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "BackEnd_SSH" -Description "SSH Exception for backends" -Protocol Tcp -SourcePortRange "22" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 202
+
 		$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Location $Location -Name $NSGName -SecurityRules $mysqlrule,$mongorule,$sshrule –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
 		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -WarningAction SilentlyContinue | Out-Null
 		Write-Host "Network Security Group configuration completed" -ForegroundColor White
-		$secrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access
-			$LogOut = "Security Rules added for $NSGName"
-			Log-Command -Description $LogOut -LogFile $LogOutFile
-
-		$defsecrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig -DefaultRules | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationAddressPrefix,SourceAddressPrefix,Access
+		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Direction,SourcePortRange,DestinationPortRange
 		$LogOut = "Completed Back End NSG Configuration of $NSGName"
 		Log-Command -Description $LogOut -LogFile $LogOutFile
 	}
@@ -4230,10 +4238,24 @@ Write-Host "VNET Resource Group Name: $vnetrg"
 
 Write-Host "Address Range:  $AddRange"
 
-if($CreateNSG -or $BatchCreateNSG -eq 'True')
+if($AddNSG -or $CreateNSG -or $BatchCreateNSG -eq 'True' -or $BatchAddNSG -eq 'True')
 {
-Write-Host "Creating NSG Name: $NSGName"
+Write-Host "NSG Name: $NSGName"
 Write-Host	"NSG Address Space: $NSGAddRange"
+
+$nsgexists = Get-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Name $NSGName -InformationAction SilentlyContinue -WarningAction SilentlyContinue -ErrorAction SilentlyContinue
+if($nsgexists)
+	{
+	$existnsg = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg | Set-AzureRmNetworkSecurityGroup
+			$defrules = $existnsg.DefaultSecurityRules | ft Name,DestinationPortRange,SourcePortRange,Description,Access,Direction,Priority,Protocol
+			Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Direction,SourcePortRange,DestinationPortRange
+			Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig -DefaultRules | Ft Name,Direction,SourcePortRange,DestinationPortRange
+	
+	}
+	else
+		{
+
+			 }
 }
 if($CreateLoadBalancer -or $BatchCreateLB -eq 'True')
 	{
@@ -4296,7 +4318,7 @@ $enablediag = $enablebootdiag
 if($enablebootdiag -or $batchenablebootdiag -eq 'True' )
 	{
 Write-Host "Setting Boot Diags"
-$script:VirtualMachine = Set-AzureRmVMBootDiagnostics -VM $VirtualMachine -Enable -ResourceGroupName $rg -StorageAccountName $StorageName
+$script:VirtualMachine = Set-AzureRmVMBootDiagnostics -VM $VirtualMachine -Enable -ResourceGroupName $rg -StorageAccountNam $script:StorageNameVerified
 	}
 	else
 	{
@@ -6013,9 +6035,14 @@ Function Action-Type {
 					Check-Orphans # Verifies no left overs
 					# Verifies required fields have data
 					if(!$useexiststorage)
-					{ Check-StorageName }
+					{
+					Check-StorageNameFormat
+						 Check-StorageName }
 					else
-						{ Check-StorageNameNotExists }
+						{
+								Check-StorageNameFormat
+							 Check-StorageNameNotExists 
+						}
 					 # Verifies Storage Account Name does not exist
 					Write-Output "Steps will be tracked in the log file : [ $LogOutFile ]"
 					Create-ResourceGroup
@@ -6236,6 +6263,10 @@ Write-Host "---------------------------------------------" -ForegroundColor Blue
 Write-Output $diskreport
 }
 
+Function Script-Verinfo {
+Write "Current Script Version $verinfo "
+}
+
 Function Get-Dependencies {
 	param(
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
@@ -6343,7 +6374,7 @@ catch {
 	"User has not authenticated, use Add-AzureRmAccount or $($_.Exception.Message)"; `
 	Login-AddAzureRmProfile
 }
-
+Script-Verinfo
 Register-ResourceProviders
 
 Create-Dir
