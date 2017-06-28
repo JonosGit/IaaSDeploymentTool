@@ -2,7 +2,7 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 10.5.1
+Ver 10.6
 
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerous Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
@@ -12,8 +12,9 @@ This script supports Load Balanced configurations for both internal and external
 
 The script will create three directories if they do not exist in the runtime directory, Log, Scripts, DSC.
 
+v10.6 updates - added NSG bind to Subnet and Subnet bind to NSG -AssocNSGSubnet True/False
 v10.5.1 updates - add version info summary
-v10.5 updates - NSG now accepts -NSGAddRange when creating a new NSG as well as -NSGType (Web,MongoBE,MySQLBE and FULLFEBE default)
+v10.5 updates - NSG now accepts -NSGSubnetRange when creating a new NSG as well as -NSGType (Web,MongoBE,MySQLBE and FULLFEBE default)
 v10.4 updates - sql 2014/2016 added centos7.3,
 v10.3 updates - Added Boot Diagnostics enable/disable flag -enablebootdiag
 v10.2 updates - Added -preview option to allow preview of operations. Added ASR Backup Extension Option -extname addvmbackupvault
@@ -411,7 +412,7 @@ $locadmin = 'locadmin',
 [Parameter(Mandatory=$false,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [string]
-$locpassword = 'P@ssw0rd1',
+$locpassword = 'P@ssw0rd!',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [string]
@@ -531,13 +532,10 @@ $SubnetAddPrefix6 = "172.10.5.0/24",
 $SubnetNameAddPrefix6 = "monitoring",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$NSGAddRange = $AddRange,
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[string]
 $Azautoacct = "OMSAuto",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$Profile = "fuji",
+$Profile = "profile",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateSet("diag","msav","bginfo","winaccess","linaccess","linuxbackup","linuxospatch","linuxchefagent","windowschefagent","eset","customscript","linuxcustomscript","opsinsightLinux","opsinsightWin","WinPuppet","domjoin","RegisterAzDSC","winpushdsc","linuxpushdsc","addvmbackupvault")]
 [Alias("ext")]
@@ -561,8 +559,20 @@ $CustomScriptUpload = 'True',
 [switch]
 $AddNSG,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[Alias("nsgsubnet")]
+[string]
+$AssocNSGSubnet = 'True',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[Alias("nsgsubname")]
+[string]
+$NSGSubnetName = '',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[Alias("nsgaddrange")]
+[string]
+$NSGSubnetRange = '',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("nsgconfig")]
-[ValidateSet("Web","BEMongo","BEMySQL","BESQL","FULLFEBE")]
+[ValidateSet("Web","BEMongo","BEMySQL","RemoteAccess","FULLFEBE")]
 [string]
 $NSGType = 'FULLFEBE',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
@@ -767,10 +777,9 @@ $enablebootdiag = $True,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $batchenablebootdiag = 'True'
-
 )
 
-$verinfo = "10.5.1"
+$verinfo = "10.6"
 $sshPublicKey = Get-Content '.\Pspub.txt'
 $SecureLocPassword = new-object -typename system.security.securestring
 $SecureLocPassword = Convertto-SecureString $locpassword –asplaintext -Force
@@ -890,7 +899,7 @@ param(
 try {
 	$GetPath = test-path -Path $csvin
 	if(!$GetPath)
-	{ 
+	{
 		Write-Host "$csvin Path not found!"
 		exit }
 	else {
@@ -968,8 +977,6 @@ Function Verify-PvtIp {
 				}
 	}
 
-
-
 Function Verify-PvtIp2 {
 if($PvtIPNic2)
 			{
@@ -1005,8 +1012,7 @@ Function Subnet-Verify {
 	)
 
 			$myvnet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg -ErrorAction SilentlyContinue | Set-AzureRmVirtualNetwork
-			
-	
+
 			$subcnt = $myvnet.Subnets.Count
 			if($subnet1 -gt $subcnt)
 				{
@@ -1397,7 +1403,7 @@ if(!$vnetexists)
 			if($nsgexists)
 			{
 				Write-Host "NSG Name: $NSGName"
-				Write-Host	"NSG Address Space: $NSGAddRange"
+				Write-Host	"NSG Address Space: $NSGSubnetRange"
 			}
 			if($sub0 -eq 'gatewaysubnet')
 			{Write-Host "SubnetID 0: GatewaySubnet **Not Available for VM Deployment"}
@@ -1548,9 +1554,36 @@ exit
 }
 
 function Check-NSGName {
-if($CreateNSG -and !$NSGName) {
+if($CreateNSG -or $BatchCreateNSG -eq 'True' -and !$NSGName) {
 Write-Host "Please Enter NSG Name -nsgname"
 exit
+ }
+}
+
+function Check-NSGSub {
+	$existvnet = Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg -ErrorAction SilentlyContinue
+if($CreateNSG -or $BatchCreateNSG -eq 'True') {
+			$existvnet = Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg -ErrorAction SilentlyContinue
+			$addsubnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $existvnet
+			$sub = $addsubnet.AddressPrefix
+			$subname = $addsubnet.Name
+			$nsg = $addsubnet.NetworkSecurityGroup
+			$subnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $existvnet | ft Name,AddressPrefix -AutoSize -Wrap -HideTableHeaders
+			$sub0 = $subname[0]
+	if($AssocNSGSubnet -eq 'True' -and $NSGSubnetName -eq '')
+{
+	Write-Host "Please enter -NSGSubnetName"
+	Write-Host "Available Subnet Names: $subname "
+	Write-Host "Available Subnet Ranges: $sub "
+	break
+}
+	if($AssocNSGSubnet -eq 'True' -and $NSGSubnetRange -eq '')
+	{
+	Write-Host "Please enter -NSGSubnetRange"
+	Write-Host "Available Subnet Ranges: $sub "
+	Write-Host "Available Subnet Names: $subname "
+	break
+}
  }
 }
 
@@ -1700,7 +1733,6 @@ Function Check-StorageNameFormat
 $Script:ChkStorageName = $Script:ChkStorageName -replace "-", ""
 	$Script:ChkStorageName = $Script:ChkStorageName -replace "_", ""
 Write-Host "Standardized storage name $Script:ChkStorageName"
-
 }
 
 #region Check Storage
@@ -1710,7 +1742,6 @@ Function Check-StorageNameNotExists
 		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 		[string]$StorageName  = $StorageName.ToLower()
 	)
-
 
 	$checkname =  Get-AzureRmStorageAccountNameAvailability -Name $Script:ChkStorageName | Select-Object -ExpandProperty NameAvailable
 if($checkname -ne 'True') {
@@ -2167,7 +2198,6 @@ Function Add-SSHKey {
 
 	Try
 	{
-		
 	 $sshkeyexists = Test-Path -Path $sshfilepath -ErrorAction SilentlyContinue -WarningAction SilentlyContinue -InformationAction SilentlyContinue
 	 if($sshkeyexists)
 	 { Add-AzureRmVMSshPublicKey -VM $VirtualMachine -KeyData $sshkey -Path $sshcopypath -ErrorAction Stop -WarningAction SilentlyContinue -InformationAction SilentlyContinue | Out-Null }
@@ -3821,8 +3851,8 @@ switch ($NSGType)
 		"BEMongo" {
 		Create-DBNSG
 }
-		"BESQL" {
-		Create-DBNSG
+		"RemoteAccess" {
+		Create-RemoteAccessNSG
 }
 		"Web" {
 		Create-AppNSG
@@ -3843,7 +3873,9 @@ param(
 [string]$NSGName = $NSGName,
 [string]$Location = $Location,
 [string]$vnetrg = $vnetrg,
-[string]$destinationaddprefix = $NSGAddRange
+[string]$destinationaddprefix = $AddRange,
+[string]$NSGSubnetName = $NSGSubnetName,
+[string]$NSGSubnetRange = $NSGSubnetRange
 )
 	Try
 	{
@@ -3857,6 +3889,17 @@ param(
 		$mongorule = New-AzureRmNetworkSecurityRuleConfig -Name "Backend_Mongo" -Description "MongoDB Allow" -Protocol Tcp -SourcePortRange "27017" -DestinationPortRange "27017" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 206
 		$sqlrule = New-AzureRmNetworkSecurityRuleConfig -Name "BackEnd_Sql" -Description "SQL Allow" -Protocol Tcp -SourcePortRange "1443" -DestinationPortRange "1443" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 207
 		$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Location $Location -Name $NSGName -SecurityRules $httprule,$httpsrule,$sshrule,$rdprule,$mysqlrule,$mongorule,$sqlrule –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
+		if($AssocNSGSubnet -eq 'True')
+		{
+			$VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg
+			$Subnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $VNet -Name $NSGSubnetName
+			$nsg = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg
+			$Subnet.NetworkSecurityGroup = $nsg
+			Set-AzureRmVirtualNetwork -VirtualNetwork $vnet
+			Set-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $VNet -Name $NSGSubnetName -AddressPrefix $NSGSubnetRange -NetworkSecurityGroup $nsg
+		Write-Host "Associated NSG with Subnet"
+		}
+
 		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -WarningAction SilentlyContinue | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access
 		Write-Host "Network Security Group configuration completed" -ForegroundColor White
 		$secrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access
@@ -3884,7 +3927,9 @@ param(
 [string]$NSGName = $NSGName,
 [string]$Location = $Location,
 [string]$vnetrg = $vnetrg,
-[string]$destinationaddprefix = $NSGAddRange
+[string]$destinationaddprefix = $AddRange,
+[string]$NSGSubnetName = $NSGSubnetName,
+[string]$NSGSubnetRange = $NSGSubnetRange
 )
 	Try
 	{
@@ -3898,6 +3943,18 @@ param(
 		$mongorule = New-AzureRmNetworkSecurityRuleConfig -Name "Backend_Mongo" -Description "MongoDB Allow" -Protocol Tcp -SourcePortRange "27017" -DestinationPortRange "27017" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 206
 		$sqlrule = New-AzureRmNetworkSecurityRuleConfig -Name "BackEnd_Sql" -Description "SQL Allow" -Protocol Tcp -SourcePortRange "1443" -DestinationPortRange "1443" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 207
 		$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Location $Location -Name $NSGName -SecurityRules $httprule,$httpsrule,$sshrule,$rdprule,$mysqlrule,$mongorule,$sqlrule –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
+
+		if($AssocNSGSubnet -eq 'True')
+		{
+			$VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg
+			$Subnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $VNet -Name $NSGSubnetName
+			$nsg = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg
+			$Subnet.NetworkSecurityGroup = $nsg
+			Set-AzureRmVirtualNetwork -VirtualNetwork $vnet
+			Set-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $VNet -Name $NSGSubnetName -AddressPrefix $NSGSubnetRange -NetworkSecurityGroup $nsg
+		Write-Host "Associated NSG with Subnet"
+		}
+
 		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -WarningAction SilentlyContinue | Out-Null
 		Write-Host "Network Security Group configuration completed" -ForegroundColor White
 		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access
@@ -3921,7 +3978,9 @@ param(
 [string]$NSGName = $NSGName,
 [string]$Location = $Location,
 [string]$vnetrg = $vnetrg,
-[string]$destinationaddprefix = $NSGAddRange
+[string]$destinationaddprefix = $AddRange,
+[string]$NSGSubnetName = $NSGSubnetName,
+[string]$NSGSubnetRange = $NSGSubnetRange
 
 )
 	Try
@@ -3930,6 +3989,17 @@ param(
 		$sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_SSH" -Description "SSH Exception for Web frontends" -Protocol Tcp -SourcePortRange "22" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 200
 		$rdprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_RDP" -Description "RDP Exception for frontends" -Protocol Tcp -SourcePortRange "3389" -DestinationPortRange "3389" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 201
 		$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Location $Location -Name $NSGName -SecurityRules $sshrule,$rdprule –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
+		if($AssocNSGSubnet -eq 'True')
+		{
+			$VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg
+			$Subnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $VNet -Name $NSGSubnetName
+			$nsg = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg
+			$Subnet.NetworkSecurityGroup = $nsg
+			Set-AzureRmVirtualNetwork -VirtualNetwork $vnet
+			Set-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $VNet -Name $NSGSubnetName -AddressPrefix $NSGSubnetRange -NetworkSecurityGroup $nsg
+		Write-Host "Associated NSG with Subnet"
+		}
+
 		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -WarningAction SilentlyContinue | Out-Null
 		Write-Host "Network Security Group configuration completed" -ForegroundColor White
 		$secrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access
@@ -3956,7 +4026,9 @@ param(
 [string]$NSGName = $NSGName,
 [string]$Location = $Location,
 [string]$vnetrg = $vnetrg,
-[string]$destinationaddprefix = $NSGAddRange
+[string]$destinationaddprefix = $AddRange,
+[string]$NSGSubnetName = $NSGSubnetName,
+[string]$NSGSubnetRange = $NSGSubnetRange
 )
 	Try
 	{
@@ -3964,7 +4036,19 @@ param(
 		$httprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTP" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "80" -DestinationPortRange "8080" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 200
 		$httpsrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTPS" -Description "HTTPS Exception for Web frontends" -Protocol Tcp -SourcePortRange "443" -DestinationPortRange "4434" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 201
 		$sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_SSH" -Description "SSH Exception for Web frontends" -Protocol Tcp -SourcePortRange "22" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 202
-		$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Location $Location -Name $NSGName -SecurityRules $httprule,$httpsrule,$sshrule –Confirm:$false -WarningAction SilentlyContinue -Force
+		$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Location $Location -Name $NSGName -SecurityRules $httprule,$httpsrule,$sshrule –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
+		if($AssocNSGSubnet -eq 'True')
+
+		{
+			$VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg
+			$Subnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $VNet -Name $NSGSubnetName
+			$nsg = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg
+			$Subnet.NetworkSecurityGroup = $nsg
+			Set-AzureRmVirtualNetwork -VirtualNetwork $vnet
+			Set-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $VNet -Name $NSGSubnetName -AddressPrefix $NSGSubnetRange -NetworkSecurityGroup $nsg
+		Write-Host "Associated NSG with Subnet"
+		}
+
 		$LogOut = "Security Rules added for $NSGName"
 			Log-Command -Description $LogOut -LogFile $LogOutFile
 		Write-Host "Network Security Group configuration completed" -ForegroundColor White
@@ -3988,7 +4072,9 @@ param(
 [string]$NSGName = $NSGName,
 [string]$Location = $Location,
 [string]$vnetrg = $vnetrg,
-[string]$destinationaddprefix = $NSGAddRange
+[string]$destinationaddprefix = $AddRange,
+[string]$NSGSubnetName = $NSGSubnetName,
+[string]$NSGSubnetRange = $NSGSubnetRange
 
 )
 	Try
@@ -3999,6 +4085,12 @@ param(
 		$sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "BackEnd_SSH" -Description "SSH Exception for backends" -Protocol Tcp -SourcePortRange "22" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 202
 
 		$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Location $Location -Name $NSGName -SecurityRules $mysqlrule,$mongorule,$sshrule –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
+		if($AssocNSGSubnet -eq 'True')
+		{		$VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
+		Set-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $VNet -Name $NSGSubnetName -AddressPrefix $NSGSubnetRange -NetworkSecurityGroup $nsg
+		Write-Host "Associated NSG with Subnet"
+		}
+
 		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -WarningAction SilentlyContinue | Out-Null
 		Write-Host "Network Security Group configuration completed" -ForegroundColor White
 		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Direction,SourcePortRange,DestinationPortRange
@@ -4217,7 +4309,7 @@ Write-Host "Address Range:  $AddRange"
 if($CreateNSG -or $BatchCreateNSG -eq 'True')
 {
 Write-Host "Creating NSG Name: $NSGName"
-Write-Host	"NSG Address Space: $NSGAddRange"
+Write-Host	"NSG Subnet Address Space: $NSGSubnetRange"
 }
 if($CreateLoadBalancer -or $BatchCreateLB -eq 'True')
 	{
@@ -4241,7 +4333,7 @@ Write-Host "Address Range:  $AddRange"
 if($AddNSG -or $CreateNSG -or $BatchCreateNSG -eq 'True' -or $BatchAddNSG -eq 'True')
 {
 Write-Host "NSG Name: $NSGName"
-Write-Host	"NSG Address Space: $NSGAddRange"
+Write-Host	"NSG Subnet Address Space: $NSGSubnetRange"
 
 $nsgexists = Get-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Name $NSGName -InformationAction SilentlyContinue -WarningAction SilentlyContinue -ErrorAction SilentlyContinue
 if($nsgexists)
@@ -4250,11 +4342,9 @@ if($nsgexists)
 			$defrules = $existnsg.DefaultSecurityRules | ft Name,DestinationPortRange,SourcePortRange,Description,Access,Direction,Priority,Protocol
 			Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Direction,SourcePortRange,DestinationPortRange
 			Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig -DefaultRules | Ft Name,Direction,SourcePortRange,DestinationPortRange
-	
 	}
 	else
 		{
-
 			 }
 }
 if($CreateLoadBalancer -or $BatchCreateLB -eq 'True')
@@ -6041,7 +6131,7 @@ Function Action-Type {
 					else
 						{
 								Check-StorageNameFormat
-							 Check-StorageNameNotExists 
+							 Check-StorageNameNotExists
 						}
 					 # Verifies Storage Account Name does not exist
 					Write-Output "Steps will be tracked in the log file : [ $LogOutFile ]"
@@ -6053,6 +6143,7 @@ Function Action-Type {
 
 					if($CreateNSG -or $BatchCreateNSG -eq 'True')
 							{
+								Check-NSGSub
 								NSG-Create
 							} # Creates NSG and Security Groups
 					if($CreateLoadBalancer -or $BatchCreateLB -eq 'True' -and $LBType -eq 'external')
