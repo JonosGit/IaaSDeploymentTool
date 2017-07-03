@@ -2,7 +2,7 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 10.6
+Ver 10.7
 
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerous Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
@@ -12,6 +12,7 @@ This script supports Load Balanced configurations for both internal and external
 
 The script will create three directories if they do not exist in the runtime directory, Log, Scripts, DSC.
 
+v10.7 updates - added NSG Diagnostics, enhanced pre-configured NSG plans
 v10.6 updates - added NSG bind to Subnet and Subnet bind to NSG -AssocNSGSubnet True/False
 v10.5.1 updates - add version info summary
 v10.5 updates - NSG now accepts -NSGSubnetRange when creating a new NSG as well as -NSGType (Web,MongoBE,MySQLBE and FULLFEBE default)
@@ -313,7 +314,7 @@ Allows user specify an existing storage account for VM deployment
 			addvmbackupvault - Add VM to ASR Backup Vault
 .LINK
 https://github.com/JonosGit/IaaSDeploymentTool
-
+https://azurefollies.com/
 #>
 
 [CmdletBinding(DefaultParameterSetName = 'default')]
@@ -412,7 +413,7 @@ $locadmin = 'locadmin',
 [Parameter(Mandatory=$false,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [string]
-$locpassword = 'P@ssw0rd!',
+$locpassword = 'P@ssW0rd!',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [string]
@@ -532,15 +533,15 @@ $SubnetAddPrefix6 = "172.10.5.0/24",
 $SubnetNameAddPrefix6 = "monitoring",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$Azautoacct = "OMSAuto",
+$Azautoacct = "OMS",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $Profile = "profile",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[ValidateSet("diag","msav","bginfo","winaccess","linaccess","linuxbackup","linuxospatch","linuxchefagent","windowschefagent","eset","customscript","linuxcustomscript","opsinsightLinux","opsinsightWin","WinPuppet","domjoin","RegisterAzDSC","winpushdsc","linuxpushdsc","addvmbackupvault")]
+[ValidateSet("diag","msav","bginfo","winaccess","linaccess","linuxbackup","linuxospatch","linuxchefagent","windowschefagent","eset","customscript","linuxcustomscript","opsinsightLinux","opsinsightWin","WinPuppet","domjoin","RegisterAzDSC","winpushdsc","linuxpushdsc","addvmbackupvault","linuxasm")]
 [Alias("ext")]
 [string]
-$extname = 'RegisterAzDSC',
+$extname = 'linuxospatch',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("addext")]
 [switch]
@@ -559,9 +560,9 @@ $CustomScriptUpload = 'True',
 [switch]
 $AddNSG,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[Alias("nsgsubnet")]
+[Alias("assnsgsubnet")]
 [string]
-$AssocNSGSubnet = 'True',
+$AssocNSGSubnet = 'False',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("nsgsubname")]
 [string]
@@ -657,7 +658,7 @@ $BatchAddFQDN,
 $batchaddlbfqdn,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$lbfqdn = 'rmpstgvip',
+$lbfqdn = 'stgvip',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $BatchAddNSG = 'False',
@@ -758,6 +759,12 @@ $omswrkspaceid = '',
 $omswrkspacekey = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
+$omsurl = "",
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$primary = "",
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
 $vaultname = 'backup',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
@@ -776,10 +783,35 @@ $ActionType = 'create',
 $enablebootdiag = $True,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$batchenablebootdiag = 'True'
+$batchenablebootdiag = 'True',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$batchreboot = 'True',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[switch]
+$reboot = $True,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$omsname = 'autoact',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$omsrg = 'automation',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[switch]
+$netdiag = $True,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateSet("nsgdiag","lbdiag","nsgdiagarchive","lbdiagarchive")]
+[string]
+$netdiagoptions = 'nsgdiag',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateSet("nsgdiag","lbdiag","nsgdiagarchive","lbdiagarchive")]
+[string]
+$diagstoragename = -join ((65..90) + (97..122) | Get-Random -Count 3 | % {[char]$_}) + "netdiag"
+
+
 )
 
-$verinfo = "10.6"
+$verinfo = "10.7"
 $sshPublicKey = Get-Content '.\Pspub.txt'
 $SecureLocPassword = new-object -typename system.security.securestring
 $SecureLocPassword = Convertto-SecureString $locpassword –asplaintext -Force
@@ -904,7 +936,7 @@ try {
 		exit }
 	else {
 	Write-Host "Located $csvin. CSV import starting..."
-		import-csv -Path $csvin -Delimiter ',' | ForEach-Object{.\AZRM-VMDeploy.ps1 -ActionType $_.ActionType -VMName $_.VMName -vmMarketImage $_.Image -rg $_.rg -vNetrg $_.vnetrg -VNetName $_.VNetName -ConfigIPs $_.ConfigIPs -subnet1 $_.Subnet1 -subnet2 $_.Subnet2 -PvtIPNic1 $_.PvtIPNic1 -PvtIPNic2 $_.PvtIPNic2 -DNLabel $_.DNLabel -BatchAddVnet $_.BatchAddVnet -BatchCreateLB $_.BatchCreateLB -BatchAddLB $_.BatchAddLB -LBSubnet $_.LBSubnet -LBPvtIp $_.LBPvtIp -LBName $_.LBName -LBType $_.LBType -BatchAddNSG $_.BatchAddNSG -BatchCreateNSG $_.BatchCreateNSG -NSGName $_.NSGName -extname $_.extname -BatchAddExtension $_.BatchAddExtension -BatchAddAvSet $_.BatchAddAvSet -AvailSetName $_.AvailSetName -BatchAddFqdn $_.BatchAddFqdn -CustomScriptUpload $_.CustomScriptUpload -scriptname $_.scriptname -containername $_.containername -scriptfolder $_.scriptfolder -customextname $_.customextname -batchAddShare $_.BatchAddShare -sharedirectory $_.sharedirectory -sharename $_.sharename -localsoftwarefolder $_.localsoftwarefolder -ConfigurationName $_.ConfigurationName -vmstrtype $_.vmstrtype -storerg $_.storerg -Batchaddmngdatadisk $_.Batchadddatadisk -Batchaddssh $_.Batchaddssh -linuxpatchtype $_.linuxpatchtype -batchuseexistingstorage $_.batchuseexistingstorage -batchaddlbfqdn $_.batchaddlbfqdn -lbfqdn $_.lbfqdn -WinDSCConfig $_.WinDSCConfig -LinDSCConfig $_.LinDSCConfig -StorageType $_.StorageType -NSGAddRange $_.NSGAddRange -NSGType $_.NSGType }
+		import-csv -Path $csvin -Delimiter ',' | ForEach-Object{.\AZRM-VMDeploy.ps1 -ActionType $_.ActionType -VMName $_.VMName -vmMarketImage $_.Image -rg $_.rg -vNetrg $_.vnetrg -VNetName $_.VNetName -ConfigIPs $_.ConfigIPs -subnet1 $_.Subnet1 -subnet2 $_.Subnet2 -PvtIPNic1 $_.PvtIPNic1 -PvtIPNic2 $_.PvtIPNic2 -DNLabel $_.DNLabel -BatchAddVnet $_.BatchAddVnet -BatchCreateLB $_.BatchCreateLB -BatchAddLB $_.BatchAddLB -LBSubnet $_.LBSubnet -LBPvtIp $_.LBPvtIp -LBName $_.LBName -LBType $_.LBType -BatchAddNSG $_.BatchAddNSG -BatchCreateNSG $_.BatchCreateNSG -NSGName $_.NSGName -extname $_.extname -BatchAddExtension $_.BatchAddExtension -BatchAddAvSet $_.BatchAddAvSet -AvailSetName $_.AvailSetName -BatchAddFqdn $_.BatchAddFqdn -CustomScriptUpload $_.CustomScriptUpload -scriptname $_.scriptname -containername $_.containername -scriptfolder $_.scriptfolder -customextname $_.customextname -batchAddShare $_.BatchAddShare -sharedirectory $_.sharedirectory -sharename $_.sharename -localsoftwarefolder $_.localsoftwarefolder -ConfigurationName $_.ConfigurationName -vmstrtype $_.vmstrtype -storerg $_.storerg -Batchaddmngdatadisk $_.Batchadddatadisk -Batchaddssh $_.Batchaddssh -linuxpatchtype $_.linuxpatchtype -batchuseexistingstorage $_.batchuseexistingstorage -batchaddlbfqdn $_.batchaddlbfqdn -lbfqdn $_.lbfqdn -WinDSCConfig $_.WinDSCConfig -LinDSCConfig $_.LinDSCConfig -StorageType $_.StorageType -NSGAddRange $_.NSGAddRange -NSGType $_.NSGType -NSGSubnetName $_.NSGSubnetName -AssocNSGSubnet $_.AssocNSGSubnet }
 	}
 }
 catch {
@@ -1002,40 +1034,6 @@ if($PvtIPNic2)
 			}
 				}
 	}
-
-Function Subnet-Verify {
-	param(
-		$subnet1 = $subnet1,
-		$VNetName = $VNetName,
-		$vnetrg = $vnetrg
-
-	)
-
-			$myvnet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg -ErrorAction SilentlyContinue | Set-AzureRmVirtualNetwork
-
-			$subcnt = $myvnet.Subnets.Count
-			if($subnet1 -gt $subcnt)
-				{
-				Write-Host "Subnet is out of range $subnet1 is greater then available range"
-				break
-				}
-				else
-					{ Write-Host "Subnet range verified"
-											$script:Subnet1 = $Subnet1
-					}
-			$addsubnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $myvnet
-			$sub = $addsubnet.AddressPrefix
-			$subname = $addsubnet.Name
-			$nsg = $addsubnet.NetworkSecurityGroup
-			$subnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $myvnet | ft Name,AddressPrefix -AutoSize -Wrap -HideTableHeaders
-			$sub0 = $subname[0]
-
-			if($sub0 -eq 'gatewaysubnet' -and $subnet1 -eq 0 )
-			{
-				Write-Host "Subnet GW Check Failed SubnetID: 0 is a Gateway Subnet"
-							exit
-			}
-}
 
 Function Verify-LBSubnet {
 if($CreateLoadBalancer -or $BatchCreateLB -eq 'True' -and $LBType -eq 'internal')
@@ -1376,7 +1374,10 @@ Write-Host "VNET Subnet Prefix: $pre"
 }
 
 Function Check-Vnet {
+
+
 $vnetexists = Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+
 if(!$vnetexists)
 	{Create-Vnet}
 	else
@@ -1399,11 +1400,12 @@ if(!$vnetexists)
 			Write-Host "Address Space: $addspace "
 			Write-Host "Subnet Ranges: $sub "
 			Write-Host "Subnet Names: $subname "
-			$nsgexists = Get-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Name $NSGName -ErrorAction SilentlyContinue -WarningAction SilentlyContinue -InformationAction SilentlyContinue
-			if($nsgexists)
-			{
+
+			if($CreateNSG -or $BatchCreateNSG -eq 'True')
+{
 				Write-Host "NSG Name: $NSGName"
 				Write-Host	"NSG Address Space: $NSGSubnetRange"
+
 			}
 			if($sub0 -eq 'gatewaysubnet')
 			{Write-Host "SubnetID 0: GatewaySubnet **Not Available for VM Deployment"}
@@ -1453,14 +1455,29 @@ Function Get-OMSInfo {
 		$omsname = $omsname
 	)
 
+
+	$omsexists = Get-AzureRmOperationalInsightsWorkspace -ResourceGroupName $omsrg -Name $omsname -ErrorAction SilentlyContinue -WarningAction SilentlyContinue -InformationAction SilentlyContinue
+
+	if($omsname -ne "" -and $omsexists)
+		{ 
 	$key = Get-AzureRmOperationalInsightsWorkspaceSharedKeys -Name $omsname -ResourceGroupName $omsrg
 	$primary = $key.PrimarySharedKey
 	$oms =  Get-AzureRmOperationalInsightsWorkspace -ResourceGroupName $omsrg -Name $omsname
 	$omsurl = $oms.PortalUrl
+	$script:omsid = $oms.ResourceId
+		
+		}
+
 }
 
 Function Check-NSG-Msg {
-$nsgexists = Get-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Name $NSGName
+	param(
+		$NSGName = $NSGName,
+		$vnetrg = $vnetrg
+	)
+if($CreateNSG -or $BatchCreateNSG -eq 'True')
+{
+$nsgexists = Get-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Name $NSGName -ErrorAction SilentlyContinue -WarningAction SilentlyContinue -InformationAction SilentlyContinue
 if(!$nsgexists)
 	{ break }
 	else
@@ -1470,6 +1487,7 @@ if(!$nsgexists)
 			Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Direction,SourcePortRange,DestinationPortRange
 			Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig -DefaultRules | Ft Name,Direction,SourcePortRange,DestinationPortRange
 			 }
+	}
 }
 
 Function Check-Vnet-NoMsg {
@@ -1951,7 +1969,10 @@ Function Configure-NSG
 	{
 	$nic1 = Get-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -ErrorAction SilentlyContinue
 	$nic2 = Get-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -ErrorAction SilentlyContinue
-		if($nic1)
+	$nsg = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ErrorAction SilentlyContinue
+		if($nsg)
+		{
+			if($nic1)
 		{
 			$nsg = Get-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Name $NSGName
 			$nic = Get-AzureRmNetworkInterface -ResourceGroupName $rg -Name $InterfaceName1
@@ -1969,6 +1990,8 @@ Function Configure-NSG
 				$LogOut = "Completed NSG update. Added $InterfaceName2 to $NSGName"
 				Log-Command -Description $LogOut -LogFile $LogOutFile
 			}
+		}
+
 	}
 	Catch
 	{
@@ -1981,6 +2004,55 @@ Function Configure-NSG
 	}
 }
 #endregion
+
+Function Set-LBDiagnostics-NoArchive {
+	param(
+[string]$ResourceGroupName,
+[string]$ResourceName,
+[string]$omsid = $script:omsid,
+[string]$LBName = $LBName
+	)
+Get-OMSInfo
+Write-Host "Configuring Load Balancer Diagnostics"
+$resid = get-azurermresource -ResourceName $LBName -ResourceGroupName $vnetrg
+$id = $resid.ResourceId
+Set-AzureRmDiagnosticSetting -ResourceId $id -Enabled $true -Categories LoadBalancerProbeHealthStatus,LoadBalancerAlertEvent -WorkspaceId $omsid -ErrorAction Stop -WarningAction SilentlyContinue -InformationAction SilentlyContinue | Out-Null
+}
+
+Function Set-NSGDiagnostics-NoArchive {
+	param(
+[string]$ResourceGroupName,
+[string]$ResourceName,
+[string]$omsid = $script:omsid 
+	)
+Get-OMSInfo
+Write-Host "Configuring NSG Diagnostics"
+$resid = get-azurermresource -ResourceName $ResourceName -ResourceGroupName $ResourceGroupName
+$id = $resid.ResourceId
+Set-AzureRmDiagnosticSetting -ResourceId $id -Enabled $true -WorkspaceId $omsid -ErrorAction Stop -WarningAction SilentlyContinue -InformationAction SilentlyContinue | Out-Null
+Set-AzureRmDiagnosticSetting -ResourceId $id -Enabled $true -Categories NetworkSecurityGroupEvent,NetworkSecurityGroupRuleCounter -WorkspaceId $omsid -ErrorAction Stop -WarningAction SilentlyContinue -InformationAction SilentlyContinue  | Out-Null
+}
+
+Function Set-NSGDiagnostics-Archive {
+	param(
+[string]$ResourceGroupName = $rg,
+[string]$storerg = $storerg,
+[string]$ResourceName,
+[string]$omsid = $script:omsid,
+[string]$StorageName = $diagstoragename
+	)
+Get-OMSInfo
+Write-Host "Configuring NSG Diagnostics"
+$resid = get-azurermresource -ResourceName $ResourceName -ResourceGroupName $ResourceGroupName
+$id = $resid.ResourceId
+$newstr = New-AzureRmStorageAccount -ResourceGroupName $storerg -Name $StorageName -Type $StorageType -Location $Location -ErrorAction Stop -WarningAction SilentlyContinue
+$stractid = Get-AzureRmStorageAccount -ResourceGroupName $storerg -Name $StorageName
+$actid = $stractid.Id
+	Write-Host $actid
+
+Set-AzureRmDiagnosticSetting -ResourceId $id -Enabled $true -StorageAccountId $actid -RetentionEnabled $true -RetentionInDays 30 -WorkspaceId $omsid -ErrorAction Stop -WarningAction SilentlyContinue -InformationAction SilentlyContinue  | Out-Null
+Set-AzureRmDiagnosticSetting -ResourceId $id -Enabled $true -Categories NetworkSecurityGroupEvent,NetworkSecurityGroupRuleCounter -WorkspaceId $omsid -ErrorAction Stop -WarningAction SilentlyContinue -InformationAction SilentlyContinue -StorageAccountId $StorageName -RetentionEnabled $true -RetentionInDays '30'  | Out-Null
+}
 
 #region Configure LB Ext
 Function Configure-extLB
@@ -2234,6 +2306,8 @@ try {
 		New-AzureRmVM -ResourceGroupName $rg -Location $Location -VM $VirtualMachine -DisableBginfoExtension –Confirm:$false -WarningAction SilentlyContinue -ErrorAction Stop -InformationAction SilentlyContinue | Out-Null
 		$LogOut = "Completed Creation of $VMName from $vmMarketImage"
 		Log-Command -Description $LogOut -LogFile $LogOutFile
+	   If($reboot -or $batchreboot -eq 'True')
+				{ Reboot-Cycle }
 						}
 	}
 catch {
@@ -3689,10 +3763,10 @@ Write-ConfigVNet
 	$subnet6 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix $SubnetAddPrefix6 -Name $SubnetNameAddPrefix6
 	Try
 	{
-	New-AzureRmVirtualNetwork -Location $Location -Name $VNetName -ResourceGroupName $vnetrg -AddressPrefix $AddRange -Subnet $subnet1,$subnet2,$subnet3,$subnet4,$subnet5,$subnet6 –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
-	Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Get-AzureRmVirtualNetworkSubnetConfig -WarningAction SilentlyContinue | Out-Null
+	New-AzureRmVirtualNetwork -Location $Location -Name $VNETName -ResourceGroupName $vnetrg -AddressPrefix $AddRange -Subnet $subnet1,$subnet2,$subnet3,$subnet4,$subnet5,$subnet6 –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
+	Get-AzureRmVirtualNetwork -Name $VNETName -ResourceGroupName $vnetrg | Get-AzureRmVirtualNetworkSubnetConfig -WarningAction SilentlyContinue | Out-Null
 	Write-Host "Network Preparation completed" -ForegroundColor White
-	$LogOut = "Completed Network Configuration of $VNetName"
+	$LogOut = "Completed Network Configuration of $VNETName"
 	Log-Command -Description $LogOut -LogFile $LogOutFile
 	}
 	Catch
@@ -3705,6 +3779,19 @@ Write-ConfigVNet
 	}
 }
 #endregion
+
+Function Get-LBDetails {
+$lb = Get-AzureRmLoadBalancer -Name $LBName -ResourceGroupName $vnetrg
+
+Write-Host "$LBName configuration information"
+Get-AzureRmLoadBalancerRuleConfig -LoadBalancer $lb | ft name,Protocol,FrontEndPort,BackEndPort,IdleTimeoutInMinutes,EnableFloatingIP -Wrap
+Get-AzureRmLoadBalancerProbeConfig -LoadBalancer $lb  | ft name,Protocol,NumberofProbes,Port,IntervalInSeconds -Wrap
+Get-AzureRmLoadBalancerInboundNatPoolConfig -LoadBalancer $lb  | ft name,Protocol,FrontEndPort,BackEndPort,Priority -Wrap
+Get-AzureRmLoadBalancerInboundNatRuleConfig -LoadBalancer $lb  | ft name,Protocol,FrontEndPort,BackEndPort,Priority -Wrap
+
+## Get-AzureRmLoadBalancerBackendAddressPoolConfig -LoadBalancer $lb  | ft name,Protocol,FrontEndPort,BackEndPort,Priority
+## Get-AzureRmLoadBalancerFrontendIpConfig -LoadBalancer $lb | ft name,InboundNatRules,InboundNatPools
+}
 
 Function Create-ExtLBIp
 {
@@ -3747,7 +3834,7 @@ Function Create-LB
 	{
 	Lb-type
 	$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-	Write-Host "Creating Public Ip, Pools, Probe and Inbound NAT Rules"
+	Write-Host "Creating Pools, Probe and Inbound NAT Rules for LB $LBName"
 
 	if($addlbfqdn -or $batchaddlbfqdn -eq 'True')
 		{Create-ExtLBIpwDNS}
@@ -3757,12 +3844,16 @@ Function Create-LB
 		$frtend = New-AzureRmLoadBalancerFrontendIpConfig -Name $frtpool -PublicIpAddress $script:lbpublicip -WarningAction SilentlyContinue
 		$backendpool = New-AzureRmLoadBalancerBackendAddressPoolConfig -Name $backpool  -WarningAction SilentlyContinue
 		$probecfg = New-AzureRmLoadBalancerProbeConfig -Name 'probecfg' -Protocol Tcp -Port 443 -IntervalInSeconds 30 -ProbeCount 2 -WarningAction SilentlyContinue
-		$inboundnat1 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'inboundnat1' -FrontendIpConfiguration $frtend -Protocol Tcp -FrontendPort 443 -BackendPort 443 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
-		$inboundnat2 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'inboundnat2' -FrontendIpConfiguration $frtend -Protocol Tcp -FrontendPort 3389 -BackendPort 3389 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
-		$inboundnat3 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'inboundnat3' -FrontendIpConfiguration $frtend -Protocol Tcp -FrontendPort 3391 -BackendPort 3389 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
+		$inboundnat1 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'https' -FrontendIpConfiguration $frtend -Protocol Tcp -FrontendPort 443 -BackendPort 443 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
+		$inboundnat2 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'http' -FrontendIpConfiguration $frtend -Protocol Tcp -FrontendPort 8080 -BackendPort 8080 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
+		$inboundnat3 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'httpsalt' -FrontendIpConfiguration $frtend -Protocol Tcp -FrontendPort 8443 -BackendPort 8443 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
 		$lbrule = New-AzureRmLoadBalancerRuleConfig -Name 'lbrules' -FrontendIpConfiguration $frtend -BackendAddressPool $backendpool -Probe $probecfg -Protocol Tcp -FrontendPort '80' -BackendPort '80' -IdleTimeoutInMinutes '20' -EnableFloatingIP -LoadDistribution SourceIP -WarningAction SilentlyContinue
-		$lb = New-AzureRmLoadBalancer -Location $Location -Name $LBName -ResourceGroupName $vnetrg -FrontendIpConfiguration $frtend -BackendAddressPool $backendpool -Probe $probecfg -InboundNatRule $inboundnat1,$inboundnat2 -LoadBalancingRule $lbrule -WarningAction SilentlyContinue -ErrorAction Stop -Force -Confirm:$false
-		Get-AzureRmLoadBalancer -Name $LBName -ResourceGroupName $vnetrg -WarningAction SilentlyContinue | Out-Null
+		$lb = New-AzureRmLoadBalancer -Location $Location -Name $LBName -ResourceGroupName $vnetrg -FrontendIpConfiguration $frtend -BackendAddressPool $backendpool -Probe $probecfg -InboundNatRule $inboundnat1,$inboundnat2,$inboundnat3 -LoadBalancingRule $lbrule -WarningAction SilentlyContinue -ErrorAction Stop -Force -Confirm:$false
+			Get-LBDetails
+				if($netdiag)
+		{
+					Diag-Create -netdiagoptions 'lbdiag'
+		}
 			$LogOut = "Completed LB Configuration of $LBName"
 			Log-Command -Description $LogOut -LogFile $LogOutFile
 	}
@@ -3800,17 +3891,21 @@ Function Create-IntLB
 	{
 	Lb-type
 	$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-	Write-Host "Creating Pools, Probe and Inbound NAT Rules"
+	Write-Host "Creating Pools, Probe and Inbound NAT Rules for LB $LBName"
 		$frontendIP = New-AzureRmLoadBalancerFrontendIpConfig -Name $frtpool -PrivateIpAddress $PvtIP -SubnetId $vnet.subnets[$subnet].Id -WarningAction SilentlyContinue
 		$backendpool = New-AzureRmLoadBalancerBackendAddressPoolConfig -Name $backpool  -WarningAction SilentlyContinue
-		$probecfg = New-AzureRmLoadBalancerProbeConfig -Name 'probecfg' -Protocol Tcp -Port 1433 -IntervalInSeconds 30 -ProbeCount 2 -WarningAction SilentlyContinue
-		$inboundnat1 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'inboundnat1' -FrontendIpConfiguration $frontendIP -Protocol Tcp -FrontendPort 3391 -BackendPort 3389 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
-		$inboundnat2 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'inboundnat2' -FrontendIpConfiguration $frontendIP -Protocol Tcp -FrontendPort 3389 -BackendPort 3389 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
-		$inboundnat3 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'inboundnat3' -FrontendIpConfiguration $frontendIP -Protocol Tcp -FrontendPort 1433 -BackendPort 1433 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
-		$inboundnat4 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'inboundnat4' -FrontendIpConfiguration $frontendIP -Protocol Tcp -FrontendPort 1434 -BackendPort 1433 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
+		$probecfg = New-AzureRmLoadBalancerProbeConfig -Name 'probecfg' -Protocol Tcp -Port 27017 -IntervalInSeconds 30 -ProbeCount 2 -WarningAction SilentlyContinue
+		$inboundnat1 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'MongoDB' -FrontendIpConfiguration $frontendIP -Protocol Tcp -FrontendPort 27017 -BackendPort 27017 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
+		$inboundnat2 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'MySql' -FrontendIpConfiguration $frontendIP -Protocol Tcp -FrontendPort 3306 -BackendPort 3306 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
+		$inboundnat3 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'sql' -FrontendIpConfiguration $frontendIP -Protocol Tcp -FrontendPort 1433 -BackendPort 1433 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
+		$inboundnat4 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'proxy' -FrontendIpConfiguration $frontendIP -Protocol Tcp -FrontendPort 8080 -BackendPort 8080 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
 		$lbrule = New-AzureRmLoadBalancerRuleConfig -Name 'lbrules' -FrontendIpConfiguration $frontendIP -BackendAddressPool $backendpool -Probe $probecfg -Protocol Tcp -FrontendPort '80' -BackendPort '80' -IdleTimeoutInMinutes '20' -EnableFloatingIP -LoadDistribution SourceIP -WarningAction SilentlyContinue
 		$lb = New-AzureRmLoadBalancer -Location $Location -Name $LBName -ResourceGroupName $vnetrg -FrontendIpConfiguration $frontendIP -BackendAddressPool $backendpool -Probe $probecfg -InboundNatRule $inboundnat1,$inboundnat2,$inboundnat3,$inboundnat4 -LoadBalancingRule $lbrule -WarningAction SilentlyContinue -ErrorAction Stop -Force -Confirm:$false
-		Get-AzureRmLoadBalancer -Name $LBName -ResourceGroupName $vnetrg -WarningAction SilentlyContinue -ErrorAction Stop | Out-Null
+		if($netdiag)
+		{
+					Diag-Create -netdiagoptions 'lbdiag'
+		}
+			Get-LBDetails
 			$LogOut = "Completed LB Configuration of $LBName"
 			Log-Command -Description $LogOut -LogFile $LogOutFile
 	}
@@ -3868,6 +3963,33 @@ switch ($NSGType)
 	}
 }
 
+
+Function Diag-Create {
+	param(
+		[string]$netdiagoptions = $netdiagoptions
+	)
+
+switch ($netdiagoptions)
+	{
+		"nsgdiag" {
+		Set-NSGDiagnostics-NoArchive -ResourceGroupName $vnetrg -ResourceName $NSGName
+}
+		"lbdiag" {
+		Set-LBDiagnostics-NoArchive -ResourceGroupName $vnetrg -ResourceName $LBName
+}
+		"nsgdiagarchive" {
+		Set-NSGDiagnostics-Archive -ResourceGroupName $vnetrg -ResourceName $NSGName -storerg $storerg
+}
+		"lbdiagarchive" {
+		Set-NSGDiagnostics-Archive -ResourceGroupName $vnetrg -ResourceName $LBName -storerg $storerg
+}
+
+
+		default{"An unsupported NetDiag was used"}
+	}
+}
+
+
 Function Create-NSG {
 param(
 [string]$NSGName = $NSGName,
@@ -3881,25 +4003,30 @@ param(
 	{
 			Write-Host "FE/BE Network Security Group Preparation in Process.."
 
-		$httprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTP" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "80" -DestinationPortRange "80" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 200
-		$httpsrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTPS" -Description "HTTPS Exception for Web frontends" -Protocol Tcp -SourcePortRange "443" -DestinationPortRange "443" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 201
-		$sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_SSH" -Description "SSH Exception for Web frontends" -Protocol Tcp -SourcePortRange "22" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 203
-		$rdprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_RDP" -Description "RDP Exception for frontends" -Protocol Tcp -SourcePortRange "3389" -DestinationPortRange "3389" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 204
-		$mysqlrule = New-AzureRmNetworkSecurityRuleConfig -Name "BackEnd_MySql" -Description "MySQL Allow" -Protocol Tcp -SourcePortRange "3306" -DestinationPortRange "3306" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 205
-		$mongorule = New-AzureRmNetworkSecurityRuleConfig -Name "Backend_Mongo" -Description "MongoDB Allow" -Protocol Tcp -SourcePortRange "27017" -DestinationPortRange "27017" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 206
-		$sqlrule = New-AzureRmNetworkSecurityRuleConfig -Name "BackEnd_Sql" -Description "SQL Allow" -Protocol Tcp -SourcePortRange "1443" -DestinationPortRange "1443" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 207
-		$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Location $Location -Name $NSGName -SecurityRules $httprule,$httpsrule,$sshrule,$rdprule,$mysqlrule,$mongorule,$sqlrule –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
+		$diagrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_Diag_NSG" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "65503-65534" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 187
+		$httprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTP" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "80" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 200
+		$httpsrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTPS" -Description "HTTPS Exception for Web frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "443" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 201
+		$sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_SSH" -Description "SSH Exception for Web frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 203
+		$rdprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_RDP" -Description "RDP Exception for frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "3389" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 204
+		$mysqlrule = New-AzureRmNetworkSecurityRuleConfig -Name "BackEnd_MySql" -Description "MySQL Allow" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "3306" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 205
+		$mongorule = New-AzureRmNetworkSecurityRuleConfig -Name "Backend_Mongo" -Description "MongoDB Allow" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "27017" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 206
+		$sqlrule = New-AzureRmNetworkSecurityRuleConfig -Name "BackEnd_Sql" -Description "SQL Allow" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "1443" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 207
+		$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Location $Location -Name $NSGName -SecurityRules $httprule,$httpsrule,$sshrule,$rdprule,$mysqlrule,$mongorule,$sqlrule,$diagrule –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
 		if($AssocNSGSubnet -eq 'True')
+
 		{
 			$VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg
 			$Subnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $VNet -Name $NSGSubnetName
 			$nsg = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg
 			$Subnet.NetworkSecurityGroup = $nsg
-			Set-AzureRmVirtualNetwork -VirtualNetwork $vnet
-			Set-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $VNet -Name $NSGSubnetName -AddressPrefix $NSGSubnetRange -NetworkSecurityGroup $nsg
+			Set-AzureRmVirtualNetwork -VirtualNetwork $vnet | Out-Null
+			Set-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $VNet -Name $NSGSubnetName -AddressPrefix $NSGSubnetRange -NetworkSecurityGroup $nsg | Out-Null
 		Write-Host "Associated NSG with Subnet"
 		}
-
+		if($netdiag)
+		{
+					Diag-Create -netdiagoptions 'nsgdiag'
+		}	
 		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -WarningAction SilentlyContinue | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access
 		Write-Host "Network Security Group configuration completed" -ForegroundColor White
 		$secrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access
@@ -3935,29 +4062,36 @@ param(
 	{
 			Write-Host "FE/BE Network Security Group Preparation in Process.."
 
-		$httprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTP" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "80" -DestinationPortRange "80" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 200
-		$httpsrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTPS" -Description "HTTPS Exception for Web frontends" -Protocol Tcp -SourcePortRange "443" -DestinationPortRange "443" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 201
-		$sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_SSH" -Description "SSH Exception for Web frontends" -Protocol Tcp -SourcePortRange "22" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 203
-		$rdprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_RDP" -Description "RDP Exception for frontends" -Protocol Tcp -SourcePortRange "3389" -DestinationPortRange "3389" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 204
-		$mysqlrule = New-AzureRmNetworkSecurityRuleConfig -Name "BackEnd_MySql" -Description "MySQL Allow" -Protocol Tcp -SourcePortRange "3306" -DestinationPortRange "3306" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 205
-		$mongorule = New-AzureRmNetworkSecurityRuleConfig -Name "Backend_Mongo" -Description "MongoDB Allow" -Protocol Tcp -SourcePortRange "27017" -DestinationPortRange "27017" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 206
-		$sqlrule = New-AzureRmNetworkSecurityRuleConfig -Name "BackEnd_Sql" -Description "SQL Allow" -Protocol Tcp -SourcePortRange "1443" -DestinationPortRange "1443" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 207
-		$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Location $Location -Name $NSGName -SecurityRules $httprule,$httpsrule,$sshrule,$rdprule,$mysqlrule,$mongorule,$sqlrule –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
+		$diagrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_Diag_NSG" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "65503-65534" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 187
+
+		$httprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTP" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "80" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 200
+		$httpsrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTPS" -Description "HTTPS Exception for Web frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "443" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 201
+		$sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_SSH" -Description "SSH Exception for Web frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 203
+		$rdprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_RDP" -Description "RDP Exception for frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "3389" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 204
+		$mysqlrule = New-AzureRmNetworkSecurityRuleConfig -Name "BackEnd_MySql" -Description "MySQL Allow" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "3306" -SourceAddressPrefix $destinationaddprefix -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 205
+		$mongorule = New-AzureRmNetworkSecurityRuleConfig -Name "Backend_Mongo" -Description "MongoDB Allow" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "27017" -SourceAddressPrefix $destinationaddprefix -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 206
+		$sqlrule = New-AzureRmNetworkSecurityRuleConfig -Name "BackEnd_Sql" -Description "SQL Allow" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "1443" -SourceAddressPrefix $destinationaddprefix -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 207
+		$dnsrule = New-AzureRmNetworkSecurityRuleConfig -Name "BackEnd_DNS" -Description "DNS Allow" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "53" -SourceAddressPrefix $destinationaddprefix -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 208
+		$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Location $Location -Name $NSGName -SecurityRules $httprule,$httpsrule,$sshrule,$rdprule,$mysqlrule,$mongorule,$sqlrule,$diagrule,$dnsrule –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
 
 		if($AssocNSGSubnet -eq 'True')
+
 		{
 			$VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg
 			$Subnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $VNet -Name $NSGSubnetName
 			$nsg = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg
 			$Subnet.NetworkSecurityGroup = $nsg
-			Set-AzureRmVirtualNetwork -VirtualNetwork $vnet
-			Set-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $VNet -Name $NSGSubnetName -AddressPrefix $NSGSubnetRange -NetworkSecurityGroup $nsg
+			Set-AzureRmVirtualNetwork -VirtualNetwork $vnet | Out-Null
+			Set-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $VNet -Name $NSGSubnetName -AddressPrefix $NSGSubnetRange -NetworkSecurityGroup $nsg | Out-Null
 		Write-Host "Associated NSG with Subnet"
 		}
-
+		if($netdiag)
+		{
+					Diag-Create -netdiagoptions 'nsgdiag'
+		}	
 		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -WarningAction SilentlyContinue | Out-Null
 		Write-Host "Network Security Group configuration completed" -ForegroundColor White
-		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access
+		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,SourceAddressPrefix,Access
 
 		$LogOut = "Completed NSG Configuration of $NSGName"
 		Log-Command -Description $LogOut -LogFile $LogOutFile
@@ -3986,27 +4120,35 @@ param(
 	Try
 	{
 			Write-Host "RDP/SSH Network Security Group Preparation in Process.."
-		$sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_SSH" -Description "SSH Exception for Web frontends" -Protocol Tcp -SourcePortRange "22" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 200
-		$rdprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_RDP" -Description "RDP Exception for frontends" -Protocol Tcp -SourcePortRange "3389" -DestinationPortRange "3389" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 201
-		$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Location $Location -Name $NSGName -SecurityRules $sshrule,$rdprule –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
+		$diagrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_Diag_NSG" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "65503-65534" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 187
+
+		$sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_SSH" -Description "SSH Exception for Web frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 200
+		$rdprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_RDP" -Description "RDP Exception for frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "3389" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 201
+		$openprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_VPN" -Description "OpenVPN Exception for frontends" -Protocol * -SourcePortRange "*" -DestinationPortRange "1194" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 202
+
+		$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Location $Location -Name $NSGName -SecurityRules $sshrule,$rdprule,$diagrule,$openprule –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
 		if($AssocNSGSubnet -eq 'True')
+
 		{
 			$VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg
 			$Subnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $VNet -Name $NSGSubnetName
 			$nsg = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg
 			$Subnet.NetworkSecurityGroup = $nsg
-			Set-AzureRmVirtualNetwork -VirtualNetwork $vnet
-			Set-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $VNet -Name $NSGSubnetName -AddressPrefix $NSGSubnetRange -NetworkSecurityGroup $nsg
+			Set-AzureRmVirtualNetwork -VirtualNetwork $vnet | Out-Null
+			Set-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $VNet -Name $NSGSubnetName -AddressPrefix $NSGSubnetRange -NetworkSecurityGroup $nsg | Out-Null
 		Write-Host "Associated NSG with Subnet"
 		}
-
+		if($netdiag)
+		{
+					Diag-Create -netdiagoptions 'nsgdiag'
+		}
 		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -WarningAction SilentlyContinue | Out-Null
 		Write-Host "Network Security Group configuration completed" -ForegroundColor White
-		$secrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access
+		$secrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,SourceAddressPrefix,Access
 			$LogOut = "Security Rules added for $NSGName"
 			Log-Command -Description $LogOut -LogFile $LogOutFile
 
-		$defsecrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig -DefaultRules | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationAddressPrefix,SourceAddressPrefix,Access
+		$defsecrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig -DefaultRules | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationAddressPrefix,Access
 		$LogOut = "Completed NSG Configuration of $NSGName"
 		Log-Command -Description $LogOut -LogFile $LogOutFile
 	}
@@ -4033,10 +4175,11 @@ param(
 	Try
 	{
 			Write-Host "Application Network Security Group Preparation in Process.."
-		$httprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTP" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "80" -DestinationPortRange "8080" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 200
-		$httpsrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTPS" -Description "HTTPS Exception for Web frontends" -Protocol Tcp -SourcePortRange "443" -DestinationPortRange "4434" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 201
-		$sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_SSH" -Description "SSH Exception for Web frontends" -Protocol Tcp -SourcePortRange "22" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 202
-		$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Location $Location -Name $NSGName -SecurityRules $httprule,$httpsrule,$sshrule –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
+		$diagrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_Diag_NSG" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "65503-65534" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 187
+		$httprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTP" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "8080" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 200
+		$httpsrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTPS" -Description "HTTPS Exception for Web frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "4434" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 201
+		$sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_SSH" -Description "SSH Exception for Web frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 202
+		$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Location $Location -Name $NSGName -SecurityRules $httprule,$httpsrule,$sshrule,$diagrule –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
 		if($AssocNSGSubnet -eq 'True')
 
 		{
@@ -4044,12 +4187,15 @@ param(
 			$Subnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $VNet -Name $NSGSubnetName
 			$nsg = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg
 			$Subnet.NetworkSecurityGroup = $nsg
-			Set-AzureRmVirtualNetwork -VirtualNetwork $vnet
-			Set-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $VNet -Name $NSGSubnetName -AddressPrefix $NSGSubnetRange -NetworkSecurityGroup $nsg
+			Set-AzureRmVirtualNetwork -VirtualNetwork $vnet | Out-Null
+			Set-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $VNet -Name $NSGSubnetName -AddressPrefix $NSGSubnetRange -NetworkSecurityGroup $nsg | Out-Null
 		Write-Host "Associated NSG with Subnet"
-		}
-
-		$LogOut = "Security Rules added for $NSGName"
+		}		
+		if($netdiag)
+		{
+					Diag-Create -netdiagoptions 'nsgdiag'
+		}	
+			$LogOut = "Security Rules added for $NSGName"
 			Log-Command -Description $LogOut -LogFile $LogOutFile
 		Write-Host "Network Security Group configuration completed" -ForegroundColor White
 		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Direction,SourcePortRange,DestinationPortRange
@@ -4067,6 +4213,14 @@ param(
 	}
 }
 
+Function Register-ASM {
+	param(
+
+	)
+
+Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "LinuxAsm" -ExtensionType "LinuxAsm" -Publisher "Microsoft.Azure.Extensions" -typeHandlerVersion "2.0" -InformationAction SilentlyContinue | Out-Null
+}
+
 Function Create-DBNSG {
 param(
 [string]$NSGName = $NSGName,
@@ -4080,17 +4234,22 @@ param(
 	Try
 	{
 			Write-Host "Back End Network Security Group Preparation in Process.."
-		$mysqlrule = New-AzureRmNetworkSecurityRuleConfig -Name "BackEnd_MySql" -Description "MySQL Allow" -Protocol Tcp -SourcePortRange "3306" -DestinationPortRange "3306" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 200
-		$mongorule = New-AzureRmNetworkSecurityRuleConfig -Name "Backend_Mongo" -Description "MongoDB Allow" -Protocol Tcp -SourcePortRange "27017" -DestinationPortRange "27017" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 201
-		$sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "BackEnd_SSH" -Description "SSH Exception for backends" -Protocol Tcp -SourcePortRange "22" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 202
+		$diagrule = New-AzureRmNetworkSecurityRuleConfig -Name "BackEnd_Diag_NSG" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "65503-65534" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 187
+		$mysqlrule = New-AzureRmNetworkSecurityRuleConfig -Name "BackEnd_MySql" -Description "MySQL Allow" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "3306" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 200
+		$mongorule = New-AzureRmNetworkSecurityRuleConfig -Name "Backend_Mongo" -Description "MongoDB Allow" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "27017" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 201
+		$sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "BackEnd_SSH" -Description "SSH Exception for backends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 202
 
-		$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Location $Location -Name $NSGName -SecurityRules $mysqlrule,$mongorule,$sshrule –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
+		$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Location $Location -Name $NSGName -SecurityRules $mysqlrule,$mongorule,$sshrule,$diagrule –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
 		if($AssocNSGSubnet -eq 'True')
 		{		$VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
 		Set-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $VNet -Name $NSGSubnetName -AddressPrefix $NSGSubnetRange -NetworkSecurityGroup $nsg
 		Write-Host "Associated NSG with Subnet"
 		}
-
+		
+		if($netdiag)
+		{
+					Diag-Create -netdiagoptions 'nsgdiag'
+		}	
 		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -WarningAction SilentlyContinue | Out-Null
 		Write-Host "Network Security Group configuration completed" -ForegroundColor White
 		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Direction,SourcePortRange,DestinationPortRange
@@ -4177,26 +4336,14 @@ Write-Host "Geo Location: $Location"
 Write-Host "Storage Resource Group: $storerg"
 Write-Host "Storage Account Name: $script:StorageNameVerified"
 Write-Host "Storage Account Type: $StorageType"
-
+if($reboot -or $batchreboot -eq 'True'){Write-Host "Reboot Enabled on $VMName completion"}
 	if($addextension -or $BatchAddExtension -eq 'True')
-		{
-		Write-Host "Extension selected for deployment: $extname "
-		if($extname -eq 'winpushdsc')
-			{
-			Write-Host "Push DSC Config File: $WinDSCConfig"
-			}
-			elseif($extname -eq 'linpushdsc')
-			{
-			Write-Host "Push DSC Config File: $LinDSCConfig"
-			}
-				elseif($extname -eq 'linuxcustomscript')
-					{
-					Write-Host "Linux Custom Script File: $scriptname"
-					}
-					elseif($extname -eq 'customscript')
-							{
-					Write-Host "Custom Script File: $scriptname"
-							}
+	{ Write-Host "Extension selected for deployment: $extname " 
+		if($extname -eq 'winpushdsc'){ Write-Host "Push DSC Config File: $WinDSCConfig" }
+			if($extname -eq 'linuxpushdsc'){ Write-Host "Push DSC Config File: $LinDSCConfig" }
+				if($extname -eq 'linuxcustomscript'){ Write-Host "Linux Custom Script File: $scriptname" }
+					if($extname -eq 'customscript'){ Write-Host "Custom Script File: $scriptname" }
+						if($extname -eq 'linuxospatch'){Write-Host "OS Patch Type: $linuxpatchtype"}
 		}
 
 Write-Host "Disk Storage Type: $vmstrtype" -ForegroundColor White
@@ -4330,7 +4477,7 @@ Write-Host "VNET Resource Group Name: $vnetrg"
 
 Write-Host "Address Range:  $AddRange"
 
-if($AddNSG -or $CreateNSG -or $BatchCreateNSG -eq 'True' -or $BatchAddNSG -eq 'True')
+if($CreateNSG -or $BatchCreateNSG -eq 'True')
 {
 Write-Host "NSG Name: $NSGName"
 Write-Host	"NSG Subnet Address Space: $NSGSubnetRange"
@@ -4553,6 +4700,50 @@ Function Get-azinfo  {
 		$rg = $rg
 	)
 validate-profile
+}
+
+function Get-VMPowerState {
+	param(
+$VMName = $VMName,
+	$rg = $rg,
+	$script:pwrstate = 'Running'
+	)
+	$powerstatus = Get-Azurermvm -Name $VMName -ResourceGroupName $rg -Status
+$currentstate = $powerstatus.Statuses.Code[1]
+	if($currentstate -contains 'PowerState/stopped')
+		{
+			Write-Host "$VMName is currently stopped"
+			$script:pwrstate = 'Stopped'
+		}
+		elseif($currentstate -contains 'PowerState/running')
+			{Write-Host "$VMName is currently running"
+			$script:pwrstate = 'Running'
+			}
+}
+
+function Reboot-VM
+{
+	if($script:pwrstate -eq 'Stopped')
+		{Write-Host "$VMName is already stopped"
+			break
+		}
+		elseif($script:pwrstate -eq 'Running')
+		{
+		Write-Host "Restarting $VMname.."
+		Start-sleep 5
+		Restart-AzureRmVM -Name $VMName -ResourceGroupName $rg -Confirm:$false -ErrorAction Stop -WarningAction SilentlyContinue -InformationAction SilentlyContinue | Out-Null 
+		}
+}
+
+function Check-VMPowerState
+{
+	if($script:pwrstate -eq 'Stopped')
+		{Write-Host "$VMName is stopped"
+			break
+		}
+		elseif($script:pwrstate -eq 'Running')
+		{
+		}
 }
 
 #region Create Storage
@@ -5916,6 +6107,11 @@ switch ($extname)
 				linuxos-Patching
 						Write-Results
 		}
+		"linuxasm" {
+				Verify-ExtLinux
+				Register-ASM
+						Write-Results
+		}
 		"addvmbackupvault" {
 						Check-VaultExists
 						AddVM-Vault
@@ -6098,6 +6294,48 @@ else {if($nic1)
 } #
 #endregion
 
+Function Reboot-Cycle  {
+	param(
+		$VMName = $VMName,
+		$rg = $rg
+
+	)
+
+
+									 
+										 Get-VMPowerState -VMName $VMName -rg $rg
+										 Reboot-VM
+										 Start-Sleep -Seconds 10
+										 Get-VMPowerState -VMName $VMName -rg $rg
+										 if($script:pwrstate -eq 'Stopped')
+										 {
+											 Start-Sleep -Seconds 10
+												Get-VMPowerState -VMName $VMName -rg $rg
+ }
+										 elseif($script:pwrstate -eq 'Stopped')
+										 {
+													Get-VMPowerState -VMName $VMName -rg $rg
+											  Start-Sleep -Seconds 5 }
+												elseif($script:pwrstate -eq 'Stopped')
+										 {
+												break
+										 		$LogOut = "Reboot of $VMName Failed"
+												Log-Command -Description $LogOut -LogFile $LogOutFile
+										 }
+										 else
+											{ 
+												$LogOut = "Reboot of $VMName Completed"
+												Log-Command -Description $LogOut -LogFile $LogOutFile
+
+
+											}
+									 
+
+
+
+}
+
+
 Function Create-ResourceGroup {
 				$resourcegroups = @($rg,$vnetrg,$storerg);
 				if($resourcegroups.length) {
@@ -6143,17 +6381,20 @@ Function Action-Type {
 
 					if($CreateNSG -or $BatchCreateNSG -eq 'True')
 							{
+								Get-OMSInfo
 								Check-NSGSub
 								NSG-Create
 							} # Creates NSG and Security Groups
 					if($CreateLoadBalancer -or $BatchCreateLB -eq 'True' -and $LBType -eq 'external')
 							{
+							Get-OMSInfo
 							Check-CreateLB
 							Create-LB
 							}
 
 					if($CreateLoadBalancer -or $BatchCreateLB -eq 'True' -and $LBType -eq 'internal')
 							{
+							Get-OMSInfo
 							Verify-LBSubnet
 							Check-CreateIntLB
 							Create-IntLB
@@ -6161,7 +6402,6 @@ Function Action-Type {
 					Verify-NIC
 					Check-Vnet
 					Create-VM # Configure Image
-
 					if($addmngdatadisk -or $batchaddmngdatadisk -eq 'True')
 							{
 							Create-MngDataDisks
@@ -6183,6 +6423,7 @@ Function Action-Type {
 							{
 								Eval-extdepends
 								 Install-Ext
+
 							}
 							else
 							{ Write-Results }
