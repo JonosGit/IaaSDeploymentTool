@@ -2,7 +2,7 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 10.7
+Ver 10.8
 
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerous Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
@@ -12,6 +12,7 @@ This script supports Load Balanced configurations for both internal and external
 
 The script will create three directories if they do not exist in the runtime directory, Log, Scripts, DSC.
 
+v10.8 updates - corrected issue with new vnet deployment, added -reboot option. removed chef-server as the image is no longer available.
 v10.7 updates - added NSG Diagnostics, enhanced pre-configured NSG plans
 v10.6 updates - added NSG bind to Subnet and Subnet bind to NSG -AssocNSGSubnet True/False
 v10.5.1 updates - add version info summary
@@ -314,20 +315,14 @@ Allows user specify an existing storage account for VM deployment
 			addvmbackupvault - Add VM to ASR Backup Vault
 .LINK
 https://github.com/JonosGit/IaaSDeploymentTool
-https://azurefollies.com/
+
 #>
 
 [CmdletBinding(DefaultParameterSetName = 'default')]
 Param(
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
-[Alias("storage")]
-[ValidateSet("unmanaged","managed")]
-[string]
-$vmstrtype = 'unmanaged',
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[ValidateNotNullorEmpty()]
-[ValidateSet("w2k12","w2k8","w2k16","nano","sql2016","sql2014","biztalk2013","tfs","biztalk2016","vs2015","dev15","jenk-opcenter","chef-compliance","incredibuild","debian","puppet","msnav2016","red67","red72","suse","free","ubuntu14","ubuntu16","centos68","centos72","centos73","chef-server","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","horton-dp","serverr","horton-hdp","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack","hadoop","neos","tomcat","redis","gitlab","jruby","tableau","cloudera","datastax","O365-suite","ads-linuxdatascience","ads-datascience","cloud-conn","cisco750","CoreOS","CoreContainers")]
+[ValidateSet("w2k12","w2k8","w2k16","nano","sql2016","sql2014","biztalk2013","tfs","biztalk2016","vs2015","dev15","jenk-opcenter","chef-compliance","incredibuild","debian","puppet","msnav2016","red67","red72","suse","free","ubuntu14","ubuntu16","centos68","centos72","centos73","check","pfsense","lamp","jenkins","nodejs","elastics","postgressql","splunk","horton-dp","serverr","horton-hdp","f5bigip","f5appfire","barrahourngfw","barrabyolngfw","barrahourspam","barrabyolspam","mysql","share2013","share2016","mongodb","nginxstack","hadoop","neos","tomcat","redis","gitlab","jruby","tableau","cloudera","datastax","O365-suite","ads-linuxdatascience","ads-datascience","cloud-conn","cisco750","CoreOS","CoreContainers")]
 [Alias("image")]
 [string]
 $vmMarketImage = 'w2k12',
@@ -340,19 +335,25 @@ $VMName = '',
 [ValidateNotNullorEmpty()]
 [string]
 $rg = '',
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateNotNullorEmpty()]
+[Alias("vnet")]
+[string]
+$VNetName = '',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[switch]
+$AddVnet = $true,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateSet("Single","Dual","NoPubDual","PvtDualStat","StatPvtNoPubSingle","PvtSingleStat","StatPvtNoPubDual","NoPubSingle")]
 [ValidateNotNullorEmpty()]
 [string]
 $ConfigIPs = 'Single',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[switch]
-$AddVnet = $true,
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
-[Alias("vnet")]
+[Alias("storage")]
+[ValidateSet("unmanaged","managed")]
 [string]
-$VNetName = '',
+$vmstrtype = 'unmanaged',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [string]
@@ -413,7 +414,7 @@ $locadmin = 'locadmin',
 [Parameter(Mandatory=$false,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [string]
-$locpassword = 'P@ssW0rd!',
+$locpassword = 'P@ssw0rd!',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [string]
@@ -533,7 +534,7 @@ $SubnetAddPrefix6 = "172.10.5.0/24",
 $SubnetNameAddPrefix6 = "monitoring",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$Azautoacct = "OMS",
+$Azautoacct = "Auto",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $Profile = "profile",
@@ -541,7 +542,7 @@ $Profile = "profile",
 [ValidateSet("diag","msav","bginfo","winaccess","linaccess","linuxbackup","linuxospatch","linuxchefagent","windowschefagent","eset","customscript","linuxcustomscript","opsinsightLinux","opsinsightWin","WinPuppet","domjoin","RegisterAzDSC","winpushdsc","linuxpushdsc","addvmbackupvault","linuxasm")]
 [Alias("ext")]
 [string]
-$extname = 'linuxospatch',
+$extname = 'RegisterAzDSC',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("addext")]
 [switch]
@@ -573,7 +574,7 @@ $NSGSubnetName = '',
 $NSGSubnetRange = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("nsgconfig")]
-[ValidateSet("Web","BEMongo","BEMySQL","RemoteAccess","FULLFEBE")]
+[ValidateSet("Web","BEMongo","BEMySQL","RemoteAccess","FULLFEBE","ALLOWINT")]
 [string]
 $NSGType = 'FULLFEBE',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
@@ -786,10 +787,10 @@ $enablebootdiag = $True,
 $batchenablebootdiag = 'True',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$batchreboot = 'True',
+$batchreboot = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [switch]
-$reboot = $True,
+$reboot = $False,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $omsname = 'autoact',
@@ -804,14 +805,14 @@ $netdiag = $True,
 [string]
 $netdiagoptions = 'nsgdiag',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[ValidateSet("nsgdiag","lbdiag","nsgdiagarchive","lbdiagarchive")]
 [string]
-$diagstoragename = -join ((65..90) + (97..122) | Get-Random -Count 3 | % {[char]$_}) + "netdiag"
-
-
+$diagstoragename = -join ((65..90) + (97..122) | Get-Random -Count 3 | % {[char]$_}) + "netdiag",
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$internalnamelabel = $VMName
 )
 
-$verinfo = "10.7"
+$verinfo = "10.8"
 $sshPublicKey = Get-Content '.\Pspub.txt'
 $SecureLocPassword = new-object -typename system.security.securestring
 $SecureLocPassword = Convertto-SecureString $locpassword –asplaintext -Force
@@ -1374,8 +1375,6 @@ Write-Host "VNET Subnet Prefix: $pre"
 }
 
 Function Check-Vnet {
-
-
 $vnetexists = Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
 
 if(!$vnetexists)
@@ -1405,7 +1404,6 @@ if(!$vnetexists)
 {
 				Write-Host "NSG Name: $NSGName"
 				Write-Host	"NSG Address Space: $NSGSubnetRange"
-
 			}
 			if($sub0 -eq 'gatewaysubnet')
 			{Write-Host "SubnetID 0: GatewaySubnet **Not Available for VM Deployment"}
@@ -1455,19 +1453,16 @@ Function Get-OMSInfo {
 		$omsname = $omsname
 	)
 
-
 	$omsexists = Get-AzureRmOperationalInsightsWorkspace -ResourceGroupName $omsrg -Name $omsname -ErrorAction SilentlyContinue -WarningAction SilentlyContinue -InformationAction SilentlyContinue
 
 	if($omsname -ne "" -and $omsexists)
-		{ 
+		{
 	$key = Get-AzureRmOperationalInsightsWorkspaceSharedKeys -Name $omsname -ResourceGroupName $omsrg
 	$primary = $key.PrimarySharedKey
 	$oms =  Get-AzureRmOperationalInsightsWorkspace -ResourceGroupName $omsrg -Name $omsname
 	$omsurl = $oms.PortalUrl
 	$script:omsid = $oms.ResourceId
-		
 		}
-
 }
 
 Function Check-NSG-Msg {
@@ -1808,7 +1803,7 @@ switch ($ConfigIPs)
 			Write-Host "Configuring dual static NICs (with Public IP)..."
 			Configure-PubIpDNS
 			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 -InternalDnsNameLabel $VMName –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 			$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id -PrivateIpAddress $PvtIPNic2 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 
 			$LogOut = "Completed configuration of dual static NICs: $VMName"
@@ -1818,14 +1813,14 @@ switch ($ConfigIPs)
 			Write-Host "Configuring single static NIC (with Public IP)..."
 			Configure-PubIpDNS
 			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 -InternalDnsNameLabel $VMName –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 			$LogOut = "Completed configuration of single static NIC: $VMName"
 			Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 		"StatPvtNoPubDual" {
 			Write-Host "Configuring dual static NICs (without Public IP)..."
 			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PrivateIpAddress $PvtIPNic1 -InternalDnsNameLabel $VMName –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 			$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id -PrivateIpAddress $PvtIPNic2 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 			$LogOut = "Completed configuration of dual static NICs: $VMName"
 			Log-Command -Description $LogOut -LogFile $LogOutFile
@@ -1833,7 +1828,7 @@ switch ($ConfigIPs)
 		"StatPvtNoPubSingle" {
 			Write-Host "Configuring single static NIC (without Public IP)..."
 			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PrivateIpAddress $PvtIPNic1 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PrivateIpAddress $PvtIPNic1 -InternalDnsNameLabel $VMName –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 			$LogOut = "Completed configuration of single static NIC: $VMName"
 			Log-Command -Description $LogOut -LogFile $LogOutFile
 }
@@ -1841,7 +1836,7 @@ switch ($ConfigIPs)
 			Write-Host "Configuring single NIC (with Public IP)..."
 			Configure-PubIpDNS
 			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop -EnableIPForwarding
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop -EnableIPForwarding -InternalDnsNameLabel $VMName
 			$LogOut = "Completed configuration of single NIC: $VMName"
 			Log-Command -Description $LogOut -LogFile $LogOutFile
 }
@@ -1849,7 +1844,7 @@ switch ($ConfigIPs)
 			Write-Host "Configuring dual NICs (with Public IP)..."
 			Configure-PubIpDNS
 			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop -EnableIPForwarding
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop -EnableIPForwarding -InternalDnsNameLabel $VMName
 			$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 			$LogOut = "Completed configuration of dual NICs: $VMName"
 			Log-Command -Description $LogOut -LogFile $LogOutFile
@@ -1857,14 +1852,14 @@ switch ($ConfigIPs)
 		"NoPubSingle" {
 			Write-Host "Configuring single NIC (without Public IP)..."
 			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id  -InternalDnsNameLabel $VMName –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 			$LogOut = "Completed configuration of single NIC: $VMName"
 			Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 		"NoPubDual" {
 			Write-Host "Configuring dual NICs (without Public IP)..."
 			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
-			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id  -InternalDnsNameLabel $VMName –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 			$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 			$LogOut = "Completed configuration of dual NICs: $VMName"
 			Log-Command -Description $LogOut -LogFile $LogOutFile
@@ -1873,7 +1868,7 @@ switch ($ConfigIPs)
 			Write-Host "Configuring load balanced dual NICs (without Public IP)..."
 			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
 			$script:besubnet =	Get-AzureRmVirtualNetworkSubnetConfig -Name $LBName -VirtualNetwork $script:VNet -WarningAction SilentlyContinue
-			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PrivateIpAddress $PvtIPNic1 -LoadBalancerBackendAddressPool $lb.BackendAddressPools[0] -LoadBalancerInboundNatRule $lb.InboundNatRules[0]
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PrivateIpAddress $PvtIPNic1 -InternalDnsNameLabel $VMName -LoadBalancerBackendAddressPool $lb.BackendAddressPools[0] -LoadBalancerInboundNatRule $lb.InboundNatRules[0]
 			$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id -PrivateIpAddress $PvtIPNic2 -LoadBalancerBackendAddressPool $lb.BackendAddressPools[0] -LoadBalancerInboundNatRule $lb.InboundNatRules[0] –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 			$LogOut = "Completed configuration of load balanced dual NICs: $VMName"
 			Log-Command -Description $LogOut -LogFile $LogOutFile
@@ -1882,7 +1877,7 @@ switch ($ConfigIPs)
 			Write-Host "Configuring load balkanced single NIC (without Public IP)..."
 			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
 			$besubnet =	Get-AzureRmVirtualNetworkSubnetConfig -Name $LBName -VirtualNetwork $script:VNet -WarningAction SilentlyContinue
-			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -Subnet $besubnet -PrivateIpAddress $PvtIPNic1 -LoadBalancerBackendAddressPool $lb.BackendAddressPools[0] -LoadBalancerInboundNatRule $lb.InboundNatRules[0]
+			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -Subnet $besubnet -PrivateIpAddress $PvtIPNic1 -LoadBalancerBackendAddressPool $lb.BackendAddressPools[0] -LoadBalancerInboundNatRule $lb.InboundNatRules[0]  -InternalDnsNameLabel $VMName
 			$LogOut = "Completed configuration of load balanced single NIC: $VMName"
 			Log-Command -Description $LogOut -LogFile $LogOutFile
 }
@@ -1991,7 +1986,6 @@ Function Configure-NSG
 				Log-Command -Description $LogOut -LogFile $LogOutFile
 			}
 		}
-
 	}
 	Catch
 	{
@@ -2023,7 +2017,7 @@ Function Set-NSGDiagnostics-NoArchive {
 	param(
 [string]$ResourceGroupName,
 [string]$ResourceName,
-[string]$omsid = $script:omsid 
+[string]$omsid = $script:omsid
 	)
 Get-OMSInfo
 Write-Host "Configuring NSG Diagnostics"
@@ -3958,11 +3952,13 @@ switch ($NSGType)
 		"FULLFEBE" {
 		Create-FULLFEBENSG
 }
+		"ALLOWINT" {
+		Create-OpenInternalNSG
+}
 
 		default{"An unsupported NSGType was used"}
 	}
 }
-
 
 Function Diag-Create {
 	param(
@@ -3984,11 +3980,9 @@ switch ($netdiagoptions)
 		Set-NSGDiagnostics-Archive -ResourceGroupName $vnetrg -ResourceName $LBName -storerg $storerg
 }
 
-
 		default{"An unsupported NetDiag was used"}
 	}
 }
-
 
 Function Create-NSG {
 param(
@@ -4026,7 +4020,7 @@ param(
 		if($netdiag)
 		{
 					Diag-Create -netdiagoptions 'nsgdiag'
-		}	
+		}
 		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -WarningAction SilentlyContinue | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access
 		Write-Host "Network Security Group configuration completed" -ForegroundColor White
 		$secrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access
@@ -4072,6 +4066,7 @@ param(
 		$mongorule = New-AzureRmNetworkSecurityRuleConfig -Name "Backend_Mongo" -Description "MongoDB Allow" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "27017" -SourceAddressPrefix $destinationaddprefix -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 206
 		$sqlrule = New-AzureRmNetworkSecurityRuleConfig -Name "BackEnd_Sql" -Description "SQL Allow" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "1443" -SourceAddressPrefix $destinationaddprefix -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 207
 		$dnsrule = New-AzureRmNetworkSecurityRuleConfig -Name "BackEnd_DNS" -Description "DNS Allow" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "53" -SourceAddressPrefix $destinationaddprefix -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 208
+		$chefrule = New-AzureRmNetworkSecurityRuleConfig -Name "BackEnd_Chef" -Description "DNS Allow" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "8000" -SourceAddressPrefix $destinationaddprefix -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 209
 		$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Location $Location -Name $NSGName -SecurityRules $httprule,$httpsrule,$sshrule,$rdprule,$mysqlrule,$mongorule,$sqlrule,$diagrule,$dnsrule –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
 
 		if($AssocNSGSubnet -eq 'True')
@@ -4088,7 +4083,7 @@ param(
 		if($netdiag)
 		{
 					Diag-Create -netdiagoptions 'nsgdiag'
-		}	
+		}
 		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -WarningAction SilentlyContinue | Out-Null
 		Write-Host "Network Security Group configuration completed" -ForegroundColor White
 		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,SourceAddressPrefix,Access
@@ -4121,12 +4116,71 @@ param(
 	{
 			Write-Host "RDP/SSH Network Security Group Preparation in Process.."
 		$diagrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_Diag_NSG" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "65503-65534" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 187
+		$intrule = New-AzureRmNetworkSecurityRuleConfig -Name "InternalAllowIn" -Description "InternalAllowIn" -Protocol * -SourcePortRange "*" -DestinationPortRange "*" -SourceAddressPrefix $destinationaddprefix -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 190
+		$extrule = New-AzureRmNetworkSecurityRuleConfig -Name "InternalAllowOut" -Description "InternalAllowOut" -Protocol * -SourcePortRange "*" -DestinationPortRange "*" -SourceAddressPrefix $destinationaddprefix -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Outbound ` -Priority 191
 
 		$sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_SSH" -Description "SSH Exception for Web frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 200
 		$rdprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_RDP" -Description "RDP Exception for frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "3389" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 201
 		$openprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_VPN" -Description "OpenVPN Exception for frontends" -Protocol * -SourcePortRange "*" -DestinationPortRange "1194" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 202
 
-		$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Location $Location -Name $NSGName -SecurityRules $sshrule,$rdprule,$diagrule,$openprule –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
+		$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Location $Location -Name $NSGName -SecurityRules $intrule,$extrule,$sshrule,$rdprule,$diagrule,$openprule –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
+		if($AssocNSGSubnet -eq 'True')
+
+		{
+			$VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg
+			$Subnet = Get-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $VNet -Name $NSGSubnetName
+			$nsg = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg
+			$Subnet.NetworkSecurityGroup = $nsg
+			Set-AzureRmVirtualNetwork -VirtualNetwork $vnet | Out-Null
+			Set-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $VNet -Name $NSGSubnetName -AddressPrefix $NSGSubnetRange -NetworkSecurityGroup $nsg | Out-Null
+		Write-Host "Associated NSG with Subnet"
+		}
+		if($netdiag)
+		{
+					Diag-Create -netdiagoptions 'nsgdiag'
+		}
+		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -WarningAction SilentlyContinue | Out-Null
+		Write-Host "Network Security Group configuration completed" -ForegroundColor White
+		$secrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,SourceAddressPrefix,Access
+			$LogOut = "Security Rules added for $NSGName"
+			Log-Command -Description $LogOut -LogFile $LogOutFile
+
+		$defsecrules = Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig -DefaultRules | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationAddressPrefix,Access
+		$LogOut = "Completed NSG Configuration of $NSGName"
+		Log-Command -Description $LogOut -LogFile $LogOutFile
+	}
+	Catch
+	{
+	Write-Host -foregroundcolor Yellow `
+	"Exception Encountered"; `
+	$ErrorMessage = $_.Exception.Message
+	$LogOut  = 'Error '+$ErrorMessage
+	Log-Command -Description $LogOut -LogFile $LogOutFile
+	break
+	}
+}
+
+Function Create-OpenInternalNSG {
+param(
+[string]$NSGName = $NSGName,
+[string]$Location = $Location,
+[string]$vnetrg = $vnetrg,
+[string]$destinationaddprefix = $AddRange,
+[string]$NSGSubnetName = $NSGSubnetName,
+[string]$NSGSubnetRange = $NSGSubnetRange
+
+)
+	Try
+	{
+			Write-Host "Internal Allow Network Security Group Preparation in Process.."
+		$diagrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_Diag_NSG" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "65503-65534" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 187
+		$intrule = New-AzureRmNetworkSecurityRuleConfig -Name "InternalAllowIn" -Description "InternalAllowIn" -Protocol * -SourcePortRange "*" -DestinationPortRange "*" -SourceAddressPrefix $destinationaddprefix -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 200
+		$extrule = New-AzureRmNetworkSecurityRuleConfig -Name "InternalAllowOut" -Description "InternalAllowOut" -Protocol * -SourcePortRange "*" -DestinationPortRange "*" -SourceAddressPrefix $destinationaddprefix -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Outbound ` -Priority 201
+		$sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_SSH" -Description "SSH Exception for Web frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 202
+		$rdprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_RDP" -Description "RDP Exception for frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "3389" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 203
+		$httpsrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_https" -Description "HTTPS Exception for frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "443" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 204
+
+		$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Location $Location -Name $NSGName -SecurityRules $intrule,$extrule,$sshrule,$rdprule,$diagrule,$httpsrule –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
 		if($AssocNSGSubnet -eq 'True')
 
 		{
@@ -4176,10 +4230,14 @@ param(
 	{
 			Write-Host "Application Network Security Group Preparation in Process.."
 		$diagrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_Diag_NSG" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "65503-65534" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 187
-		$httprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTP" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "8080" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 200
-		$httpsrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTPS" -Description "HTTPS Exception for Web frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "4434" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 201
-		$sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_SSH" -Description "SSH Exception for Web frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 202
-		$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Location $Location -Name $NSGName -SecurityRules $httprule,$httpsrule,$sshrule,$diagrule –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
+		$intrule = New-AzureRmNetworkSecurityRuleConfig -Name "InternalAllowIn" -Description "InternalAllowIn" -Protocol * -SourcePortRange "*" -DestinationPortRange "*" -SourceAddressPrefix $destinationaddprefix -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 200
+		$extrule = New-AzureRmNetworkSecurityRuleConfig -Name "InternalAllowOut" -Description "InternalAllowOut" -Protocol * -SourcePortRange "*" -DestinationPortRange "*" -SourceAddressPrefix $destinationaddprefix -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Outbound ` -Priority 201
+
+		$httprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTP" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "8080" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 202
+		$httpsrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTPS" -Description "HTTPS Exception for Web frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "4434" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 203
+		$sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_SSH" -Description "SSH Exception for Web frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 204
+
+		$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Location $Location -Name $NSGName -SecurityRules $httprule,$httpsrule,$sshrule,$diagrule,$intrule,$extrule –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
 		if($AssocNSGSubnet -eq 'True')
 
 		{
@@ -4190,11 +4248,11 @@ param(
 			Set-AzureRmVirtualNetwork -VirtualNetwork $vnet | Out-Null
 			Set-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $VNet -Name $NSGSubnetName -AddressPrefix $NSGSubnetRange -NetworkSecurityGroup $nsg | Out-Null
 		Write-Host "Associated NSG with Subnet"
-		}		
+		}
 		if($netdiag)
 		{
 					Diag-Create -netdiagoptions 'nsgdiag'
-		}	
+		}
 			$LogOut = "Security Rules added for $NSGName"
 			Log-Command -Description $LogOut -LogFile $LogOutFile
 		Write-Host "Network Security Group configuration completed" -ForegroundColor White
@@ -4245,11 +4303,11 @@ param(
 		Set-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $VNet -Name $NSGSubnetName -AddressPrefix $NSGSubnetRange -NetworkSecurityGroup $nsg
 		Write-Host "Associated NSG with Subnet"
 		}
-		
+
 		if($netdiag)
 		{
 					Diag-Create -netdiagoptions 'nsgdiag'
-		}	
+		}
 		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -WarningAction SilentlyContinue | Out-Null
 		Write-Host "Network Security Group configuration completed" -ForegroundColor White
 		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -ExpandResource NetworkInterfaces | Get-AzureRmNetworkSecurityRuleConfig | Ft Name,Direction,SourcePortRange,DestinationPortRange
@@ -4336,9 +4394,9 @@ Write-Host "Geo Location: $Location"
 Write-Host "Storage Resource Group: $storerg"
 Write-Host "Storage Account Name: $script:StorageNameVerified"
 Write-Host "Storage Account Type: $StorageType"
-if($reboot -or $batchreboot -eq 'True'){Write-Host "Reboot Enabled on $VMName completion"}
+if($reboot -or $batchreboot -eq 'True'){Write-Host "Host VM $VMName will be rebooted upon completion"}
 	if($addextension -or $BatchAddExtension -eq 'True')
-	{ Write-Host "Extension selected for deployment: $extname " 
+	{ Write-Host "Extension selected for deployment: $extname "
 		if($extname -eq 'winpushdsc'){ Write-Host "Push DSC Config File: $WinDSCConfig" }
 			if($extname -eq 'linuxpushdsc'){ Write-Host "Push DSC Config File: $LinDSCConfig" }
 				if($extname -eq 'linuxcustomscript'){ Write-Host "Linux Custom Script File: $scriptname" }
@@ -4731,7 +4789,7 @@ function Reboot-VM
 		{
 		Write-Host "Restarting $VMname.."
 		Start-sleep 5
-		Restart-AzureRmVM -Name $VMName -ResourceGroupName $rg -Confirm:$false -ErrorAction Stop -WarningAction SilentlyContinue -InformationAction SilentlyContinue | Out-Null 
+		Restart-AzureRmVM -Name $VMName -ResourceGroupName $rg -Confirm:$false -ErrorAction Stop -WarningAction SilentlyContinue -InformationAction SilentlyContinue | Out-Null
 		}
 }
 
@@ -6301,8 +6359,6 @@ Function Reboot-Cycle  {
 
 	)
 
-
-									 
 										 Get-VMPowerState -VMName $VMName -rg $rg
 										 Reboot-VM
 										 Start-Sleep -Seconds 10
@@ -6323,18 +6379,11 @@ Function Reboot-Cycle  {
 												Log-Command -Description $LogOut -LogFile $LogOutFile
 										 }
 										 else
-											{ 
+											{
 												$LogOut = "Reboot of $VMName Completed"
 												Log-Command -Description $LogOut -LogFile $LogOutFile
-
-
 											}
-									 
-
-
-
 }
-
 
 Function Create-ResourceGroup {
 				$resourcegroups = @($rg,$vnetrg,$storerg);
@@ -6423,7 +6472,6 @@ Function Action-Type {
 							{
 								Eval-extdepends
 								 Install-Ext
-
 							}
 							else
 							{ Write-Results }
