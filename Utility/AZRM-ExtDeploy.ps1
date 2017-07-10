@@ -2,10 +2,12 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 1.7
+Ver 1.8
 Extensions deployment
 
-v 1.7 added -subscriptionid context option for context file creation
+
+v 1.8 updated OpsInsight Agents deployment, added VMAccess Options
+v 1.7 added -reboot option as well as updated logic to find the current storage location for the VM being deployed to
 v 1.6 consolidated pushdsc params, added preview switch
 v 1.5 update OMS and linux security patch management, added linux DSC
 v 1.4 updated chef agent deployment
@@ -16,7 +18,7 @@ v 1.0 updates - Moved -add parameters to [switch]
 
 Deploys Azure Extensions to Existing VMs
 
-.PARAMETER ExtName
+.PARAMETER vmMarketImage
 
 .PARAMETER VMName
 
@@ -38,11 +40,13 @@ Deploys Azure Extensions to Existing VMs
 
 .PARAMETER Profile
 
-.PARAMETER BatchAddExtension
+.PARAMETER ExtName
+
+.PARAMETER RemoveExtension
 
 .PARAMETER CustomScriptUpload
 
-.PARAMETER LinDSCConfig
+.PARAMETER dscname
 
 .PARAMETER scriptname
 
@@ -58,14 +62,14 @@ Deploys Azure Extensions to Existing VMs
 
 .PARAMETER csvfile
 
-.PARAMETER WinDSCConfig
+.PARAMETER csvfilename
 
 .EXAMPLE
 \.AZRM-ExtDeploy.ps1 -csvimport -csvfile C:\temp\iaasdeployment.csv
 .EXAMPLE
 \.AZRM-ExtDeploy.ps1 -extname linaccess -VMName myvm -rg myres
 .EXAMPLE
-\.AZRM-ExtDeploy.ps1 -extname linuxospatch -VMName myvm -rg myres
+\.AZRM-ExtDeploy.ps1 -extname linuxospatch -VMName myvm -rg myres -reboot
 .EXAMPLE
 \.AZRM-ExtDeploy.ps1 -extname linuxcustscript -scriptname update.sh -VMName myvm -rg myres
 
@@ -74,7 +78,7 @@ Deploys Azure Extensions to Existing VMs
 			msav – Adds Azure Antivirus Extension
 			customscript – Adds Custom Script for Execution (Requires Table Storage Configuration first)
 			linuxcustscript – Adds Custom Script for Execution (Requires Table Storage Configuration first)
-			linpushdsc - Deploys DSC Configuration to Linux Azure VM
+			linuxpushdsc - Deploys DSC Configuration to Linux Azure VM
 			winpushdsc - Deploys DSC Configuration to Windows Azure VM
 			diag – Adds Azure Diagnostics Extension
 			linuxospatch - Deploy Latest updates for Linux platforms
@@ -96,17 +100,17 @@ Deploys Azure Extensions to Existing VMs
 Param(
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=2)]
-[ValidateSet("azshare","diag","msav","linaccess","winaccess","linuxbackup","linuxospatch","linchefagent","winchefagent","eset","customscript","linuxcustomscript","opsinsightLinux","opsinsightWin","WinPuppet","domjoin","RegisterAzDSC","linuxpushdsc","winpushdsc","bginfo","RegisterLinuxDSC")]
+[ValidateSet("azshare","diag","msav","linaccess","winaccess","linuxbackup","linuxospatch","linchefagent","winchefagent","eset","customscript","linuxcustomscript","opsinsightLinux","opsinsightWin","WinPuppet","domjoin","RegisterWinDSC","linuxpushdsc","winpushdsc","bginfo","RegisterLinuxDSC","addvmbackupvault","linuxasm")]
 [Alias("ext")]
 [string]
 $extname = 'diag',
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [Alias("vm")]
 [string]
 $VMName = '',
 [ValidateNotNullorEmpty()]
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=1)]
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $rg = 'dcs',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
@@ -115,11 +119,11 @@ $storerg = $rg,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [string]
-$locadmin = 'localadmin',
+$locadmin = 'locadmin',
 [Parameter(Mandatory=$false,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [string]
-$locpassword = 'P@ssW0rd!',
+$locpassword = 'P@ssw0rd!',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [string]
@@ -149,8 +153,12 @@ $InterfaceName1 = $VMName + '_nic1',
 [Alias("int2")]
 [string]
 $InterfaceName2 = $VMName + "_nic2",
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$Azautoacct = "automationacct",
+$Azautoacct = "oms",
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$Azautorg = "AUTOMATION",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $Profile = "profile",
@@ -170,7 +178,7 @@ $CustomScriptUpload = 'True',
 [Alias("dscfilename")]
 [string]
 $WinDSCConfig = 'WindowsUpdate',
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=3)]
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("customscriptname")]
 [string]
 $scriptname = 'installbase.sh',
@@ -207,9 +215,12 @@ $localsoftwarefolder = "$scriptfolder\software",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [switch]
 $csvimport,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=0)]
+[string]
+$csvfilename = ".\azrm-vmextdeploy.csv",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$csvfile = -join $workfolder + "\azrm-vmextdeploy.csv",
+$csvfile = -join $workfolder + $csvfilename,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $BatchAddSSH = 'False',
@@ -218,13 +229,13 @@ $BatchAddSSH = 'False',
 $DiskOSType = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$useexiststorage = 'True',
+$useexistvmstorage = 'True',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$chefvalidationpem = "\.chef\admin.pem",
+$chefvalidationpem = "",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$chefclientrb =  "\.chef\knife.rb",
+$chefclientrb =  "",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateSet("oneoff","scheduled","disabled")]
 [string]
@@ -232,6 +243,12 @@ $linuxpatchtype = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $omswrkspaceid = '',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$omsname = 'autoact',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$omsrg = 'automation',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $omswrkspacekey = '',
@@ -243,7 +260,34 @@ $omsurl = "",
 $primary = "",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [switch]
-$preview
+$preview,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$vaultname = 'backup',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$vaultrg = 'vault',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$policyname = 'policy',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[Alias("rebootvm")]
+[switch]
+$reboot,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$batchreboot = 'False',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$vmaccessuser = 'locadmin',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$vmaccessresetssh = 'False',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateSet("AddUser","RemoveUser","ResetSSH")]
+[string]
+$accesstype = ''
+
 )
 
 $sshPublicKey = Get-Content '.\Pspub.txt'
@@ -254,7 +298,6 @@ Set-StrictMode -Version Latest
 Trap [System.SystemException] {("Exception" + $_ ) ; break}
 
 #region Validate Profile
-#region Validate Profile
 Function validate-profile {
 $comparedate = (Get-Date).AddDays(-14)
 $fileexist = Test-Path $ProfileFile -NewerThan $comparedate
@@ -262,9 +305,14 @@ $fileexist = Test-Path $ProfileFile -NewerThan $comparedate
   {
   $az = Import-AzureRmContext -Path $ProfileFile
 	  $subid = $az.Context.Subscription.Id
-
 	Set-AzureRmContext -SubscriptionId $subid | Out-Null
-		Write-Host "Using $ProfileFile"
+				Write-Host "Using $ProfileFile with SubscriptionID: $subid"
+	  if($SubscriptionID)
+	  {
+		  $subid = $SubscriptionID
+			Set-AzureRmContext -SubscriptionId $subid | Out-Null
+				Write-Host "Using $ProfileFile with SubscriptionID: $subid"
+	  }
   }
   else
   {
@@ -311,6 +359,43 @@ if ($ErrorMessage -eq $null) {$Output = "[Completed]  $Description  ... "} else 
 Return $Result
 }
 
+Function Check-VaultExists {
+$vaultexists = Get-AzureRmRecoveryServicesVault -Name $vaultname -ResourceGroupName $vaultrg -ErrorAction Stop -WarningAction SilentlyContinue -InformationAction SilentlyContinue
+if(!$vaultexists)
+	{
+	Write-Host "Specified vault $vaultname does not exist!" -ForegroundColor Red
+		break
+	}
+}
+
+Function Create-SSHFile {
+			$sshfileexists = Test-Path -Path $sshfile
+if(!$sshfileexists)
+	{
+	New-Item -Path $sshfile -ItemType File -Force | Out-Null
+		Write-Host "Created SSH Text File" $sshfile
+	}
+}
+
+function AddVM-Vault {
+param(
+$vaultname = $vaultname,
+$VMName = $VMName,
+$containertype = "AzureVM",
+$rg = $rg
+)
+Get-AzureRmRecoveryServicesVault -Name $vaultname | Set-AzureRmRecoveryServicesVaultContext
+$script:pol = Get-AzureRmRecoveryServicesBackupProtectionPolicy -Name $policyname
+Enable-AzureRmRecoveryServicesBackupProtection -Policy $script:pol -Name $VMName -ResourceGroupName $rg
+$namedContainer = Get-AzureRmRecoveryServicesBackupContainer -ContainerType $containertype -Status "Registered" -FriendlyName $VMName
+$item = Get-AzureRmRecoveryServicesBackupItem -Container $namedContainer -WorkloadType "AzureVM"
+$job = Backup-AzureRmRecoveryServicesBackupItem -Item $item
+$job
+
+$LogOut = "Completed adding $VMName to $vaultname"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
 #region Use CSV
 Function csv-run {
 param(
@@ -321,7 +406,7 @@ param(
 	{exit}
 	else {
 	Write-Host $GetPath "File Exists"
-import-csv -Path $csvin -Delimiter ',' -ErrorAction SilentlyContinue -InformationAction SilentlyContinue | ForEach-Object{.\AZRM-ExtDeploy.ps1 -VMName $_.VMName -rg $_.rg -ExtName $_.ExtName -BatchAddExtension $_.BatchAddExtension -CustomScriptUpload $_.CustomScriptUpload -scriptname $_.scriptname -containername $_.containername -scriptfolder $_.scriptfolder -customextname $_.customextname -BatchAddSSH $_.BatchAddSsh -linuxpatchtype $_.linuxpatchtype }
+import-csv -Path $csvin -Delimiter ',' -ErrorAction Stop -InformationAction SilentlyContinue -WarningAction SilentlyContinue | ForEach-Object{.\AZRM-ExtDeploy.ps1 -VMName $_.VMName -rg $_.rg -ExtName $_.ExtName -CustomScriptUpload $_.CustomScriptUpload -scriptname $_.scriptname -containername $_.containername -scriptfolder $_.scriptfolder -customextname $_.customextname -BatchAddSSH $_.BatchAddSsh -linuxpatchtype $_.linuxpatchtype -WinDSCConfig $_.WinDSCConfig -LinDSCConfig $_.LinDSCConfig -batchreboot $_.batchreboot -StoreRg $_.StoreRg -StorageType $_.StorageType }
 }
 }
 #endregion
@@ -348,13 +433,29 @@ Write-Host "Please select -linuxpatchtype before running this command" -Foregrou
 exit
 }
 	elseif($extname -eq 'linuxospatch' -and $linuxpatchtype -eq 'oneoff') {
-	Write-Host "Deploying Linux OS Patch - OneOff"
+	Write-Host "Deploying Linux OS Patch - One Off"
 	}
 				elseif($extname -eq 'linuxospatch' -and $linuxpatchtype -eq 'scheduled')  {
 	Write-Host "Deploying Linux OS Patch - Scheduled"
 				}
 					elseif($extname -eq 'linuxospatch' -and $linuxpatchtype -eq 'disabled') {
 	Write-Host "Deploying Linux OS Patch - Disable"
+					}
+}
+
+function Check-linuxaccess-NullValues {
+if($extname -eq 'linaccess' -and !$accesstype) {
+Write-Host "Please select -accesstype before running this command" -ForegroundColor Red
+exit
+}
+	elseif($extname -eq 'linaccess' -and $linuxpatchtype -eq 'AddUser') {
+	Write-Host "Adding user to $VMName"
+	}
+				elseif($extname -eq 'linaccess' -and $linuxpatchtype -eq 'RemoveUser')  {
+	Write-Host "Removing user from $VMName"
+				}
+					elseif($extname -eq 'linaccess' -and $linuxpatchtype -eq 'AddUser_ResetSSH') {
+	Write-Host "Add user reset SSH"
 					}
 }
 
@@ -373,6 +474,49 @@ function Check-Extension {
 if($AddExtension -and !$extname) {
 Write-Host "Please Enter Extension Name" -ForegroundColor Red
  }
+}
+
+function Get-VMPowerState {
+	param(
+$VMName = $VMName,
+	$rg = $rg
+	)
+	$powerstatus = Get-Azurermvm -Name $VMName -ResourceGroupName $rg -Status
+$currentstate = $powerstatus.Statuses.Code[1]
+	if($currentstate -contains 'PowerState/stopped')
+		{
+			Write-Host "$VMName is currently stopped"
+			$script:pwrstate = 'Stopped'
+		}
+		elseif($currentstate -contains 'PowerState/running')
+			{Write-Host "$VMName is currently running"
+			$script:pwrstate = 'Running'
+			}
+}
+
+function Reboot-VM
+{
+	if($script:pwrstate -eq 'Stopped')
+		{Write-Host "$VMName is already stopped"
+			break
+		}
+		elseif($script:pwrstate -eq 'Running')
+		{
+		Write-Host "Restarting $VMname.."
+		Start-sleep 15
+		Restart-AzureRmVM -Name $VMName -ResourceGroupName $rg -Confirm:$false -ErrorAction Stop -WarningAction SilentlyContinue -InformationAction SilentlyContinue | Out-Null
+		}
+}
+
+function Check-VMPowerState
+{
+	if($script:pwrstate -eq 'Stopped')
+		{Write-Host "$VMName is stopped"
+			break
+		}
+		elseif($script:pwrstate -eq 'Running')
+		{
+		}
 }
 
 function Validate-WinDscName {
@@ -397,8 +541,6 @@ Write-Host "Please add file extension to Linux DSC Config name, example localhos
  }
 }
 
-
-
 #endregion
 
 #region Check Storage
@@ -410,9 +552,16 @@ Function Check-StorageName
 	)
 $extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $storerg -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
 	if(!$extvm) {exit}
-	if($useexiststorage -eq 'True')
-	{		$script:StorageNameVerified = $StorageName.ToLower()
-		Write-Host "Storage Name:" $StorageNameVerified}
+	if($useexistvmstorage -eq 'True')
+		{
+		$extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $storerg -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+
+			$vmstrg = [regex]::match($extvm.DiagnosticsProfile.bootDiagnostics.storageUri, '^http[s]?://(.+?)\.').groups[1].value
+			if($vmstrg)
+			{		$script:StorageNameVerified = $vmstrg.ToLower()
+		Write-Host "Storage Name:" $StorageNameVerified }
+			}
+
 	else
 	{
 	$checkname =  Get-AzureRmStorageAccountNameAvailability -Name $StorageName | Select-Object -ExpandProperty NameAvailable
@@ -492,10 +641,10 @@ param(
 
  [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
  [string]
- $StorageType = "Standard_GRS"
+ $StorageType = $StorageType
 
 )
-	Publish-AzureRmVMDscConfiguration -ResourceGroupName $rg -ConfigurationPath $ConfigurationPath -StorageAccountName $storageAccountName -Force
+	Publish-AzureRmVMDscConfiguration -ResourceGroupName $storerg -ConfigurationPath $ConfigurationPath -StorageAccountName $storageAccountName -Force
 	Set-AzureRmVMDscExtension -ResourceGroupName $rg -VMName $VMName -ArchiveBlobName $ArchiveBlobName -ArchiveStorageAccountName $storageAccountName -ConfigurationName $ConfigurationName -Version 2.19
 	$LogOut = "Added VM DSC to Storage Account $storageAccountName from file $ConfigurationPath"
 	Log-Command -Description $LogOut -LogFile $LogOutFile
@@ -528,13 +677,11 @@ param(
  $StorageType = "Standard_GRS"
 
 )
-	Publish-AzureRmVMDscConfiguration -ResourceGroupName $rg -ConfigurationPath $ConfigurationPath -StorageAccountName $storageAccountName -Force
+	Publish-AzureRmVMDscConfiguration -ResourceGroupName $storerg -ConfigurationPath $ConfigurationPath -StorageAccountName $storageAccountName -Force
 	Set-AzureRmVMDscExtension -ResourceGroupName $rg -VMName $VMName -ArchiveBlobName $ArchiveBlobName -ArchiveStorageAccountName $storageAccountName -ConfigurationName $ConfigurationName -Version 2.19 -WhatIf
 	$LogOut = "Added VM DSC to Storage Account $storageAccountName from file $ConfigurationPath"
 	Log-Command -Description $LogOut -LogFile $LogOutFile
 }
-
-
 
 function Check-OS {
 	param(
@@ -580,14 +727,15 @@ if($patchtype -eq 'oneoff')
 $PublicSetting = ConvertTo-Json -InputObject @{
 	"disabled" = $false;
 	"stop" = $false;
-	"rebootAfterPatch" = "Required";
-	"category" = "ImportantAndRecommended";
-	"installDuration" = "00:30";
+	"rebootAfterPatch" = "RebootIfNeed";
+	"category" = "Important";
+	"installDuration" = "01:00";
 	"oneoff" = $true;
 	"distUpgradeAll" = $false;
 }
 Write-Host "Adding Azure OS Patching Linux - One Off"
-Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OSPatch" -ExtensionType "OSPatchingForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.0" -InformationAction SilentlyContinue -ErrorAction Stop -SettingString $PublicSetting -WarningAction SilentlyContinue | Out-Null
+Write-Host "Public Settings for Extension: $PublicSetting"
+Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OSPatch" -ExtensionType "OSPatchingForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.0" -InformationAction SilentlyContinue -ErrorAction Stop -SettingString $PublicSetting -WarningAction SilentlyContinue -DisableAutoUpgradeMinorVersion:$false | Out-Null
 	}
 	elseif($patchtype -eq 'scheduled')
 	{
@@ -596,7 +744,7 @@ $PublicSetting = ConvertTo-Json -InputObject @{
 	"stop" = $false;
 	"rebootAfterPatch" = "Required";
 	"category" = "ImportantAndRecommended";
-	"installDuration" = "00:90";
+	"installDuration" = "02:00";
 	"distUpgradeAll" = $true;
 	"oneoff" = $false;
 	"intervalOfWeeks" = "1";
@@ -604,6 +752,7 @@ $PublicSetting = ConvertTo-Json -InputObject @{
 	"startTime" = "03:00";
 }
 Write-Host "Adding Azure OS Patching Linux - scheduled"
+Write-Host "Public Settings for Extension: $PublicSetting"
 Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OSPatch" -ExtensionType "OSPatchingForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.0" -InformationAction SilentlyContinue -ErrorAction Stop -SettingString $PublicSetting -WarningAction SilentlyContinue | Out-Null
 	}
 	elseif($patchtype -eq 'disabled')
@@ -613,6 +762,7 @@ $PublicSetting = ConvertTo-Json -InputObject @{
 	"stop" = $true;
 }
 	Write-Host "Disabling Azure OS Patching Linux"
+	Write-Host "Public Settings for Extension: $PublicSetting"
 Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OSPatch" -ExtensionType "OSPatchingForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.0" -InformationAction SilentlyContinue -ErrorAction Stop -SettingString $PublicSetting -WarningAction SilentlyContinue | Out-Null
 	}
 
@@ -637,6 +787,7 @@ $PublicSetting = ConvertTo-Json -InputObject @{
 	"distUpgradeAll" = $false;
 }
 Write-Host "Adding Azure OS Patching Linux - One Off"
+Write-Host "Public Settings for Extension: $PublicSetting"
 Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OSPatch" -ExtensionType "OSPatchingForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.0" -InformationAction SilentlyContinue -ErrorAction Stop -SettingString $PublicSetting -WarningAction SilentlyContinue -WhatIf
 	}
 	elseif($patchtype -eq 'scheduled')
@@ -722,8 +873,8 @@ Function Upload-CustomScript {
 	$localFolder = $localFolder
 	)
 
-		$Keys = Get-AzureRmStorageAccountKey -ResourceGroupName $rg -Name $StorageName;
-		$StorageContext = New-AzureStorageContext -StorageAccountName $StorageName -StorageAccountKey $Keys[0].Value;
+		$Keys = Get-AzureRmStorageAccountKey -ResourceGroupName $rg -Name $script:StorageNameVerified;
+		$StorageContext = New-AzureStorageContext -StorageAccountName $script:StorageNameVerified -StorageAccountKey $Keys[0].Value;
 		New-AzureStorageContainer -Context $StorageContext -Name $containerName -WarningAction SilentlyContinue -ErrorAction SilentlyContinue;
 		$storageAccountKey = Get-AzureRmStorageAccountKey -ResourceGroupName $rg -Name $StorageName;
 		$blobContext = New-AzureStorageContext -StorageAccountName $StorageName -StorageAccountKey $Keys[0].Value;
@@ -736,7 +887,7 @@ Function Upload-CustomScript {
 			Set-AzureStorageBlobContent -File $filename -Container $containerName -Blob $blobName -Context $blobContext -Force -BlobType Append -WarningAction SilentlyContinue -ErrorAction SilentlyContinue -Confirm:$false | Out-Null
 		  Get-AzureStorageBlob -Container $containerName -Context $blobContext -Blob $blobName -WarningAction SilentlyContinue | Out-Null
 }
-		  $scripturl = "https://$StorageName.blob.core.windows.net/$containerNameScripts/$scriptname"
+		  $scripturl = "https://$script:StorageNameVerified.blob.core.windows.net/$containerNameScripts/$scriptname"
 		  $LogOut = "Custom Script uploaded $scripturl"
 				Log-Command -Description $LogOut -LogFile $LogOutFile
 }
@@ -765,10 +916,9 @@ Function Upload-CustomScriptPreview {
 		  Get-AzureStorageBlob -Container $containerName -Context $blobContext -Blob $blobName -WarningAction SilentlyContinue | Out-Null
 }
 		  $scripturl = "https://$StorageName.blob.core.windows.net/$containerNameScripts/$scriptname"
-		  Write-Host "Custom Script uploaded $scripturl -preview"
+		  $LogOut = "Custom Script uploaded $scripturl -preview"
 				Log-Command -Description $LogOut -LogFile $LogOutFile
 }
-
 
 Function Configure-DSCMof {
 	param(
@@ -792,7 +942,7 @@ Function Configure-DSCMof {
 			Set-AzureStorageBlobContent -File $fileName -Container $containername -Blob $blobName -Context $blobContext -Force -BlobType Append -WarningAction SilentlyContinue -ErrorAction SilentlyContinue -Confirm:$false | Out-Null
 }
 
-				$mofurl = -join "https://" + $StorageName + ".blob.core.windows.net/" + $dsccontainername + "/" + $DSCConfig
+				$mofurl = -join "https://" + $StorageName + ".blob.core.windows.net/" + $dsccontainername + "/" + $LinDSCConfig
 				$Keys = Get-AzureRmStorageAccountKey -ResourceGroupName $rg -Name $StorageName
 				$Key1 = $Keys[0].Value
 				$PublicSetting = "{`"FileUri`":`"$mofurl`" ,`"Mode`": `"Push`"}"
@@ -801,6 +951,32 @@ Function Configure-DSCMof {
 				Write-Host "$mofurl"
 
 				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "DSCForLinux" -ExtensionType "DSCForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.3" -InformationAction SilentlyContinue -SettingString $PublicSetting -ProtectedSettingString $PrivateSetting | Out-Null
+					$LogOut = "Applied $LinDSCConfig to $VMName from file $mofurl"
+					Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function Configure-RegisterDSCLinux {
+	param(
+		$Azautoacct = $Azautoacct,
+		$Azautorg = $Azautorg
+	)
+
+$PublicSetting = ConvertTo-Json -InputObject @{
+	"ExtensionAction" = "Register";
+	"NodeConfigurationName" = "config.$VMName";
+	"RefreshFrequencyMins" = "Required";
+	"ConfigurationMode" = "ApplyAndAutocorrect";
+	"ConfigurationModeFrequencyMins" = "30";
+}
+
+	$PrivateSetting = ConvertTo-Json -InputObject @{
+	"RegistrationUrl" = "https://eus2-agentservice-prod-1.azure-automation.net/accounts/8605cbdb-2bb7-48a3-8f72-8b17f769dace";
+	"RegistrationKey" = "I4dp4aJnRSTdQ57oLlsJMh/Z/W1vOt+QDd30GdzFcNKSmX7tCLXjVeaLXZhTQ9dyYe3YAmWF2ahYn7jM0D7nmg==";
+}
+				Write-Host "Public Settings for Extension: $PublicSetting"
+				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "DSCForLinux" -ExtensionType "DSCForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.3" -InformationAction SilentlyContinue -SettingString $PublicSetting -ProtectedSettingString $PrivateSetting | Out-Null
+					$LogOut = "Applied $LinDSCConfig to $VMName from file $mofurl"
+					Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
 Function Configure-DSCMofPreview {
@@ -836,22 +1012,32 @@ Function Configure-DSCMofPreview {
 				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "DSCForLinux" -ExtensionType "DSCForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.3" -InformationAction SilentlyContinue -SettingString $PublicSetting -ProtectedSettingString $PrivateSetting -WhatIf | Out-Null
 }
 
-
 Function Get-OMSInfo {
 	param(
-		$omsrg = 'automation-rmp',
-		$omsname = 'rmpautoact'
+		$omsrg = $omsrg,
+		$omsname = $omsname
 	)
 
+	$omsexists = Get-AzureRmOperationalInsightsWorkspace -ResourceGroupName $omsrg -Name $omsname -ErrorAction SilentlyContinue -WarningAction SilentlyContinue -InformationAction SilentlyContinue
+
+	if($omsname -ne "" -and $omsexists)
+		{
 	$key = Get-AzureRmOperationalInsightsWorkspaceSharedKeys -Name $omsname -ResourceGroupName $omsrg
 	$primary = $key.PrimarySharedKey
 	$oms =  Get-AzureRmOperationalInsightsWorkspace -ResourceGroupName $omsrg -Name $omsname
 	$omsurl = $oms.PortalUrl
-	Write-Host $primary
-
-
+	$script:omsid = $oms.ResourceId
+	Write-Host $script:omsid
+		}
 }
 
+Function Register-ASM {
+	param(
+
+	)
+
+Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "LinuxAsm" -ExtensionType "LinuxAsm" -Publisher "Microsoft.Azure.Extensions" -typeHandlerVersion "2.0" -InformationAction SilentlyContinue | Out-Null
+}
 
 Function Register-DSCLinux {
 	param(
@@ -864,14 +1050,14 @@ Function Register-DSCLinux {
 	"RegistrationKey" = $primary;
 	}
 
-
 	$publicConfig = '{
 	  "ExtensionAction" : "Register",
-	  "NodeConfigurationName": "$VMName",
+	  "NodeConfigurationName": "config.$VMName",
 	  "RefreshFrequencyMins": "30",
 	  "ConfigurationMode": "ApplyAndMonitor",
 	  "ConfigurationModeFrequencyMins": "30"
 	}'
+	Write-Host "Public Settings for Extension: $publicConfig"
 Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "DSCForLinux" -ExtensionType "DSCForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.3" -InformationAction SilentlyContinue -SettingString $publicConfig -ProtectedSettingString $PrivateSetting | Out-Null
 }
 
@@ -886,7 +1072,6 @@ Function Register-DSCLinuxPreview {
 	"RegistrationKey" = $primary;
 	}
 
-
 	$publicConfig = '{
 	  "ExtensionAction" : "Register",
 	  "NodeConfigurationName": "$VMName",
@@ -894,9 +1079,56 @@ Function Register-DSCLinuxPreview {
 	  "ConfigurationMode": "ApplyAndMonitor",
 	  "ConfigurationModeFrequencyMins": "30"
 	}'
+Write-Host "Public Settings for Extension: $publicConfig"
 Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "DSCForLinux" -ExtensionType "DSCForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.3" -InformationAction SilentlyContinue -SettingString $publicConfig -ProtectedSettingString $PrivateSetting -WhatIf | Out-Null
 }
 
+Function OMSAgent-InstallWin
+{
+	param(
+	$omswrkspaceid = $omswrkspaceid,
+	$omswrkspacekey = $omswrkspacekey,
+	$rg = $rg,
+	$Location = $Location,
+	$VMName = $VMName
+	)
+
+	$PublicSetting = ConvertTo-Json -InputObject @{
+					"workspaceId" = $omswrkspaceid;
+					"stopOnMultipleConnections" = $false;
+				}
+	$PrivateSetting = ConvertTo-Json -InputObject @{
+					"workspaceKey" = $omswrkspacekey;
+				}
+
+				Write-Host "Adding Windows Insight Agent"
+				Write-Host "Public Settings for Extension: $PublicSetting"
+				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OperationalInsights" -ExtensionType "MicrosoftMonitoringAgent" -Publisher "Microsoft.EnterpriseCloud.Monitoring" -typeHandlerVersion "1.0" -InformationAction SilentlyContinue  -ErrorAction Stop  -Verbose  -SettingString $PublicSetting -ProtectedSettingString $PrivateSetting | Out-Null
+				Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "OperationalInsights" | Out-Null
+				$LogOut = "Ops Insight Windows Agent Deployed to $VMName"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function OMSAgent-InstallLin
+{
+	param(
+	$omswrkspaceid = $omswrkspaceid,
+	$omswrkspacekey = $omswrkspacekey,
+	$rg = $rg,
+	$Location = $Location,
+	$VMName = $VMName
+	)
+
+				Write-Host "Adding Linux Insight Agent"
+				$PublicSetting = "{`"workspaceId`":`"$omswrkspaceid`",`"stopOnMultipleConnections`":`"$false`"}"
+				$PrivateSetting = "{`"workspaceKey`":`"$omswrkspacekey`"}"
+
+				Write-Host "Public Settings for Extension: $PublicSetting"
+				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OperationalInsights" -ExtensionType "OmsAgentForLinux" -Publisher "Microsoft.EnterpriseCloud.Monitoring" -typeHandlerVersion "1.0" -InformationAction SilentlyContinue  -ErrorAction Stop -SettingString $PublicSetting -ProtectedSettingString $PrivateSetting | Out-Null
+				Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "OperationalInsights" | Out-Null
+				$LogOut = "Ops Insight Linux Agent Deployed to $VMName"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+}
 
 #region Verify Linux OS
 Function Verify-ExtLinux {
@@ -924,9 +1156,6 @@ if($DiskOSType -eq 'Windows') {Write-Host "Host OS: Windows"}
 	}
 }
 
-
-
-
 #endregion
 
 Function Verify-ExtCompat {
@@ -938,119 +1167,7 @@ if($DiskOSType -eq 'Windows') {Write-Host "Host OS: Windows"}
 }
 
 #region Uninstall Extension
-Function UnInstall-Ext {
-	param(
-		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-		[string]
-		$Location = $Location,
-		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-		[string]
-		$rg = $rg,
-		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-		[string]
-		$VMName = $VMName,
-		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-		[string]
-		$customextname = $customextname,
-		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-		[string]
-		$extname = $extname
 
-	)
-switch ($extname)
-	{
-		"access" {
-				Write-Host "VM Access Agent VM Image Removal in Process"
-				Remove-AzureRmVMAccessExtension -ResourceGroupName $rg -VMName $VMName -Name "VMAccess" -Force -Confirm:$false
-				$LogOut = "Removed VM Access Extension"
-				Log-Command -Description $LogOut -LogFile $LogOutFile
-						exit
-}
-		"msav" {
-				Write-Host "MSAV Agent VM Image Removal in Process"
-				Remove-AzureRmVMExtension -Name "MSAVExtension" -ResourceGroupName $rg -VMName $VMName -Confirm:$false -Force
-				$LogOut = "Removed MSAV Extension"
-				Log-Command -Description $LogOut -LogFile $LogOutFile
-						exit
-		}
-		"customscript" {
-				Write-Host "Removing custom script"
-				Remove-AzureRmVMCustomScriptExtension -ResourceGroupName $rg -VMName $VMName -Name $customextname -Confirm:$false -Force
-				$LogOut = "Removed Custom Script Extension"
-				Log-Command -Description $LogOut -LogFile $LogOutFile
-					exit
-		}
-		"diag" {
-				Write-Host "Removing Azure Enhanced Diagnostics"
-				Remove-AzureRmVMAEMExtension -ResourceGroupName $rg -VMName $VMName
-				$LogOut = "Removed Custom Script Extension"
-				Log-Command -Description $LogOut -LogFile $LogOutFile
-						exit
-		}
-		"domjoin" {
-				Write-Host "Removing Domain Join"
-		}
-		"linuxOsPatch" {
-				Write-Host "Removing Azure OS Patching Linux"
-				Remove-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "OSPatch"
-				$LogOut = "Removed Linux OS Patch Extension"
-				Log-Command -Description $LogOut -LogFile $LogOutFile
-						exit
-				}
-		"linuxbackup" {
-				Write-Host "Removing Linux VMBackup"
-				Remove-AzureRmVMBackup -ResourceGroupName $rg -VMName $VMName -Tag 'OSBackup'
-				$LogOut = "Removed Linux OS Backup Extension"
-				Log-Command -Description $LogOut -LogFile $LogOutFile
-						exit
-				}
-		"chefAgent" {
-				Write-Host "Removing Chef Agent"
-				Remove-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "ChefStrap" -Force -Confirm:$false
-				$LogOut = "Removed Chef Extension"
-				Log-Command -Description $LogOut -LogFile $LogOutFile
-				exit
-				}
-		"opsinsightLinux" {
-				Write-Host "Removing Linux Insight Agent"
-			exit
-				}
-		"opsinsightWin" {
-				Write-Host "Removing Windows Insight Agent"
-			exit
-				}
-		"ESET" {
-				Write-Host "Removing File Security"
-				Remove-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "ESET" -Force -Confirm:$false
-				$LogOut = "Removed File Security Extension"
-				Log-Command -Description $LogOut -LogFile $LogOutFile
-			exit
-				}
-		"RegisterAzDSC" {
-				Write-Host "Removing Azure Automation DSC"
-			exit
-				}
-		"WinPuppet" {
-				Write-Host "Removing Puppet Extension"
-			exit
-				}
-		"winpushdsc" {
-				Remove-DscExt
-				$LogOut = "Removed DSC Extension"
-				Log-Command -Description $LogOut -LogFile $LogOutFile
-						exit
-				}
-		"Bginfo" {
-				Write-Host "Removing BgInfo Extension"
-				Remove-AzureVMBGInfoExtension -VM $VMName
-				$LogOut = "Removed BGInfo Extension"
-				Log-Command -Description $LogOut -LogFile $LogOutFile
-			exit
-				}
-		default{"An unsupported uninstall Extension command was used"}
-	}
-	exit
-}
 #endregion
 
 Function Verify-StorageExists {
@@ -1072,6 +1189,67 @@ if(!$strexists)
 }
 	}
 
+Function deploy-eset {
+		param(
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+		[string]
+		$rg = $rg,
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+		[string]
+		$VMName = $VMName
+
+	)
+Write-Host "Setting File Security"
+Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "ESET" -ExtensionType "FileSecurity" -Publisher "ESET" -typeHandlerVersion "6.0" -InformationAction SilentlyContinue -Verbose  -ErrorAction Stop | Out-Null
+$LogOut = "ESET Deployed to $VMName"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function deploy-chef-win {
+		param(
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+		[string]
+		$rg = $rg,
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+		[string]
+		$VMName = $VMName,
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+		[string]
+		$clientrb = $clientrb,
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+		[string]
+		$validationpem = $validationpem
+	)
+
+Write-Host "Adding Windows Chef Agent"
+Set-AzureRmVMChefExtension -ResourceGroupName $rg -VMName $VMName -TypeHandlerVersion "1210.12" -ValidationPem $validationpem -ClientRb $clientrb -Windows
+$LogOut = "Chef Agent Deployed to $VMName"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function deploy-chef-lin {
+		param(
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+		[string]
+		$rg = $rg,
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+		[string]
+		$VMName = $VMName,
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+		[string]
+		$clientrb = $clientrb,
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+		[string]
+		$validationpem = $validationpem
+	)
+
+Write-Host "Adding Linux Chef Agent"
+
+Set-AzureRmVMChefExtension -ResourceGroupName $rg -VMName $VMName -TypeHandlerVersion "1210.12" -ValidationPem $validationpem -ClientRb $clientrb -Linux
+$LogOut = "Chef Agent Deployed to $VMName"
+Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
 function Verify-ScriptExists {
 	param(
 	$remscriptpath = -join $customscriptsdir + "\" + $scriptname
@@ -1087,6 +1265,184 @@ if(!$remscript)
 	}
 	else
 	{	 $script:remenable = 'True'}
+}
+Function Set-LinAccess-ResetSSH {
+	param(
+		$username = $vmaccessuser,
+		$userpass = $locpassword,
+		$sshkey = $sshPublicKey,
+		$resetssh = $True
+	)
+
+					$PrivateSetting = ConvertTo-Json -InputObject @{
+					"ssh_key" = $sshkey;
+					"reset_ssh" = $resetssh;
+				}
+					$PublicSetting = ConvertTo-Json -InputObject @{
+				}
+	Write-Host "Linux VM Access Agent VM Image Preparation in Process - Reset SSH Operation"
+
+				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "VMAccessForLinux" -ExtensionType "VMAccessForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "1.4" -InformationAction SilentlyContinue -Verbose -ProtectedSettingString $PrivateSetting | Out-Null
+
+				$LogOut = "VM Access Agent on $VMName reset the VM's SSH Keys"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function Register-Dsc {
+	param(
+
+		$ActionAfterReboot = 'ContinueConfiguration',
+		$configmode = 'ApplyAndAutocorrect',
+		$AutoAcctName = $Azautoacct,
+		$NodeName = $VMName,
+		$autorg = $Azautorg,
+		$ConfigurationName = "config.$VMName"
+
+	)
+Write-Host "Registering with Azure Automation DSC"
+
+				Register-AzureRmAutomationDscNode -AutomationAccountName $AutoAcctName -AzureVMName $VMName -ActionAfterReboot $ActionAfterReboot -ConfigurationMode $configmode -RebootNodeIfNeeded $True -ResourceGroupName $autorg -NodeConfigurationName $ConfigurationName -AzureVMLocation $Location -AzureVMResourceGroup $rg -Verbose | Out-Null
+}
+
+Function Set-WinAccess {
+		param(
+		[string]$username = $vmaccessuser,
+		[string]$userpass = $locpassword
+	)
+
+				Write-Host "Windows VM Access Agent VM Image Preparation in Process"
+				Set-AzureRmVMAccessExtension -ResourceGroupName $rg -VMName $VMName -Name "VMAccess" -typeHandlerVersion "2.0" -Location $Location -Verbose -username $locadmin -password $locpassword -ErrorAction Stop | Out-Null
+				$LogOut = "VM Access Agent Deployed to $VMName"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function Set-LinAccess-AddUser {
+	param(
+		[string]$username = $vmaccessuser,
+		[string]$userpass = $locpassword,
+		[string]$sshkey = $sshPublicKey,
+		[string]$resetssh = $False
+	)
+
+					$PrivateSetting = ConvertTo-Json -InputObject @{
+					"username" = $username;
+					"password" = $userpass;
+					"ssh_key" = $sshkey;
+					"reset_ssh" = $resetssh;
+				}
+					$PublicSetting = ConvertTo-Json -InputObject @{
+				}
+	Write-Host "Linux VM Access Agent VM Image Preparation in Process - Add User Operation"
+
+				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "VMAccessForLinux" -ExtensionType "VMAccessForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "1.4" -InformationAction SilentlyContinue -Verbose -ProtectedSettingString $PrivateSetting | Out-Null
+
+				$LogOut = "VM Access Agent added user $username to $VMName"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function Set-LinAccess-RemoveUser {
+	param(
+
+		$remuser = $vmaccessuser
+	)
+
+					$PrivateSetting = ConvertTo-Json -InputObject @{
+					"remove_user" = $remuser
+					}
+					$PublicSetting = ConvertTo-Json -InputObject @{
+				}
+	Write-Host "Linux VM Access Agent VM Image Preparation in Process - Remove User Operation"
+
+				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "VMAccessForLinux" -ExtensionType "VMAccessForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "1.4" -InformationAction SilentlyContinue -Verbose -ProtectedSettingString $PrivateSetting | Out-Null
+
+			$LogOut = "VM Access Agent removed user $username from $VMName"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function Extension_WinCustomScript
+{
+		param(
+		[string]$Location = $Location,
+		[string]$rg = $rg,
+		[string]$StorageName = $script:StorageNameVerified,
+		[string]$VMName = $VMName,
+		[string]$containerNameScripts = 'scripts',
+		[string]$customextname = $customextname,
+		[string]$localfolderscripts = $customscriptsdir,
+		[string]$scriptname = $scriptname
+	)
+
+				Write-Host "Updating: $VMName in the Resource Group: $rg with a custom script: $customextname in Storage Account: $StorageName"
+				if($CustomScriptUpload -eq 'True')
+				{
+				Test-Upload -localFolder $localfolderscripts
+				Upload-CustomScript -StorageName $StorageName -rg $rg -containerName $containerNameScripts -localFolder $localfolderscripts
+				}
+				$scriptend = "https://$StorageName.blob.core.windows.net/$containerNameScripts/$scriptname"
+				if(!$scriptend)
+					{
+					Upload-CustomScript -StorageName $StorageName -containerName $containerNameScripts -rg $rg -localFolder $localfolderscripts
+					}
+				Set-AzureRmVMCustomScriptExtension -Name $customextname -ContainerName $containerName -ResourceGroupName $rg -VMName $VMName -StorageAccountName $StorageName -FileName $scriptname -Location $Location -TypeHandlerVersion "1.8" -WarningAction SilentlyContinue  -ErrorAction Stop | Out-Null
+				Get-AzureRmVMCustomScriptExtension -ResourceGroupName $rg -VMName $VMName -Name $customextname -Status | Out-Null
+				$LogOut = "Custom $scriptname Deployed to $VMName"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function Extension_LinCustomScript
+{
+		param(
+		[string]$Location = $Location,
+		[string]$rg = $rg,
+		[string]$StorageName = $script:StorageNameVerified,
+		[string]$VMName = $VMName,
+		[string]$containerNameScripts = 'scripts',
+		[string]$customextname = $customextname,
+		[string]$localfolderscripts = $customscriptsdir,
+		[string]$scriptname = $scriptname
+	)
+
+				$Keys = Get-AzureRmStorageAccountKey -ResourceGroupName $rg -Name $StorageName
+				$Key1 = $Keys[0].Value
+				$fileuri = -join "[" + "https://" + $StorageName + ".blob.core.windows.net/" + $containerNameScripts + "/" + $scriptname + "]"
+
+				$PrivateSetting = ConvertTo-Json -InputObject @{
+				"storageAccountName" = $StorageName;
+				"storageAccountKey" = $Key1;
+}
+				$PublicSetting = "{`"fileUris`":[`"https://$StorageName.blob.core.windows.net/$containerNameScripts/$scriptname`"] ,`"commandToExecute`": `"sh $scriptname`"}"
+
+				Write-Host "Updating $VMName with $scriptname in Storage Account $StorageName" -ForegroundColor Blue
+				Write-Host "Public Settings for Extension: $PublicSetting"
+				if($CustomScriptUpload -eq 'True')
+				{
+				Test-Upload -localFolder $localfolderscripts
+				Upload-CustomScript -StorageName $StorageName -rg $rg -containerName $containerNameScripts -localFolder $localfolderscripts -InformationAction SilentlyContinue -WarningAction SilentlyContinue -ErrorAction Stop | Out-Null
+				}
+				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "CustomscriptLinux" -ExtensionType "CustomScript" -Publisher "Microsoft.Azure.Extensions" -typeHandlerVersion "2.0" -InformationAction SilentlyContinue -SettingString $PublicSetting -ProtectedSettingString $PrivateSetting -ErrorAction Stop -WarningAction SilentlyContinue  | Out-Null
+				 $LogOut = "Added VM Custom Script Extension for $scriptname"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function VMAccess-Linux {
+	param(
+		[string]$accesstype = $accesstype
+	)
+
+switch ($accesstype)
+	{
+		"AddUser" {
+		Set-LinAccess-AddUser
+}
+		"ResetSSH" {
+		Set-LinAccess-ResetSSH
+}
+		"RemoveUser" {
+		Set-LinAccess-RemoveUser
+}
+
+		default{"An unsupported Access type was used"}
+	}
 }
 
 Function Check-VMExtension {
@@ -1295,6 +1651,11 @@ switch ($extname)
 
 				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OperationalInsights" -ExtensionType "OmsAgentForLinux" -Publisher "Microsoft.EnterpriseCloud.Monitoring" -typeHandlerVersion "1.0" -InformationAction SilentlyContinue  -ErrorAction Stop -SettingString $PublicSetting -ProtectedSettingString $PrivateSetting -WhatIf | Out-Null
 				Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "OperationalInsights" | Out-Null
+				if($reboot -or $batchreboot -eq 'True')
+				{
+				Get-VMPowerState
+				Reboot-VM
+				}
 						Write-Results
 				Break
 }
@@ -1311,6 +1672,10 @@ switch ($extname)
 
 				Write-Host "Adding Windows Insight Agent"
 				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OperationalInsights" -ExtensionType "MicrosoftMonitoringAgent" -Publisher "Microsoft.EnterpriseCloud.Monitoring" -typeHandlerVersion "1.0" -InformationAction SilentlyContinue  -ErrorAction Stop  -Verbose  -SettingString $PublicSetting -ProtectedSettingString $PrivateSetting -WhatIf | Out-Null
+				if($reboot -or $batchreboot -eq 'True')
+				{
+				Get-VMPowerState
+				}
 						Write-Results
 
 													  break
@@ -1319,7 +1684,12 @@ switch ($extname)
 				Verify-ExtWindows
 				Write-Host "Setting File Security"
 				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "ESET" -ExtensionType "FileSecurity" -Publisher "ESET" -typeHandlerVersion "6.0" -InformationAction SilentlyContinue -Verbose  -ErrorAction Stop -WhatIf | Out-Null
-						Write-Results
+				if($reboot -or $batchreboot -eq 'True')
+				{
+				Get-VMPowerState
+				}
+
+			Write-Results
 
 										  break
 }
@@ -1328,15 +1698,24 @@ switch ($extname)
 				Validate-WinDscName
 				Configure-DSCPreview
 				Write-Host "Pushing DSC to $VMName in the $rg Resource Group"
+				if($reboot -or $batchreboot -eq 'True')
+				{
+				Get-VMPowerState
+				}
+
 						Write-Results
 
 										  break
 }
 		"linuxpushdsc" {
 				Verify-ExtLinux
-				Validate-LinDscName
+	##			Validate-LinDscName
 				Configure-DSCMofPreview
 				Write-Host "Pushing DSC to $VMName in the $rg Resource Group"
+				if($reboot -or $batchreboot -eq 'True')
+				{
+				Get-VMPowerState
+				}
 				Write-Results
 
 										  break
@@ -1349,7 +1728,7 @@ switch ($extname)
 
 										  break
 }
-		"RegisterAzDSC" {
+		"RegisterWinDSC" {
 				Verify-ExtWindows
 				Write-Host "Registering with Azure Automation DSC"
 										  break
@@ -1394,24 +1773,27 @@ switch ($extname)
 	{
 		"winaccess" {
 				Verify-ExtWindows
-				Write-Host "Windows VM Access Agent VM Image Preparation in Process"
-				Set-AzureRmVMAccessExtension -ResourceGroupName $rg -VMName $VMName -Name "VMAccess" -typeHandlerVersion "2.0" -Location $Location -Verbose -username $locadmin -password $locpassword -ErrorAction Stop | Out-Null
-				$LogOut = "VM Access Agent Deployed to $VMName"
-				Log-Command -Description $LogOut -LogFile $LogOutFile
+				Set-WinAccess
+				if($reboot -or $batchreboot -eq 'True')
+				{
+				Get-VMPowerState
+				Reboot-VM
+				}
+
 						Write-Results
 
 									break
 }
 		"linaccess" {
 				Verify-ExtLinux
-				Write-Host "Linux VM Access Agent VM Image Preparation in Process"
-				$PublicSetting = "{}"
+				Check-linuxaccess-NullValues
+				VMAccess-Linux
 
-				$PrivateSetting = "{`"username`":`"$locadmin`",`"password`":`"$locpassword`",`"ssh_key`":`"$sshPublicKey`",`"reset_ssh`":`"True`"}"
-
-				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "VMAccessForLinux" -ExtensionType "VMAccessForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "1.4" -InformationAction SilentlyContinue -Verbose -ProtectedSettingString $PrivateSetting | Out-Null
-				$LogOut = "VM Access Agent Deployed to $VMName"
-				Log-Command -Description $LogOut -LogFile $LogOutFile
+								if($reboot -or $batchreboot -eq 'True')
+				{
+				Get-VMPowerState
+				Reboot-VM
+				}
 						Write-Results
 
 									break
@@ -1423,29 +1805,42 @@ switch ($extname)
 				Set-AzureRmVMExtension  -ResourceGroupName $rg -VMName $VMName -Name "MSAVExtension" -ExtensionType "IaaSAntimalware" -Publisher "Microsoft.Azure.Security" -typeHandlerVersion 1.4 -Location $Location  -ErrorAction Stop | Out-Null
 				$LogOut = "MSAV Agent Deployed to $VMName"
 				Log-Command -Description $LogOut -LogFile $LogOutFile
+				if($reboot -or $batchreboot -eq 'True')
+				{
+				Get-VMPowerState
+				Reboot-VM
+			}
+
 						Write-Results
 
 									  break
 }
+		"linuxasm" {
+				Verify-ExtLinux
+				Write-Host "Adding Linux ASM Extension to $VMName"
+				Register-ASM
+				$LogOut = "Linux ASM deployed to $VMName"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+				if($reboot -or $batchreboot -eq 'True')
+				{
+				Get-VMPowerState
+				Reboot-VM
+				}
+						Write-Results
+
+									  break
+}
+
 		"customscript" {
 				Verify-ExtWindows
 				Verify-ScriptExists
-
-				Write-Host "Updating: $VMName in the Resource Group: $rg with a custom script: $customextname in Storage Account: $StorageName"
-				if($CustomScriptUpload -eq 'True')
+				Extension_WinCustomScript
+				if($reboot -or $batchreboot -eq 'True')
 				{
-				Test-Upload -localFolder $localfolderscripts
-				Upload-CustomScript -StorageName $StorageName -rg $rg -containerName $containerNameScripts -localFolder $localfolderscripts
+				Get-VMPowerState
+				Reboot-VM
+				Get-VMPowerState
 				}
-				$scriptend = "https://$StorageName.blob.core.windows.net/$containerNameScripts/$scriptname"
-				if(!$scriptend)
-					{
-					Upload-CustomScript -StorageName $StorageName -containerName $containerNameScripts -rg $rg -localFolder $localfolderscripts
-					}
-				Set-AzureRmVMCustomScriptExtension -Name $customextname -ContainerName $containerName -ResourceGroupName $rg -VMName $VMName -StorageAccountName $StorageName -FileName $scriptname -Location $Location -TypeHandlerVersion "1.8" -WarningAction SilentlyContinue  -ErrorAction Stop | Out-Null
-				Get-AzureRmVMCustomScriptExtension -ResourceGroupName $rg -VMName $VMName -Name $customextname -Status | Out-Null
-				$LogOut = "Custom $scriptname Deployed to $VMName"
-				Log-Command -Description $LogOut -LogFile $LogOutFile
 						Write-Results
 
 									  break
@@ -1453,25 +1848,12 @@ switch ($extname)
 		"linuxcustomscript" {
 				Verify-ExtLinux
 				Verify-ScriptExists
-				$Keys = Get-AzureRmStorageAccountKey -ResourceGroupName $rg -Name $StorageName
-				$Key1 = $Keys[0].Value
-				$fileuri = -join "[" + "https://" + $StorageName + ".blob.core.windows.net/" + $containerNameScripts + "/" + $scriptname + "]"
-
-				$PrivateSetting = ConvertTo-Json -InputObject @{
-				"storageAccountName" = $StorageName;
-				"storageAccountKey" = $Key1;
-}
-				$PublicSetting = "{`"fileUris`":[`"https://$StorageName.blob.core.windows.net/$containerNameScripts/$scriptname`"] ,`"commandToExecute`": `"sh $scriptname`"}"
-
-				Write-Host "Updating $VMName with $scriptname in Storage Account $StorageName" -ForegroundColor Blue
-				if($CustomScriptUpload -eq 'True')
+				Extension_LinCustomScript
+				if($reboot -or $batchreboot -eq 'True')
 				{
-				Test-Upload -localFolder $localfolderscripts
-				Upload-CustomScript -StorageName $StorageName -rg $rg -containerName $containerNameScripts -localFolder $localfolderscripts -InformationAction SilentlyContinue -WarningAction SilentlyContinue -ErrorAction Stop | Out-Null
+				Get-VMPowerState
+				Reboot-VM
 				}
-				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "CustomscriptLinux" -ExtensionType "CustomScript" -Publisher "Microsoft.Azure.Extensions" -typeHandlerVersion "2.0" -InformationAction SilentlyContinue -SettingString $PublicSetting -ProtectedSettingString $PrivateSetting | Out-Null
-				 $LogOut = "Added VM Custom Script Extension for $scriptname"
-				Log-Command -Description $LogOut -LogFile $LogOutFile
 				Write-Results
 			}
 		"diag" {
@@ -1480,6 +1862,12 @@ switch ($extname)
 				Get-AzureRmVMAEMExtension -ResourceGroupName $rg -VMName $VMName | Out-Null
 				$LogOut = "Azure Enhanced Diagnostics Deployed to $VMName"
 				Log-Command -Description $LogOut -LogFile $LogOutFile
+				if($reboot -or $batchreboot -eq 'True')
+				{
+				Get-VMPowerState
+				Reboot-VM
+				Get-VMPowerState
+				}
 						Write-Results
 
 									  break
@@ -1491,6 +1879,11 @@ switch ($extname)
 				Get-AzureRmVMADDomainExtension -ResourceGroupName $rg  -VMName $VMName -Name 'DomJoin' | Out-Null
 				$LogOut = "Domain join Deployed to $VMName"
 				Log-Command -Description $LogOut -LogFile $LogOutFile
+				if($reboot -or $batchreboot -eq 'True')
+				{
+				Get-VMPowerState
+				Reboot-VM
+				}
 						Write-Results
 
 									  break
@@ -1499,6 +1892,12 @@ switch ($extname)
 				Verify-ExtLinux
 				Check-linuxos-NullValues
 				linuxos-Patching
+				if($reboot -or $batchreboot -eq 'True')
+				{
+				Get-VMPowerState
+				Reboot-VM
+				Get-VMPowerState
+				}
 						Write-Results
 
 										  break
@@ -1510,9 +1909,16 @@ switch ($extname)
 				"commandToExecute" = "snapshot";
 				}
 				Write-Host "Adding Linux VMBackup to $VMName in the resource group $rg"
+				Write-Host "Public Settings for Extension: $PublicSetting"
 				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "VMBackupForLinuxExtension" -ExtensionType "VMBackupForLinuxExtension" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "0.1" -InformationAction SilentlyContinue -SettingString $PublicSetting
 				 $LogOut = "Added VM Backup Extension"
 				Log-Command -Description $LogOut -LogFile $LogOutFile
+				if($reboot -or $batchreboot -eq 'True')
+				{
+				Get-VMPowerState
+				Reboot-VM
+				Get-VMPowerState
+				}
 				Write-Results
 
 									  break
@@ -1520,12 +1926,12 @@ switch ($extname)
 		"linchefagent" {
 				Verify-ExtLinux
 				Test-ChefFiles
-				Write-Host "Adding Linux Chef Agent"
-				$validationpem = $validationpem
-				$clientrb = $clientrb
-				Set-AzureRmVMChefExtension -ResourceGroupName $rg -VMName $VMName -TypeHandlerVersion "1210.12" -ValidationPem $validationpem -ClientRb $clientrb -Linux
-				$LogOut = "Chef Agent Deployed to $VMName"
-				Log-Command -Description $LogOut -LogFile $LogOutFile
+				deploy-chef-lin
+				if($reboot -or $batchreboot -eq 'True')
+				{
+				Get-VMPowerState
+				Reboot-VM
+				}
 						Write-Results
 
 													  break
@@ -1533,66 +1939,71 @@ switch ($extname)
 		"winchefagent" {
 				Verify-ExtWindows
 				Test-ChefFiles
-				Write-Host "Adding Windows Chef Agent"
-				$validationpem = $validationpem
-				$clientrb = $clientrb
-				Set-AzureRmVMChefExtension -ResourceGroupName $rg -VMName $VMName -TypeHandlerVersion "1210.12" -ValidationPem $validationpem -ClientRb $clientrb -Windows -WhatIf
-				$LogOut = "Chef Agent Deployed to $VMName"
-				Log-Command -Description $LogOut -LogFile $LogOutFile
+				deploy-chef-win
+				if($reboot -or $batchreboot -eq 'True')
+				{
+				Get-VMPowerState
+				Reboot-VM
+				Get-VMPowerState
+				}
 						Write-Results
 
 													  break
 }
 
 		"opsinsightLinux" {
-				Get-OMSInfo
 				Verify-ExtLinux
-				Write-Host "Adding Linux Insight Agent"
-				$PublicSetting = "{`"workspaceId`":`"$omswrkspaceid`",`"stopOnMultipleConnections`":`"$false`"}"
-				$PrivateSetting = "{`"workspaceKey`":`"$omswrkspacekey`"}"
-
-				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OperationalInsights" -ExtensionType "OmsAgentForLinux" -Publisher "Microsoft.EnterpriseCloud.Monitoring" -typeHandlerVersion "1.0" -InformationAction SilentlyContinue  -ErrorAction Stop -SettingString $PublicSetting -ProtectedSettingString $PrivateSetting | Out-Null
-				Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "OperationalInsights" | Out-Null
-				$LogOut = "Ops Insight Deployed to $VMName"
-				Log-Command -Description $LogOut -LogFile $LogOutFile
+				OMSAgent-InstallLin
+				if($reboot -or $batchreboot -eq 'True')
+				{
+				Get-VMPowerState
+				Reboot-VM
+				Get-VMPowerState
+				}
 						Write-Results
 				Break
 }
 		"opsinsightWin" {
 				Verify-ExtWindows
-				Get-OMSInfo
-					$PublicSetting = ConvertTo-Json -InputObject @{
-					"workspaceId" = $omswrkspaceid;
-					"stopOnMultipleConnections" = $false;
+				OMSAgent-InstallWin
+				if($reboot -or $batchreboot -eq 'True')
+				{
+				Get-VMPowerState
+				Reboot-VM
+				Get-VMPowerState
 				}
-					$PrivateSetting = ConvertTo-Json -InputObject @{
-					"workspaceKey" = $omswrkspacekey;
-				}
-
-				Write-Host "Adding Windows Insight Agent"
-				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OperationalInsights" -ExtensionType "MicrosoftMonitoringAgent" -Publisher "Microsoft.EnterpriseCloud.Monitoring" -typeHandlerVersion "1.0" -InformationAction SilentlyContinue  -ErrorAction Stop  -Verbose  -SettingString $PublicSetting -ProtectedSettingString $PrivateSetting | Out-Null
-				Get-AzureRmVMExtension -ResourceGroupName $rg -VMName $VMName -Name "OperationalInsights" | Out-Null
-				$LogOut = "Widows Insight Deployed to $VMName"
-				Log-Command -Description $LogOut -LogFile $LogOutFile
 						Write-Results
 
 													  break
 }
 		"ESET" {
 				Verify-ExtWindows
-				Write-Host "Setting File Security"
-				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "ESET" -ExtensionType "FileSecurity" -Publisher "ESET" -typeHandlerVersion "6.0" -InformationAction SilentlyContinue -Verbose  -ErrorAction Stop | Out-Null
-				$LogOut = "ESET Deployed to $VMName"
-				Log-Command -Description $LogOut -LogFile $LogOutFile
+				deploy-eset
+				if($reboot -or $batchreboot -eq 'True')
+				{
+				Get-VMPowerState
+				Reboot-VM
+				Get-VMPowerState
+				}
 						Write-Results
 
 										  break
-}
+}		"addvmbackupvault" {
+						Check-VaultExists
+						AddVM-Vault
+						Write-Results
+		}
 		"winpushdsc" {
 				Verify-ExtWindows
 				Validate-WinDscName
 				Configure-DSC
 				Write-Host "Pushing DSC to $VMName in the $rg Resource Group"
+				if($reboot -or $batchreboot -eq 'True')
+				{
+				Get-VMPowerState
+				Reboot-VM
+				Get-VMPowerState
+				}
 						Write-Results
 
 										  break
@@ -1602,6 +2013,13 @@ switch ($extname)
 				Validate-LinDscName
 				Configure-DSCMof
 				Write-Host "Pushing DSC to $VMName in the $rg Resource Group"
+				if($reboot -or $batchreboot -eq 'True')
+				{
+				Get-VMPowerState
+				Reboot-VM
+				Get-VMPowerState
+				}
+
 				Write-Results
 
 										  break
@@ -1611,20 +2029,24 @@ switch ($extname)
 				Upload-sharefiles
 				Write-Host "Uploading Files to $StorageName"
 						Write-Results
-
+				if($reboot -or $batchreboot -eq 'True')
+				{
+				Get-VMPowerState
+				Reboot-VM
+				Get-VMPowerState
+				}
 										  break
 }
-		"RegisterAzDSC" {
+		"RegisterWinDSC" {
 				Verify-ExtWindows
+			    Register-Dsc 
+				if($reboot -or $batchreboot -eq 'True')
+				{
+				Get-VMPowerState
+				Reboot-VM
+				Get-VMPowerState
+				}
 
-				Write-Host "Registering with Azure Automation DSC"
-				$ActionAfterReboot = 'ContinueConfiguration'
-				$configmode = 'ApplyAndAutocorrect'
-				$AutoAcctName = $Azautoacct
-				$NodeName = $VMName
-				$autorg = 'AUTOMATION-RMP'
-				$ConfigurationName = "config.$VMName"
-				Register-AzureRmAutomationDscNode -AutomationAccountName $AutoAcctName -AzureVMName $VMName -ActionAfterReboot $ActionAfterReboot -ConfigurationMode $configmode -RebootNodeIfNeeded $True -ResourceGroupName $autorg -NodeConfigurationName $ConfigurationName -AzureVMLocation $Location -AzureVMResourceGroup $rg -Verbose | Out-Null
 										  break
 }
 		"RegisterLinuxDSC" {
@@ -1633,6 +2055,12 @@ switch ($extname)
 				$LogOut = "Registration complete for $VMName"
 				Log-Command -Description $LogOut -LogFile $LogOutFile
 						Write-Results
+				if($reboot -or $batchreboot -eq 'True')
+				{
+				Get-VMPowerState
+				Reboot-VM
+				Get-VMPowerState
+				}
 
 			break
 }
@@ -1694,7 +2122,7 @@ Write-Host VM CONFIGURATION - $time -ForegroundColor Cyan
 Write-Host "                                                               "
 Write-Host "VM Name: $VMName " -ForegroundColor White
 Write-Host "Resource Group Name: $rg"
-Write-Host "Storage Account Name:  $StorageNameVerified"
+Write-Host "Storage Account Name:  $script:StorageNameVerified"
 Write-Host "Extension deployed: $extname "
 }
 
@@ -1710,9 +2138,35 @@ Write-Host "                                                               "
 Write-Host "VM Name: $VMName " -ForegroundColor White
 Write-Host "Resource Group Name: $rg"
 Write-Host "Geo Location: $Location"
-Write-Host "Storage Account Name: $StorageName"
+Write-Host "Use Existing VM Storage: $useexistvmstorage"
+Write-Host "Storage Account Name: $script:StorageNameVerified"
 Write-Host "Storage Account Type: $StorageType"
 Write-Host "Extension selected for deployment: $extname "
+		if($extname -eq 'winpushdsc')
+			{
+			Write-Host "Push DSC Config File: $WinDSCConfig"
+			}
+			elseif($extname -eq 'linuxpushdsc')
+			{
+			Write-Host "Push DSC Config File: $LinDSCConfig"
+			}
+				elseif($extname -eq 'linuxcustomscript')
+					{
+					Write-Host "Linux Custom Script File: $scriptname"
+					}
+					elseif($extname -eq 'customscript')
+							{
+					Write-Host "Custom Script File: $scriptname"
+							}
+							elseif($extname -eq 'linuxospatch')
+									{
+									Write-Host "OS Patch Type: $linuxpatchtype"
+									}
+										elseif($reboot -or $batchreboot -eq 'True')
+															{
+											Write-Host "Reboot Enabled on completion"
+											}
+
 Check-OSImage
 Check-VMExtension
 }
@@ -1729,7 +2183,7 @@ Function Check-VM {
 	[string]$rg = $rg,
 	[string]$VMName = $VMName
 	)
-	$extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $rg -InformationAction SilentlyContinue -WarningAction SilentlyContinue
+	$extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $rg -InformationAction SilentlyContinue -WarningAction SilentlyContinue -ErrorAction SilentlyContinue
 
 if(!$extvm)
 {
@@ -1745,17 +2199,18 @@ Function Create-Dir {
 $logdirexists = Test-Path -Path $logdir
 	$direxists = Test-Path -Path $customscriptsdir
 		$dscdirexists = Test-Path -Path $dscdir
+
 if(!$logdirexists)
 	{
 	New-Item -Path $logdir -ItemType Directory -Force | Out-Null
 		Write-Host "Created directory" $logdir
 	}
-	elseif(!$direxists)
+	if(!$direxists)
 	{
 	New-Item -Path $customscriptsdir -ItemType Directory -Force | Out-Null
 	Write-Host "Created directory" $logdir
 }
-		elseif(!$dscdirexists)
+	if(!$dscdirexists)
 {
 		New-Item -Path $dscdir -ItemType Directory -Force | Out-Null
 		Write-Host "Created directory" $logdir
@@ -1813,11 +2268,9 @@ Function Register-ResourceProviders {
  }
 	}
 
-
 Function Login-AddAzureRmProfile
 {
 Add-AzureRmAccount -WarningAction SilentlyContinue
-
 }
 
 ##--------------------------- Begin Script Execution -------------------------------------------------------##
@@ -1863,20 +2316,24 @@ if($csvimport) {
 
 Check-NullValues
 
-
 		try {
 				if($preview)
 				{
-				Write-Config
 				Check-VM
+				Get-VMPowerState
+				Check-VMPowerState
 				Check-StorageName
+				Write-Config
 				Install-ExtPreview
 				break
 				}
-				Write-Config
+
 				Check-VM
+				Get-VMPowerState
+				Check-VMPowerState
 				Check-StorageName
-					Install-Ext
+				Write-Config
+				Install-Ext
 		}
 					catch {
 				Write-Host -foregroundcolor Yellow `
