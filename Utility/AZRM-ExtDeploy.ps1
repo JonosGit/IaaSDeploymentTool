@@ -2,10 +2,10 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 1.8
+Ver 1.9
 Extensions deployment
 
-
+v 1.9 seperated netdiag to lbdiag and nsgdiag option sets, added emcryptvm function
 v 1.8 updated OpsInsight Agents deployment, added VMAccess Options
 v 1.7 added -reboot option as well as updated logic to find the current storage location for the VM being deployed to
 v 1.6 consolidated pushdsc params, added preview switch
@@ -100,7 +100,7 @@ Deploys Azure Extensions to Existing VMs
 Param(
 
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true,Position=2)]
-[ValidateSet("azshare","diag","msav","linaccess","winaccess","linuxbackup","linuxospatch","linchefagent","winchefagent","eset","customscript","linuxcustomscript","opsinsightLinux","opsinsightWin","WinPuppet","domjoin","RegisterWinDSC","linuxpushdsc","winpushdsc","bginfo","RegisterLinuxDSC","addvmbackupvault","linuxasm")]
+[ValidateSet("azshare","diag","msav","linaccess","winaccess","linuxbackup","linuxospatch","linchefagent","winchefagent","eset","customscript","linuxcustomscript","opsinsightLinux","opsinsightWin","WinPuppet","domjoin","RegisterWinDSC","linuxpushdsc","winpushdsc","bginfo","RegisterLinuxDSC","addvmbackupvault","linuxasm","encryptvm")]
 [Alias("ext")]
 [string]
 $extname = 'diag',
@@ -112,7 +112,7 @@ $VMName = '',
 [ValidateNotNullorEmpty()]
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$rg = 'dcs',
+$rg = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $storerg = $rg,
@@ -123,7 +123,7 @@ $locadmin = 'locadmin',
 [Parameter(Mandatory=$false,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [string]
-$locpassword = 'P@ssw0rd!',
+$locpassword = 'P@ssw0Rd!',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [string]
@@ -155,7 +155,7 @@ $InterfaceName1 = $VMName + '_nic1',
 $InterfaceName2 = $VMName + "_nic2",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$Azautoacct = "oms",
+$Azautoacct = "omsauto",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $Azautorg = "AUTOMATION",
@@ -232,10 +232,10 @@ $DiskOSType = '',
 $useexistvmstorage = 'True',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$chefvalidationpem = "",
+$chefvalidationpem = "\chef\validator.pem",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$chefclientrb =  "",
+$chefclientrb =  "\chef\knife.rb",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateSet("oneoff","scheduled","disabled")]
 [string]
@@ -269,7 +269,7 @@ $vaultname = 'backup',
 $vaultrg = 'vault',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$policyname = 'policy',
+$policyname = 'defaultpolicy',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("rebootvm")]
 [switch]
@@ -286,8 +286,19 @@ $vmaccessresetssh = 'False',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateSet("AddUser","RemoveUser","ResetSSH")]
 [string]
-$accesstype = ''
-
+$accesstype = '',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$AadClientID = '',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$aadClientSecret = '',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$diskEncryptionKeyVaultUrl = '',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$keyVaultResourceId = ''
 )
 
 $sshPublicKey = Get-Content '.\Pspub.txt'
@@ -474,6 +485,21 @@ function Check-Extension {
 if($AddExtension -and !$extname) {
 Write-Host "Please Enter Extension Name" -ForegroundColor Red
  }
+}
+
+Function Encrypt-VM {
+param(
+	[string]$rg = $rg,
+	[string]$VMName = $VMName,
+	[string]$AadClientID = $AadClientID,
+	[string]$aadClientSecret = $aadClientSecret,
+	[string]$diskEncryptionKeyVaultUrl = $diskEncryptionKeyVaultUrl,
+	[string]$keyVaultResourceId = $keyVaultResourceId,
+	[string]$volumeType = 'All'
+)
+Write-Host "VM Encryption Starting..."
+	Write-Host "Disk Encryption can take up to 20 minutes per disk..."
+Set-AzureRmVMDiskEncryptionExtension -ResourceGroupName $rg -VMName $VMName -AadClientID $aadClientID -AadClientSecret $aadClientSecret -DiskEncryptionKeyVaultUrl $diskEncryptionKeyVaultUrl -DiskEncryptionKeyVaultId $keyVaultResourceId -VolumeType $volumeType -Force -Confirm:$false -WarningAction SilentlyContinue -InformationAction SilentlyContinue -ErrorAction Stop
 }
 
 function Get-VMPowerState {
@@ -1784,6 +1810,18 @@ switch ($extname)
 
 									break
 }
+		"encryptvm" {
+				Encrypt-VM
+				if($reboot -or $batchreboot -eq 'True')
+				{
+				Get-VMPowerState
+				Reboot-VM
+				}
+
+						Write-Results
+
+									break
+}
 		"linaccess" {
 				Verify-ExtLinux
 				Check-linuxaccess-NullValues
@@ -2039,7 +2077,7 @@ switch ($extname)
 }
 		"RegisterWinDSC" {
 				Verify-ExtWindows
-			    Register-Dsc 
+			    Register-Dsc
 				if($reboot -or $batchreboot -eq 'True')
 				{
 				Get-VMPowerState
@@ -2100,8 +2138,8 @@ if(Get-Module -ListAvailable |
 		select version -ExpandProperty version
 		Write-Host "current Azure PowerShell Version:" $ver
 	$currentver = $ver
-		if($currentver-le '4.0.0'){
-		Write-Host "expected version 4.0.1 found $ver" -ForegroundColor DarkRed
+		if($currentver-le '4.2.0'){
+		Write-Host "expected version 4.2.1 found $ver" -ForegroundColor DarkRed
 		exit
 			}
 }
