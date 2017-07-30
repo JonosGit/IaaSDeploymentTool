@@ -2,9 +2,11 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 1.0
+Ver 1.1
 
 This script provides an automated deployment capability for Azure Zones. Specifically the script helps in creating new Zones and zone records, as well as removal related operations.
+
+v 1.1 updates - added alignzonevm function which allows for automatic alignment of A records to existing hosts in Azure
 v 1.0 updates - RTM
 
 .PARAMETER Action
@@ -23,6 +25,10 @@ v 1.0 updates - RTM
  .\AZRM-MngdnsZone.ps1 -Action getinfo -ZoneName myzone.net -rg zone-dns
 .EXAMPLE
  .\AZRM-MngdnsZone.ps1 -Action createzone -ZoneName myzone.net -rg zone-dns
+ .EXAMPLE
+ .\AZRM-MngdnsZone.ps1 -Action alignzonevm -ZoneName myzone.net -rg zone-dns -vmname myvm -vmrg my-vmrg
+  .EXAMPLE
+ .\AZRM-MngdnsZone.ps1 -Action addzonerec -ZoneName myzone.net -rg zone-dns -recname myrec -recip 127.20.0.4 -rectype a -recttl 3600
 
 #>
 
@@ -30,18 +36,24 @@ v 1.0 updates - RTM
 Param(
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
-[ValidateSet("createzone","addzonerec","removezonerec","remzone","getinfo")]
+[ValidateSet("createzone","addzonerec","removezonerec","removezone","getinfo","alignzonevm")]
 [string]
 $Action = 'addzonerec',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$ZoneName = "",
+$ZoneName = "beta.net",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $RecName = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$rg = '',
+$VMName = '',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$rg = 'dns',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$vmrg = 'vmrg',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $RecIp = '',
@@ -69,21 +81,15 @@ $csvfile = -join $workfolder + "\azrm-dnsrec.csv",
 $csvimport,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$VMName = '',
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[string]
-$vmrg = '',
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[string]
 $SubscriptionID = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $TenantID = ''
 	)
-
 $workfolder = Split-Path $script:MyInvocation.MyCommand.Path
 $ProfileFile = $workfolder+'\'+$profile+'.json'
 $restorejson = $workfolder+'\'+ 'config.json'
+$workfolder = Split-Path $script:MyInvocation.MyCommand.Path
 $logdir = $workfolder+'\'+'log'+'\'
 $LogOutFile = $logdir+$Action+'-'+$date+'.log'
 
@@ -100,11 +106,52 @@ param(
 
 Write-Host "                                                               "
 $time = " Start Time " + (Get-Date -UFormat "%d-%m-%Y %H:%M:%S")
-Write-Host DNS CONFIGURATION - $time -ForegroundColor Cyan
+Write-Host ZONE CONFIGURATION - $time -ForegroundColor Cyan
 Write-Host "                                                               "
 
 Write-Host "Action Selected: $Action"
+
 }
+
+Function Action-Summary {
+
+if($Action -eq 'alignzonevm')
+	{
+	Write-Host "VMName: $VMName "
+		Write-Host "VM Resource Group $vmrg"
+			Write-Host "DNS Resource Group $rg"
+				Write-Host "Zone Name $ZoneName "
+					Write-Host "Record Type $RecType "
+						Write-Host "Record TTL $RecTtl "
+	}
+	elseif($Action -eq 'createzone')
+	{
+				Write-Host "DNS Resource Group $rg"
+				Write-Host "Zone Name $ZoneName"
+
+	}
+		elseif($Action -eq 'addzonerec')
+			{
+				Write-Host "DNS Resource Group $rg"
+				Write-Host "Zone Name $ZoneName"
+				Write-Host "Record Type $RecType "
+				Write-Host "Record TTL $RecTtl "
+				Write-Host "Record Name $RecName "
+			}
+			elseif($Action -eq 'removezonerec')
+			{
+				Write-Host "DNS Resource Group $rg"
+				Write-Host "Zone Name $ZoneName"
+				Write-Host "Record Name $RecName "
+			}
+			elseif($Action -eq 'removezone')
+			{
+				Write-Host "DNS Resource Group $rg"
+				Write-Host "Zone Name $ZoneName"
+			}
+
+}
+
 
 Function validate-profile {
 $comparedate = (Get-Date).AddDays(-14)
@@ -195,6 +242,7 @@ param(
 )
 try {
 	 Remove-AzureRmDnsRecordSet -Name $RecName -ResourceGroupName $rg -RecordType $RecType -ZoneName $ZoneName -Force -ErrorAction Stop -WarningAction SilentlyContinue -InformationAction SilentlyContinue
+			Write-Host "Removed Record $RecName in $ZoneName"
 }
 catch {
 	Write-Host -foregroundcolor Yellow `
@@ -211,15 +259,12 @@ Function Get-AzureVMIp {
 [string] $VMName = $VMName
 )
 
-$vms = get-azurermvm -ResourceGroupName $vmrg -Name $VMName -WarningAction SilentlyContinue -InformationAction SilentlyContinue
-
-$nics = get-azurermnetworkinterface -ResourceGroupName $vmrg -WarningAction SilentlyContinue | where VirtualMachine -EQ $VMName
-
-	$vm = $vms | where-object -Property Id -EQ $nic.VirtualMachine.id
-	$prv =  $nic.IpConfigurations | select-object -ExpandProperty PrivateIpAddress
-	$Script:prvip =  $nic.IpConfigurations | select-object -ExpandProperty PrivateIpAddress
-	$alloc =  $nic.IpConfigurations | select-object -ExpandProperty PrivateIpAllocationMethod
-	Write-Host "Located Private IP $Script:prvip for VM $VMName"
+$vma = get-azurermvm -ResourceGroupName $vmrg -Name $VMName
+$idnic = $vma.NetworkProfile.NetworkInterfaces.Id.Split('/')[-1]
+$ipcfg = Get-AzureRmNetworkInterface -Name $idnic -ResourceGroupName $ResourceGroupName
+$pvtip = $ipcfg.IpConfigurations | Select-Object -ExpandProperty PrivateIpAddress
+$Script:pvtip = $pvtip
+Write-Host "Located Private IP Address: $Script:pvtip"
 }
 
 Function New-AzureDNSZone {
@@ -229,6 +274,8 @@ param(
 )
 try {
 	 New-AzureRmDnsZone -Name $ZoneName -ResourceGroupName $rg -ErrorAction Stop -WarningAction SilentlyContinue -InformationAction SilentlyContinue
+			Write-Host "Created $ZoneName in $rg"
+
 }
 catch {
 	Write-Host -foregroundcolor Yellow `
@@ -249,13 +296,10 @@ param(
 [string] $RecType = $RecType
 )
 try {
-	Write-Host "ZoneName = $ZoneName"
-		Write-Host "RecName = $RecName"
-		Write-Host "IP = $RecIp"
-			Write-Host "RG = $rg"
+	Write-Host "Creating record in ZoneName: $ZoneName RecName: $RecName RecIP: $RecIp"
 
 	New-AzureRmDnsRecordSet -Name $RecName -RecordType $RecType -ResourceGroupName $rg -Ttl $RecTtl -DnsRecords (New-AzureRmDnsRecordConfig -IPv4Address $RecIp) -ZoneName $ZoneName -Overwrite | Out-Null
-		Write-Host "Created Record $RecName"
+		Write-Host "Created Record $RecName in $ZoneName with a ttl of $RecTtl and type $RecType"
 }
 catch {
 	Write-Host -foregroundcolor Yellow `
@@ -265,6 +309,40 @@ catch {
 	break
 }
 }
+
+
+Function Write-Completion {
+
+Write-Host "                                                               "
+$time = " End Time " + (Get-Date -UFormat "%d-%m-%Y %H:%M:%S")
+Write-Host ZONE CONFIGURATION - $time -ForegroundColor Cyan
+Write-Host "                                                               "
+Write-Host "Completed operation: $Action " -ForegroundColor White
+Write-Host "                                                               "
+}
+
+Function Check-VMExists {
+	param(
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+	[string]
+	$Location = $Location,
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+	[string]
+	$vmrg = $vmrg,
+	[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+	[string]
+	$VMName = $VMName
+	)
+	$extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $vmrg -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+if(!$extvm)
+{
+	Write-Host "$VMName does not exist, please verify the VM exists" -ForegroundColor Yellow
+	Break
+}
+
+ else {Write-Host "Host VM Located" -ForegroundColor Green}
+ 
+} #
 
 Function Configure-DNS {
 	param(
@@ -277,22 +355,28 @@ switch ($action)
 		"createzone" {
 			New-RG
 			New-AzureDNSZone
+						Write-Completion
 }
 		"addzonerec" {
 			New-AzureDNSZoneRecord
+						Write-Completion
 		}
 		"removezone" {
 			Remove-AzureDNSZone
+						Write-Completion
 		}
 		"removezonerec" {
 			Remove-AzureDNSZoneRecord
+						Write-Completion
 		}
 		"getinfo" {
 			Get-ZoneInfo
 		}
 		"alignzonevm" {
+			Check-VMExists
 			Get-AzureVMIp
-			New-AzureDNSZoneRecord -ZoneName $ZoneName -rg $rg -RecName $RecName -RecIp $Script:prvip -RecTtl $RecTtl -RecType $RecType
+			New-AzureDNSZoneRecord -ZoneName $ZoneName -rg $rg -RecName $VMName -RecIp $Script:pvtip -RecTtl $RecTtl -RecType $RecType
+			Write-Completion
 		}
 
 		default{"An unsupported command was used"}
@@ -349,4 +433,5 @@ if($csvimport) {
 
 
 Write-Config
+Action-Summary
 Configure-DNS
