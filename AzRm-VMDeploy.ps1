@@ -2,7 +2,7 @@
 .SYNOPSIS
 Written By John Lewis
 email: jonos@live.com
-Ver 10.8
+Ver 11.0
 
 This script provides the following functionality for deploying IaaS environments in Azure. The script will deploy VNET in addition to numerous Market Place VMs or make use of an existing VNETs.
 The script supports dual homed servers (PFSense/Checkpoint/FreeBSD/F5/Barracuda)
@@ -12,6 +12,8 @@ This script supports Load Balanced configurations for both internal and external
 
 The script will create three directories if they do not exist in the runtime directory, Log, Scripts, DSC.
 
+v11.0 updates - added -vnetdns flag for setting vnet dns servers, added logic for Premium/Standard Storage verification compatability check, diagnostic storage partition logic.
+v10.9 updates - seperated netdiag to lbdiag and nsgdiag option sets
 v10.8 updates - corrected issue with new vnet deployment, added -reboot option. removed chef-server as the image is no longer available.
 v10.7 updates - added NSG Diagnostics, enhanced pre-configured NSG plans
 v10.6 updates - added NSG bind to Subnet and Subnet bind to NSG -AssocNSGSubnet True/False
@@ -404,13 +406,13 @@ $LBSubnet = '3',
 $LBPvtIp = '172.10.5.10',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
-[ValidateSet("Standard_A3","Standard_A4","Standard_A2","Standard_DS11v2","Standard_DS12","Standard_D3")]
+[ValidateSet("Standard_A3","Standard_A4","Standard_F8","Standard_G3","Standard_L32s","Standard_DS13")]
 [string]
 $VMSize = 'Standard_A3',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [string]
-$locadmin = 'locadmin',
+$locadmin = 'localadmin',
 [Parameter(Mandatory=$false,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [string]
@@ -435,9 +437,9 @@ $StorageName = $VMName + 'str',
 [string]
 $mngdiskname = $VMName + 'OS',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[ValidateSet("Standard_LRS","Standard_GRS","Premium_GRS")]
+[ValidateSet("Standard_LRS","Standard_GRS","Premium_LRS","Standard_RAGRS")]
 [string]
-$StorageType = 'Standard_GRS',
+$StorageType = 'Standard_LRS',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateNotNullorEmpty()]
 [Alias("int1")]
@@ -533,8 +535,21 @@ $SubnetAddPrefix6 = "172.10.5.0/24",
 [string]
 $SubnetNameAddPrefix6 = "monitoring",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[Alias("addvnetdns")]
+[switch]
+$vnetdns,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$Azautoacct = "Auto",
+$VNETDNS1 = '40.90.4.7',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$VNETDNS2 = '8.8.4.4',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$Batchaddvnetdns = 'False',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$Azautoacct = "OMSAuto",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $Profile = "profile",
@@ -574,9 +589,9 @@ $NSGSubnetName = '',
 $NSGSubnetRange = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("nsgconfig")]
-[ValidateSet("Web","BEMongo","BEMySQL","RemoteAccess","FULLFEBE","ALLOWINT")]
+[ValidateSet("web","be","remoteaccess","fullfebe","allowint")]
 [string]
-$NSGType = 'FULLFEBE',
+$NSGType = 'fullfebe',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [Alias("dscfilename")]
 [string]
@@ -659,7 +674,7 @@ $BatchAddFQDN,
 $batchaddlbfqdn,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$lbfqdn = 'stgvip',
+$lbfqdn = 'rmpstgvip',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $BatchAddNSG = 'False',
@@ -723,7 +738,10 @@ $mngdiskdataostype = 'windows',
 $mngdiskdatacreateopt = 'Empty',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$mngdiskdataname = $VMName + '_datadisk',
+$mngdiskdataname1 = -join $VMName + '_datadisk1',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$mngdiskdataname2 = -join $VMName + '_datadisk2',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [switch]
 $addmngdatadisk,
@@ -744,10 +762,10 @@ $preview,
 $batchuseexistingstorage = 'False',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$chefvalidationpem = "\chef\admin.pem",
+$chefvalidationpem = "\.chef\admin.pem",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$chefclientrb =  "\chef\knife.rb",
+$chefclientrb =  "\.chef\knife.rb",
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [ValidateSet("oneoff","scheduled","disabled")]
 [string]
@@ -784,7 +802,7 @@ $ActionType = 'create',
 $enablebootdiag = $True,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$batchenablebootdiag = 'True',
+$batchenablebootdiag = '',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $batchreboot = '',
@@ -799,20 +817,67 @@ $omsname = 'autoact',
 $omsrg = 'automation',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [switch]
-$netdiag = $True,
+$nsgdiag,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[ValidateSet("nsgdiag","lbdiag","nsgdiagarchive","lbdiagarchive")]
-[string]
-$netdiagoptions = 'nsgdiag',
-[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
-[string]
-$diagstoragename = -join ((65..90) + (97..122) | Get-Random -Count 3 | % {[char]$_}) + "netdiag",
+[switch]
+$lbdiag,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$internalnamelabel = $VMName
+$batchnsgdiag = 'False',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$batchlbdiag = 'False',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateSet("nsgomsdiag","nsgdiagomsarchive","nsgdiagarchive")]
+[string]
+$nsgdiagoptions = 'nsgdiagarchive',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateSet(,"lbomsdiag","lbdiagomsarchive","lbdiagarchive")]
+[string]
+$lbdiagoptions = 'lbomsdiag',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$nsgstoragename = -join ((65..90) + (97..122) | Get-Random -Count 6 | % {[char]$_}) + "nsg",
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$lbstoragename = -join ((65..90) + (97..122) | Get-Random -Count 6 | % {[char]$_}) + "lb",
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$diagstoragename = -join $VMName + "diag",
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$internalnamelabel = $VMName,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$vmaccessallowuser = 'locadmin',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$vmaccessremuser = '',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$vmaccessresetssh = 'False',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[ValidateSet("AddUser","RemoveUser","AddUser_ResetSSH")]
+[string]
+$accesstype = '',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[switch]
+$encryptvm,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$aadclientID = '',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$addclientsecret = '',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$keyvaulturl = '',
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]
+$keyvaultresid = ''
 )
 
-$verinfo = "10.8"
+$verinfo = "11.0"
 $sshPublicKey = Get-Content '.\Pspub.txt'
 $SecureLocPassword = new-object -typename system.security.securestring
 $SecureLocPassword = Convertto-SecureString $locpassword –asplaintext -Force
@@ -854,6 +919,50 @@ $fileexist = Test-Path $ProfileFile -NewerThan $comparedate
   }
 }
 #endregion
+
+Function Check-StrTypr {
+	if($StorageType -eq 'Premium_LRS' -and $enablebootdiag)
+	{
+		Write-Host "Incompatible Storage Selected for Boot Diags, creating compatible storage"
+	}
+	elseif($StorageType -eq 'Premium_LRS' -and $batchenablebootdiag -eq 'True')
+	{
+		Write-Host "Incompatible Storage Selected for Boot Diags, creating compatible storage"
+	}
+		Else
+		{Write-Host "VM Diagnostics Enabled for VM Storage Account"}
+}
+
+Function Align-Storage {
+	param(
+		$StorageType = $StorageType,
+		$mngdiskdataostype = $mngdiskdataostype,
+		$mngdiskdatatype = $mngdiskdatatype
+	)
+	if($StorageType -eq 'Premium_LRS')
+	{
+		$Script:mngdiskdataostype = 'PremiumLRS'
+		$Script:mngdiskdatatype = 'PremiumLRS'
+		Write-Host "Storage Type Alignment Complete - $StorageType"
+		Check-DiagStorageNameFormat
+	}
+	elseif($StorageType -eq 'Standard_LRS')
+		{
+		$Script:mngdiskdataostype = 'StandardLRS'
+		$Script:mngdiskdatatype = 'StandardLRS'
+			Write-Host "Storage Type Alignment Complete - $StorageType"
+	}
+}
+
+Function Check-StrVmType {
+	if($StorageType -eq 'Premium_LRS' -and $VMSize -like "*Standard_A*")
+	{
+		Write-Host "Incompatible Storage Selected for Boot Diags, skipping boot diagnostics"
+			break
+	}
+		Else
+		{Write-Host "VM and Storage Compatibility Verified"}
+}
 
 Function Check-DiagStr {
 	$extvm = Get-AzureRmVm -Name $VMName -ResourceGroupName $storerg -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
@@ -937,7 +1046,7 @@ try {
 		exit }
 	else {
 	Write-Host "Located $csvin. CSV import starting..."
-		import-csv -Path $csvin -Delimiter ',' | ForEach-Object{.\AZRM-VMDeploy.ps1 -ActionType $_.ActionType -VMName $_.VMName -vmMarketImage $_.Image -rg $_.rg -vNetrg $_.vnetrg -VNetName $_.VNetName -ConfigIPs $_.ConfigIPs -subnet1 $_.Subnet1 -subnet2 $_.Subnet2 -PvtIPNic1 $_.PvtIPNic1 -PvtIPNic2 $_.PvtIPNic2 -DNLabel $_.DNLabel -BatchAddVnet $_.BatchAddVnet -BatchCreateLB $_.BatchCreateLB -BatchAddLB $_.BatchAddLB -LBSubnet $_.LBSubnet -LBPvtIp $_.LBPvtIp -LBName $_.LBName -LBType $_.LBType -BatchAddNSG $_.BatchAddNSG -BatchCreateNSG $_.BatchCreateNSG -NSGName $_.NSGName -extname $_.extname -BatchAddExtension $_.BatchAddExtension -BatchAddAvSet $_.BatchAddAvSet -AvailSetName $_.AvailSetName -BatchAddFqdn $_.BatchAddFqdn -CustomScriptUpload $_.CustomScriptUpload -scriptname $_.scriptname -containername $_.containername -scriptfolder $_.scriptfolder -customextname $_.customextname -batchAddShare $_.BatchAddShare -sharedirectory $_.sharedirectory -sharename $_.sharename -localsoftwarefolder $_.localsoftwarefolder -ConfigurationName $_.ConfigurationName -vmstrtype $_.vmstrtype -storerg $_.storerg -Batchaddmngdatadisk $_.Batchadddatadisk -Batchaddssh $_.Batchaddssh -linuxpatchtype $_.linuxpatchtype -batchuseexistingstorage $_.batchuseexistingstorage -batchaddlbfqdn $_.batchaddlbfqdn -lbfqdn $_.lbfqdn -WinDSCConfig $_.WinDSCConfig -LinDSCConfig $_.LinDSCConfig -StorageType $_.StorageType -NSGAddRange $_.NSGAddRange -NSGType $_.NSGType -NSGSubnetName $_.NSGSubnetName -AssocNSGSubnet $_.AssocNSGSubnet }
+		import-csv -Path $csvin -Delimiter ',' | ForEach-Object{.\AZRM-VMDeploy.ps1 -ActionType $_.ActionType -VMName $_.VMName -vmMarketImage $_.Image -rg $_.rg -vNetrg $_.vnetrg -VNetName $_.VNetName -ConfigIPs $_.ConfigIPs -subnet1 $_.Subnet1 -subnet2 $_.Subnet2 -PvtIPNic1 $_.PvtIPNic1 -PvtIPNic2 $_.PvtIPNic2 -DNLabel $_.DNLabel -BatchAddVnet $_.BatchAddVnet -BatchCreateLB $_.BatchCreateLB -BatchAddLB $_.BatchAddLB -LBSubnet $_.LBSubnet -LBPvtIp $_.LBPvtIp -LBName $_.LBName -LBType $_.LBType -BatchAddNSG $_.BatchAddNSG -BatchCreateNSG $_.BatchCreateNSG -NSGName $_.NSGName -extname $_.extname -BatchAddExtension $_.BatchAddExtension -BatchAddAvSet $_.BatchAddAvSet -AvailSetName $_.AvailSetName -BatchAddFqdn $_.BatchAddFqdn -CustomScriptUpload $_.CustomScriptUpload -scriptname $_.scriptname -containername $_.containername -scriptfolder $_.scriptfolder -customextname $_.customextname -batchAddShare $_.BatchAddShare -sharedirectory $_.sharedirectory -sharename $_.sharename -localsoftwarefolder $_.localsoftwarefolder -ConfigurationName $_.ConfigurationName -vmstrtype $_.vmstrtype -storerg $_.storerg -Batchaddmngdatadisk $_.Batchadddatadisk -Batchaddssh $_.Batchaddssh -linuxpatchtype $_.linuxpatchtype -batchuseexistingstorage $_.batchuseexistingstorage -batchaddlbfqdn $_.batchaddlbfqdn -lbfqdn $_.lbfqdn -WinDSCConfig $_.WinDSCConfig -LinDSCConfig $_.LinDSCConfig -StorageType $_.StorageType -NSGAddRange $_.NSGAddRange -NSGType $_.NSGType -NSGSubnetName $_.NSGSubnetName -AssocNSGSubnet $_.AssocNSGSubnet -batchnsgdiag $_.batchnsgdiag -batchlbdiag $_.batchlbdiag -nsgdiagoptions $_.nsgdiagoptions -lbdiagoptions $_.lbdiagoptions -Batchaddvnetdns $_.Batchaddvnetdns -VMSize $_.VMSize }
 	}
 }
 catch {
@@ -1255,7 +1364,7 @@ $PublicSetting = ConvertTo-Json -InputObject @{
 Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "OSPatch" -ExtensionType "OSPatchingForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "2.0" -InformationAction SilentlyContinue -ErrorAction Stop -SettingString $PublicSetting -WarningAction SilentlyContinue | Out-Null
 	}
 
-$LogOut = "Added VM OS Patching Extension"
+$LogOut = "Added VM OS Patching Extension - Stop Patching"
 Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
@@ -1337,6 +1446,20 @@ if($ostype -eq 'Windows')
 		$Script:DiskOSType = 'Linux'
 		}
 		}
+
+Function Encrypt-VM {
+param(
+	[string]$rg = $rg,
+	[string]$VMName = $VMName,
+	[string]$AadClientID = $AadClientID,
+	[string]$aadClientSecret = $aadClientSecret,
+	[string]$diskEncryptionKeyVaultUrl = $diskEncryptionKeyVaultUrl,
+	[string]$keyVaultResourceId = $keyVaultResourceId,
+	[string]$volumeType
+)
+
+Set-AzureRmVMDiskEncryptionExtension -ResourceGroupName $rg -VMName $VMName -AadClientID $aadClientID -AadClientSecret $aadClientSecret -DiskEncryptionKeyVaultUrl $diskEncryptionKeyVaultUrl -DiskEncryptionKeyVaultId $keyVaultResourceId -VolumeType $volumeType
+}
 
 function Check-OSImage {
 $vm =  Get-AzureRmVM -ResourceGroupName $rg -Name $VMName -InformationAction SilentlyContinue -WarningAction SilentlyContinue -ErrorAction SilentlyContinue
@@ -1436,6 +1559,24 @@ if(!$vnetexists)
 		}
 }
 
+Function Check-NSG-Diag {
+if($nsgdiag -or $batchnsgdiag -eq 'True')
+	{ if(!$nsgdiagoptions)
+			{
+				Write-Host "Please select the type of NSG Diagnostic -nsgdiagoptions"
+				break }
+	}
+}
+
+Function Check-LB-Diag {
+if($lbdiag -or $batchlbdiag -eq 'True')
+	{ if(!$lbdiagoptions)
+			{
+				Write-Host "Please select the type of LB Diagnostic -lbdiagoptions"
+				break }
+	}
+}
+
 Function Check-NSG-NoMsg {
 $nsgexists = Get-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Name $NSGName
 if(!$nsgexists)
@@ -1488,7 +1629,16 @@ if(!$nsgexists)
 Function Check-Vnet-NoMsg {
 $vnetexists = Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
 if(!$vnetexists)
-	{Create-Vnet}
+	{
+		if($vnetdns)
+		{
+				Create-Vnet-CustomDNS
+		}
+		else
+		{
+				Create-Vnet
+		}
+}
 	else
 		{ $existvnet = Get-AzureRmVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg
 			Write-Host "starting vm deployment to $VnetName"
@@ -1748,6 +1898,17 @@ $Script:ChkStorageName = $Script:ChkStorageName -replace "-", ""
 Write-Host "Standardized storage name $Script:ChkStorageName"
 }
 
+Function Check-DiagStorageNameFormat
+{
+	param(
+		[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+		[string]$script:diagstore  = $diagstoragename.ToLower()
+	)
+$script:diagstore  = $script:diagstore  -replace "-", ""
+	$script:diagstore  = $script:diagstore  -replace "_", ""
+Write-Host "Diagnostics storage name $script:diagstore "
+}
+
 #region Check Storage
 Function Check-StorageNameNotExists
 {
@@ -1806,7 +1967,7 @@ switch ($ConfigIPs)
 			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 -InternalDnsNameLabel $VMName –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 			$script:Interface2 = New-AzureRmNetworkInterface -Name $InterfaceName2 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet2].Id -PrivateIpAddress $PvtIPNic2 –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
 
-			$LogOut = "Completed configuration of dual static NICs: $VMName"
+			$LogOut = "Completed configuration of dual static NICs: $PvtIPNic1 and $PvtNic2 on $VMName"
 			Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 		"PvtSingleStat" {
@@ -1814,7 +1975,7 @@ switch ($ConfigIPs)
 			Configure-PubIpDNS
 			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
 			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id -PrivateIpAddress $PvtIPNic1 -InternalDnsNameLabel $VMName –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop
-			$LogOut = "Completed configuration of single static NIC: $VMName"
+			$LogOut = "Completed configuration of single static NIC: $PvtIPNic1 on $VMName"
 			Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 		"StatPvtNoPubDual" {
@@ -1837,7 +1998,7 @@ switch ($ConfigIPs)
 			Configure-PubIpDNS
 			$script:VNet = Get-AzureRMVirtualNetwork -Name $VNetName -ResourceGroupName $vnetrg | Set-AzureRmVirtualNetwork
 			$script:Interface1 = New-AzureRmNetworkInterface -Name $InterfaceName1 -ResourceGroupName $rg -Location $Location -SubnetId $VNet.Subnets[$Subnet1].Id -PublicIpAddressId $PIp.Id –Confirm:$false -WarningAction SilentlyContinue  -ErrorAction Stop -EnableIPForwarding -InternalDnsNameLabel $VMName
-			$LogOut = "Completed configuration of single NIC: $VMName"
+			$LogOut = "Completed configuration of single NIC with Public IP: $VMName"
 			Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 		"Dual" {
@@ -1999,53 +2160,166 @@ Function Configure-NSG
 }
 #endregion
 
-Function Set-LBDiagnostics-NoArchive {
+Function Set-LBDiagnostics-Archive {
 	param(
-[string]$ResourceGroupName,
-[string]$ResourceName,
+[string]$ResourceGroupName = $vnetrg,
+[string]$storerg = $storerg,
+[string]$ResourceName = $LBName,
 [string]$omsid = $script:omsid,
+[string]$StorageName = $lbstoragename.ToLower(),
 [string]$LBName = $LBName
 	)
+
 Get-OMSInfo
-Write-Host "Configuring Load Balancer Diagnostics"
-$resid = get-azurermresource -ResourceName $LBName -ResourceGroupName $vnetrg
+Write-Host "Configuring Load Balancer Diagnostics - Archive"
+$resid = get-azurermresource -ResourceName $ResourceName -ResourceGroupName $ResourceGroupName
 $id = $resid.ResourceId
-Set-AzureRmDiagnosticSetting -ResourceId $id -Enabled $true -Categories LoadBalancerProbeHealthStatus,LoadBalancerAlertEvent -WorkspaceId $omsid -ErrorAction Stop -WarningAction SilentlyContinue -InformationAction SilentlyContinue | Out-Null
+$newstrlb = New-AzureRmStorageAccount -ResourceGroupName $storerg -Name $StorageName -Type $StorageType -Location $Location -ErrorAction Stop -WarningAction SilentlyContinue
+		Write-Host "Completed Storage Creation" -ForegroundColor White
+		$LogOut = "Diagnostic Storage Configuration completed: $StorageName"
+		Log-Command -Description $LogOut -LogFile $LogOutFile
+
+$stractid = get-azurermresource -ResourceName $StorageName -ResourceGroupName $storerg
+$actid = $stractid.ResourceId
+
+Set-AzureRmDiagnosticSetting -ResourceId $id -Enabled $true -StorageAccountId $actid -RetentionEnabled $true -RetentionInDays 30 -WorkspaceId $omsid -ErrorAction Stop -WarningAction SilentlyContinue -InformationAction SilentlyContinue  | Out-Null
+Set-AzureRmDiagnosticSetting -ResourceId $id -Enabled $true -Categories LoadBalancerProbeHealthStatus,LoadBalancerAlertEvent -WorkspaceId $omsid -ErrorAction Stop -WarningAction SilentlyContinue -InformationAction SilentlyContinue -StorageAccountId $actid -RetentionEnabled $true -RetentionInDays '30'  | Out-Null
+	$LogOut = "Network Diagnostic Configuration completed for $ResourceName"
+		Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
-Function Set-NSGDiagnostics-NoArchive {
+Function Set-LBDiagnostics-OMS-Archive {
+	param(
+[string]$ResourceGroupName = $vnetrg,
+[string]$storerg = $storerg,
+[string]$ResourceName = $LBName,
+[string]$omsid = $script:omsid,
+[string]$StorageName = $lbstoragename.ToLower(),
+[string]$LBName = $LBName,
+[string]$StorageType = 'Standard_LRS'
+	)
+
+Get-OMSInfo
+Write-Host "Configuring Load Balancer Diagnostics - OMS - Archive"
+$resid = get-azurermresource -ResourceName $ResourceName -ResourceGroupName $ResourceGroupName
+$id = $resid.ResourceId
+$newstr = New-AzureRmStorageAccount -ResourceGroupName $storerg -Name $StorageName -Type $StorageType -Location $Location -ErrorAction Stop -WarningAction SilentlyContinue
+		Write-Host "Completed Storage Creation" -ForegroundColor White
+		$LogOut = "Diagnostic Storage Configuration completed: $StorageName"
+		Log-Command -Description $LogOut -LogFile $LogOutFile
+
+$stractid = get-azurermresource -ResourceName $StorageName -ResourceGroupName $storerg
+$actid = $stractid.ResourceId
+
+Set-AzureRmDiagnosticSetting -ResourceId $id -Enabled $true -StorageAccountId $actid -RetentionEnabled $true -RetentionInDays 30 -WorkspaceId $omsid -ErrorAction Stop -WarningAction SilentlyContinue -InformationAction SilentlyContinue  | Out-Null
+Set-AzureRmDiagnosticSetting -ResourceId $id -Enabled $true -Categories LoadBalancerProbeHealthStatus,LoadBalancerAlertEvent -WorkspaceId $omsid -ErrorAction Stop -WarningAction SilentlyContinue -InformationAction SilentlyContinue -StorageAccountId $actid -RetentionEnabled $true -RetentionInDays '30'  | Out-Null
+	$LogOut = "Load Balancer Diagnostic Configuration OMS & Archive completed for $ResourceName"
+		Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function Set-LBDiagnostics-OMS-NoArchive {
+	param(
+[string]$ResourceGroupName = $vnetrg,
+[string]$ResourceName = $LBName,
+[string]$omsid = $script:omsid
+	)
+Get-OMSInfo
+Write-Host "Configuring Load Balancer Diagnostics - OMS"
+$resid = get-azurermresource -ResourceName $ResourceName -ResourceGroupName $ResourceGroupName
+$id = $resid.ResourceId
+Set-AzureRmDiagnosticSetting -ResourceId $id -Enabled $true -Categories LoadBalancerProbeHealthStatus,LoadBalancerAlertEvent -WorkspaceId $omsid -ErrorAction Stop -WarningAction SilentlyContinue -InformationAction SilentlyContinue | Out-Null
+		$LogOut = "Load Balancer Diagnostic Configuration OMS completed for $ResourceName"
+		Log-Command -Description $LogOut -LogFile $LogOutFile
+	}
+
+Function Set-NSGDiagnostics-OMS-NoArchive {
 	param(
 [string]$ResourceGroupName,
 [string]$ResourceName,
 [string]$omsid = $script:omsid
 	)
 Get-OMSInfo
-Write-Host "Configuring NSG Diagnostics"
+Write-Host "Configuring NSG Diagnostics - OMS"
 $resid = get-azurermresource -ResourceName $ResourceName -ResourceGroupName $ResourceGroupName
 $id = $resid.ResourceId
 Set-AzureRmDiagnosticSetting -ResourceId $id -Enabled $true -WorkspaceId $omsid -ErrorAction Stop -WarningAction SilentlyContinue -InformationAction SilentlyContinue | Out-Null
 Set-AzureRmDiagnosticSetting -ResourceId $id -Enabled $true -Categories NetworkSecurityGroupEvent,NetworkSecurityGroupRuleCounter -WorkspaceId $omsid -ErrorAction Stop -WarningAction SilentlyContinue -InformationAction SilentlyContinue  | Out-Null
+
+		$LogOut = "Network Security Group Diagnostic Configuration OMS completed for $ResourceName"
+		Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
 Function Set-NSGDiagnostics-Archive {
 	param(
 [string]$ResourceGroupName = $rg,
 [string]$storerg = $storerg,
-[string]$ResourceName,
-[string]$omsid = $script:omsid,
-[string]$StorageName = $diagstoragename
+[string]$ResourceName = $nsgstoragename,
+[string]$StorageName = $nsgstoragename.ToLower()
 	)
 Get-OMSInfo
-Write-Host "Configuring NSG Diagnostics"
+Write-Host "Configuring NSG Diagnostics - Archive"
+
+$newstr = New-AzureRmStorageAccount -ResourceGroupName $storerg -Name $StorageName -Type $StorageType -Location $Location -ErrorAction Stop -WarningAction SilentlyContinue
+		Write-Host "Completed Storage Creation" -ForegroundColor White
+		$LogOut = "Diagnostic Storage Configuration completed: $StorageName"
+		Log-Command -Description $LogOut -LogFile $LogOutFile
+
 $resid = get-azurermresource -ResourceName $ResourceName -ResourceGroupName $ResourceGroupName
 $id = $resid.ResourceId
-$newstr = New-AzureRmStorageAccount -ResourceGroupName $storerg -Name $StorageName -Type $StorageType -Location $Location -ErrorAction Stop -WarningAction SilentlyContinue
-$stractid = Get-AzureRmStorageAccount -ResourceGroupName $storerg -Name $StorageName
-$actid = $stractid.Id
-	Write-Host $actid
 
-Set-AzureRmDiagnosticSetting -ResourceId $id -Enabled $true -StorageAccountId $actid -RetentionEnabled $true -RetentionInDays 30 -WorkspaceId $omsid -ErrorAction Stop -WarningAction SilentlyContinue -InformationAction SilentlyContinue  | Out-Null
-Set-AzureRmDiagnosticSetting -ResourceId $id -Enabled $true -Categories NetworkSecurityGroupEvent,NetworkSecurityGroupRuleCounter -WorkspaceId $omsid -ErrorAction Stop -WarningAction SilentlyContinue -InformationAction SilentlyContinue -StorageAccountId $StorageName -RetentionEnabled $true -RetentionInDays '30'  | Out-Null
+$stractid = get-azurermresource -ResourceName $StorageName -ResourceGroupName $storerg
+$actid = $stractid.ResourceId
+
+Set-AzureRmDiagnosticSetting -ResourceId $id -Enabled $true -StorageAccountId $actid -RetentionEnabled $true -RetentionInDays 30 -ErrorAction Stop -WarningAction SilentlyContinue -InformationAction SilentlyContinue  | Out-Null
+
+Set-AzureRmDiagnosticSetting -ResourceId $id -Enabled $true -Categories NetworkSecurityGroupEvent,NetworkSecurityGroupRuleCounter -ErrorAction Stop -WarningAction SilentlyContinue -InformationAction SilentlyContinue -StorageAccountId $actid -RetentionEnabled $true -RetentionInDays '30'  | Out-Null
+		$LogOut = "Network Security Group Diagnostic Configuration Archive completed for $ResourceName"
+		Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function CreateDiag-Storage {
+	param(
+		[string]$StorageName = $script:diagstore.ToLower(),
+		[string]$Location = $Location,
+		[string]$storerg = $storerg,
+		[string]$StorageType = 'Standard_LRS'
+	)
+
+$newstr = New-AzureRmStorageAccount -ResourceGroupName $storerg -Name $StorageName -Type $StorageType -Location $Location -ErrorAction Stop -WarningAction SilentlyContinue
+		Write-Host "Completed Storage Creation" -ForegroundColor White
+		$script:diagstore = $StorageName
+		Write-Host "Diagnostics Storage $StorageName created."
+		$LogOut = "Diagnostic Storage Configuration completed: $StorageName"
+		Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function Set-NSGDiagnostics-OMS-Archive {
+	param(
+[string]$ResourceGroupName = $rg,
+[string]$storerg = $storerg,
+[string]$ResourceName = $StorageName,
+[string]$omsid = $script:omsid,
+[string]$StorageName = $nsgstoragename.ToLower()
+	)
+Get-OMSInfo
+Write-Host "Configuring NSG Diagnostics - OMS Archive"
+
+$newstr = New-AzureRmStorageAccount -ResourceGroupName $storerg -Name $StorageName -Type $StorageType -Location $Location -ErrorAction Stop -WarningAction SilentlyContinue
+		Write-Host "Completed Storage Creation" -ForegroundColor White
+		$LogOut = "Diagnostic Storage Configuration completed: $StorageName"
+		Log-Command -Description $LogOut -LogFile $LogOutFile
+
+$resid = get-azurermresource -ResourceName $ResourceName -ResourceGroupName $ResourceGroupName
+$id = $resid.ResourceId
+
+$stractid = get-azurermresource -ResourceName $StorageName -ResourceGroupName $storerg
+$actid = $stractid.ResourceId
+
+Set-AzureRmDiagnosticSetting -ResourceId $id -Enabled $true -StorageAccountId $actid -WorkspaceId $omsid -RetentionEnabled $true -RetentionInDays 30 -ErrorAction Stop -WarningAction SilentlyContinue -InformationAction SilentlyContinue  | Out-Null
+
+Set-AzureRmDiagnosticSetting -ResourceId $id -Enabled $true -Categories NetworkSecurityGroupEvent,NetworkSecurityGroupRuleCounter -WorkspaceId $omsid -ErrorAction Stop -WarningAction SilentlyContinue -InformationAction SilentlyContinue -StorageAccountId $actid -RetentionEnabled $true -RetentionInDays '30'  | Out-Null
+		$LogOut = "Network Security Group Diagnostic Configuration OMS & Archive completed for $ResourceName"
+		Log-Command -Description $LogOut -LogFile $LogOutFile
 }
 
 #region Configure LB Ext
@@ -2162,6 +2436,97 @@ Function Connect-VPN {
 New-AzureRmVirtualNetworkGatewayConnection -ConnectionType IPSEC  -Name sitetosite -ResourceGroupName $vnetrg -Location $Location -VirtualNetworkGateway1 $gateway1 -LocalNetworkGateway2 $local -SharedKey '4321avfe' -Verbose -Force -RoutingWeight 10 -WarningAction SilentlyContinue  -ErrorAction Stop | Out-Null
 }
 #endregion
+
+Function Set-LinAccess-AddUserSSH {
+	param(
+		$username = $allowusername,
+		$userpass = $locpassword,
+		$sshkey = $sshPublicKey,
+		$resetssh = $True
+	)
+
+					$PrivateSetting = ConvertTo-Json -InputObject @{
+					"username" = $username;
+					"password" = $userpass;
+					"ssh_key" = $sshkey;
+					"reset_ssh" = $resetssh;
+				}
+					$PublicSetting = ConvertTo-Json -InputObject @{
+				}
+	Write-Host "Linux VM Access Agent VM Image Preparation in Process - Add User Operation"
+
+				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "VMAccessForLinux" -ExtensionType "VMAccessForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "1.4" -InformationAction SilentlyContinue -Verbose -ProtectedSettingString $PrivateSetting | Out-Null
+
+				$LogOut = "VM Access Agent added user $username to $VMName and reset the VM's SSH Keys"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function Set-LinAccess-AddUser {
+	param(
+		[string]$username = $vmaccessallowuser,
+		[string]$userpass = $locpassword,
+		[string]$sshkey = $sshPublicKey,
+		[string]$resetssh = $False
+	)
+
+					$PrivateSetting = ConvertTo-Json -InputObject @{
+					"username" = $username;
+					"password" = $userpass;
+					"ssh_key" = $sshkey;
+					"reset_ssh" = $resetssh;
+				}
+					$PublicSetting = ConvertTo-Json -InputObject @{
+				}
+	Write-Host "Linux VM Access Agent VM Image Preparation in Process - Add User Operation"
+
+				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "VMAccessForLinux" -ExtensionType "VMAccessForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "1.4" -InformationAction SilentlyContinue -Verbose -ProtectedSettingString $PrivateSetting | Out-Null
+
+				$LogOut = "VM Access Agent added user $username to $VMName"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function Set-LinAccess-RemoveUser {
+	param(
+		$username = $vmaccessallowuser,
+		$userpass = $locpassword,
+		$sshkey = $sshPublicKey,
+		$resetssh = $False,
+		$remuser = $vmaccessremuser
+	)
+
+					$PrivateSetting = ConvertTo-Json -InputObject @{
+					"remove_user" = $remuser
+					}
+					$PublicSetting = ConvertTo-Json -InputObject @{
+				}
+	Write-Host "Linux VM Access Agent VM Image Preparation in Process - Remove User Operation"
+
+				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "VMAccessForLinux" -ExtensionType "VMAccessForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "1.4" -InformationAction SilentlyContinue -Verbose -ProtectedSettingString $PrivateSetting | Out-Null
+
+			$LogOut = "VM Access Agent removed user $username from $VMName"
+				Log-Command -Description $LogOut -LogFile $LogOutFile
+}
+
+Function VMAccess-Linux {
+	param(
+		[string]$accesstype = $accesstype
+	)
+
+switch ($accesstype)
+	{
+		"AddUser" {
+		Set-LinAccess-AddUser
+}
+		"AddUser_ResetSSH" {
+		Set-LinAccess-AddUserSSH
+}
+		"RemoveUser" {
+		Set-LinAccess-RemoveUser
+}
+
+		default{"An unsupported Access type was used"}
+	}
+}
 
 #region Nic Description
 Function Select-NicDescrtipt {
@@ -2317,9 +2682,13 @@ catch {
 
 Function Configure-Image-MngDisks {
 	param(
-	$mngstrtype = $mngdiskOStype,
+	$mngstrtype = $Script:mngdiskdataostype,
 	$mngdisksize = $mngdiskOSsize,
-	$mngcreateoption = "FromImage"
+	$mngcreateoption = "FromImage",
+	$mngdiskname = $mngdiskdataname1,
+	$mngdiskname2 = $mngdiskdataname2,
+	$mngostype = $Script:mngdiskdatatype,
+	$mngdiskcreateopt = $mngdiskdatacreateopt
 	)
 
 	Try
@@ -2327,7 +2696,10 @@ Function Configure-Image-MngDisks {
 		Write-Host "Completing managed disk image creation..." -ForegroundColor White
 		$script:osDiskCaching = "ReadWrite"
 		$script:OSDiskName = $VMName + "_OSDisk"
-		$script:VirtualMachine = Set-AzureRmVMOSDisk -VM $script:VirtualMachine -DiskSizeInGB $mngdisksize -CreateOption $mngcreateoption -Caching $script:osDiskCaching -Name $script:OSDiskName -StorageAccountType $mngstrtype -WarningAction SilentlyContinue -InformationAction SilentlyContinue -ErrorAction Stop
+		$script:DataDiskName1 = $VMName + "_DDDisk1"
+		$script:DataDiskName2 = $VMName + "_DDDisk2"
+
+		$script:VirtualMachine = Set-AzureRmVMOSDisk -VM $script:VirtualMachine -DiskSizeInGB $mngdisksize -CreateOption $mngcreateoption -Caching $script:osDiskCaching -Name $script:OSDiskName -StorageAccountType $mngstrtype -WarningAction SilentlyContinue -InformationAction  SilentlyContinue -ErrorAction Stop
 		 $LogOut = "Completed managed disk creation $script:OSDiskName"
 		Log-Command -Description $LogOut -LogFile $LogOutFile
 	}
@@ -2345,20 +2717,24 @@ Function Configure-Image-MngDisks {
 Function Create-MngDataDisks {
 	param(
 	$mngstrtype = $mngdiskdatatype,
-	$mngdiskname = $mngdiskdataname,
+	$mngdiskname = $mngdiskdataname1,
+	$mngdiskname2 = $mngdiskdataname2,
 	$mngdisksize = $mngdiskdatasize,
-	$mngostype = $mngdiskdataostype,
-	$mngdiskcreateopt = $mngdiskdatacreateopt
+	$mngostype = $Script:mngdiskdatatype,
+	$mngdiskcreateopt = $mngdiskdatacreateopt,
+	$Location = $Location
 	)
 
 	Try
 	{
-		$diskcfg = New-AzureRmDiskConfig -AccountType $mngstrtype -CreateOption $mngdiskcreateopt -DiskSizeGB $mngdisksize -Location $Location
+		$diskcfg = New-AzureRmDiskConfig -CreateOption $mngdiskcreateopt -AccountType $mngostype -DiskSizeGB $mngdisksize -Location $Location
 		$dataDisk1 = New-AzureRmDisk -ResourceGroupName $rg -DiskName $mngdiskname -Disk $diskcfg;
+		$dataDisk2 = New-AzureRmDisk -ResourceGroupName $rg -DiskName $mngdiskname2 -Disk $diskcfg;
 		Write-Host "Completed managed data disk creation." -ForegroundColor White
 		$vm = Get-AzureRmVM -Name $VMName -ResourceGroupName $rg -WarningAction SilentlyContinue -InformationAction SilentlyContinue -ErrorAction Stop
 
-		$vm = Add-AzureRmVMDataDisk -VM $vm -Name $mngdiskdataname -CreateOption Attach -ManagedDiskId $dataDisk1.Id -Lun 1 -WarningAction SilentlyContinue -InformationAction SilentlyContinue -ErrorAction Stop
+		$vm = Add-AzureRmVMDataDisk -VM $vm -Name $mngdiskdataname1 -CreateOption Attach -ManagedDiskId $dataDisk1.Id -Lun 1 -WarningAction SilentlyContinue -InformationAction SilentlyContinue -ErrorAction Stop -StorageAccountType $mngostype
+		$vm = Add-AzureRmVMDataDisk -VM $vm -Name $mngdiskdataname2 -CreateOption Attach -ManagedDiskId $dataDisk2.Id -Lun 2 -WarningAction SilentlyContinue -InformationAction SilentlyContinue -ErrorAction Stop -StorageAccountType $mngostype
 
 		Update-AzureRmVM -VM $vm -ResourceGroupName $rg -WarningAction SilentlyContinue -InformationAction SilentlyContinue -ErrorAction Stop
 		$LogOut = "Completed managed disk attach $mngdiskname"
@@ -2393,13 +2769,22 @@ Function Configure-Image-Unmanaged {
 		$script:OSDiskName = $VMName + "OSDisk"
 		$script:DataDiskName1 = $VMName + "Data1"
 		$script:DataDiskName2 = $VMName + "Data2"
+		$script:DataDiskName3 = $VMName + "Data3"
+		$script:DataDiskName4 = $VMName + "Data4"
+		$script:DataDiskName5 = $VMName + "Data5"
 
 		$script:OSDiskUri = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $OSDiskName + ".vhd"
 		$script:DataDiskUri1 = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $DataDiskName1 + ".vhd"
 		$script:DataDiskUri2 = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $DataDiskName2 + ".vhd"
+		$script:DataDiskUri3 = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $DataDiskName3 + ".vhd"
+		$script:DataDiskUri4 = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $DataDiskName4 + ".vhd"
+		$script:DataDiskUri5 = $StorageAccount.PrimaryEndpoints.Blob.ToString() + "vhds/" + $DataDiskName5 + ".vhd"
 
-		$script:VirtualMachine = Add-AzureRmVMDataDisk -VM $VirtualMachine -Name 'Data1' -Caching ReadOnly -DiskSizeInGB '160' -Lun 0 -VhdUri $script:DataDiskUri1 -CreateOption Empty
-		$script:VirtualMachine = Add-AzureRmVMDataDisk -VM $VirtualMachine -Name 'Data2' -Caching ReadOnly -DiskSizeInGB '160' -Lun 1 -VhdUri $script:DataDiskUri2 -CreateOption Empty
+		$script:VirtualMachine = Add-AzureRmVMDataDisk -VM $VirtualMachine -Name 'Data1' -Caching ReadWrite -DiskSizeInGB '320' -Lun 0 -VhdUri $script:DataDiskUri1 -CreateOption Empty
+		$script:VirtualMachine = Add-AzureRmVMDataDisk -VM $VirtualMachine -Name 'Data2' -Caching ReadWrite -DiskSizeInGB '320' -Lun 1 -VhdUri $script:DataDiskUri2 -CreateOption Empty
+		$script:VirtualMachine = Add-AzureRmVMDataDisk -VM $VirtualMachine -Name 'Data3' -Caching ReadWrite -DiskSizeInGB '320' -Lun 2 -VhdUri $script:DataDiskUri3 -CreateOption Empty
+		$script:VirtualMachine = Add-AzureRmVMDataDisk -VM $VirtualMachine -Name 'Data4' -Caching ReadWrite -DiskSizeInGB '320' -Lun 3 -VhdUri $script:DataDiskUri4 -CreateOption Empty
+		$script:VirtualMachine = Add-AzureRmVMDataDisk -VM $VirtualMachine -Name 'Data5' -Caching ReadWrite -DiskSizeInGB '320' -Lun 4 -VhdUri $script:DataDiskUri5 -CreateOption Empty
 
 		$script:VirtualMachine = Set-AzureRmVMOSDisk -VM $VirtualMachine -Name $OSDiskName -VhdUri $OSDiskUri -CreateOption $script:createOption -Caching $osDiskCaching -WarningAction SilentlyContinue -InformationAction SilentlyContinue -ErrorAction Stop
 		 $LogOut = "Completed unmanaged disk creation"
@@ -3774,6 +4159,73 @@ Write-ConfigVNet
 }
 #endregion
 
+Function Create-Vnet-CustomDNS {
+param(
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]$VNETName = $VNetName,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]$vnetrg = $vnetrg,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]$AddRange = $AddRange,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]$Location = $Location,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]$SubnetAddPrefix1 = $SubnetAddPrefix1,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]$SubnetNameAddPrefix1 = $SubnetNameAddPrefix1,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]$SubnetAddPrefix2 = $SubnetAddPrefix2,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]$SubnetNameAddPrefix2 = $SubnetNameAddPrefix2,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]$SubnetAddPrefix3 = $SubnetAddPrefix3,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]$SubnetNameAddPrefix3 = $SubnetNameAddPrefix3,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]$SubnetAddPrefix4 = $SubnetAddPrefix4,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]$SubnetNameAddPrefix4 = $SubnetNameAddPrefix4,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]$SubnetAddPrefix5 = $SubnetAddPrefix5,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]$SubnetNameAddPrefix5 = $SubnetNameAddPrefix5,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]$SubnetAddPrefix6 = $SubnetAddPrefix6,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]$SubnetNameAddPrefix6 = $SubnetNameAddPrefix6,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]$VNETDNS1 = $VNETDNS1,
+[Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
+[string]$VNETDNS2 = $VNETDNS2
+)
+
+Write-ConfigVNet
+	Write-Host "Network/DNS Preparation in Process.."
+	$subnet1 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix $SubnetAddPrefix1 -Name $SubnetNameAddPrefix1
+	$subnet2 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix $SubnetAddPrefix2 -Name $SubnetNameAddPrefix2
+	$subnet3 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix $SubnetAddPrefix3 -Name $SubnetNameAddPrefix3
+	$subnet4 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix $SubnetAddPrefix4 -Name $SubnetNameAddPrefix4
+	$subnet5 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix $SubnetAddPrefix5 -Name $SubnetNameAddPrefix5
+	$subnet6 = New-AzureRmVirtualNetworkSubnetConfig -AddressPrefix $SubnetAddPrefix6 -Name $SubnetNameAddPrefix6
+	Try
+	{
+	$dnssvr = -join $VNETDNS1 + ',' + $VNETDNS2
+	New-AzureRmVirtualNetwork -Location $Location -Name $VNETName -ResourceGroupName $vnetrg -AddressPrefix $AddRange -Subnet $subnet1,$subnet2,$subnet3,$subnet4,$subnet5,$subnet6 -DnsServer $VNETDNS1,$VNETDNS2 –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
+	Get-AzureRmVirtualNetwork -Name $VNETName -ResourceGroupName $vnetrg | Get-AzureRmVirtualNetworkSubnetConfig -WarningAction SilentlyContinue | Out-Null
+	Write-Host "Network/DNS Preparation completed" -ForegroundColor White
+	$LogOut = "Completed DNS and Network Configuration of $VNETName"
+	Log-Command -Description $LogOut -LogFile $LogOutFile
+	}
+	Catch
+	{
+	Write-Host -foregroundcolor Yellow `
+	"$($_.Exception.Message)"; `
+	$LogOut = "$($_.Exception.Message)"
+	Log-Command -Description $LogOut -LogFile $LogOutFile
+	break
+	}
+}
+
 Function Get-LBDetails {
 $lb = Get-AzureRmLoadBalancer -Name $LBName -ResourceGroupName $vnetrg
 
@@ -3844,9 +4296,9 @@ Function Create-LB
 		$lbrule = New-AzureRmLoadBalancerRuleConfig -Name 'lbrules' -FrontendIpConfiguration $frtend -BackendAddressPool $backendpool -Probe $probecfg -Protocol Tcp -FrontendPort '80' -BackendPort '80' -IdleTimeoutInMinutes '20' -EnableFloatingIP -LoadDistribution SourceIP -WarningAction SilentlyContinue
 		$lb = New-AzureRmLoadBalancer -Location $Location -Name $LBName -ResourceGroupName $vnetrg -FrontendIpConfiguration $frtend -BackendAddressPool $backendpool -Probe $probecfg -InboundNatRule $inboundnat1,$inboundnat2,$inboundnat3 -LoadBalancingRule $lbrule -WarningAction SilentlyContinue -ErrorAction Stop -Force -Confirm:$false
 			Get-LBDetails
-				if($netdiag)
+				if($lbdiag -or $batchlbdiag -eq 'True')
 		{
-					Diag-Create -netdiagoptions 'lbdiag'
+					LBDiag-Create -lbdiagoptions $lbdiagoptions
 		}
 			$LogOut = "Completed LB Configuration of $LBName"
 			Log-Command -Description $LogOut -LogFile $LogOutFile
@@ -3895,9 +4347,9 @@ Function Create-IntLB
 		$inboundnat4 = New-AzureRmLoadBalancerInboundNatRuleConfig -Name 'proxy' -FrontendIpConfiguration $frontendIP -Protocol Tcp -FrontendPort 8080 -BackendPort 8080 -IdleTimeoutInMinutes 15 -EnableFloatingIP -WarningAction SilentlyContinue
 		$lbrule = New-AzureRmLoadBalancerRuleConfig -Name 'lbrules' -FrontendIpConfiguration $frontendIP -BackendAddressPool $backendpool -Probe $probecfg -Protocol Tcp -FrontendPort '80' -BackendPort '80' -IdleTimeoutInMinutes '20' -EnableFloatingIP -LoadDistribution SourceIP -WarningAction SilentlyContinue
 		$lb = New-AzureRmLoadBalancer -Location $Location -Name $LBName -ResourceGroupName $vnetrg -FrontendIpConfiguration $frontendIP -BackendAddressPool $backendpool -Probe $probecfg -InboundNatRule $inboundnat1,$inboundnat2,$inboundnat3,$inboundnat4 -LoadBalancingRule $lbrule -WarningAction SilentlyContinue -ErrorAction Stop -Force -Confirm:$false
-		if($netdiag)
+		if($lbdiag -or $batchlbdiag -eq 'True')
 		{
-					Diag-Create -netdiagoptions 'lbdiag'
+					LBDiag-Create -lbdiagoptions $lbdiagoptions
 		}
 			Get-LBDetails
 			$LogOut = "Completed LB Configuration of $LBName"
@@ -3937,7 +4389,7 @@ Function NSG-Create {
 
 switch ($NSGType)
 	{
-		"BEMongo" {
+		"BE" {
 		Create-DBNSG
 }
 		"RemoteAccess" {
@@ -3945,9 +4397,6 @@ switch ($NSGType)
 }
 		"Web" {
 		Create-AppNSG
-}
-		"BEMySQL" {
-		Create-DBNSG
 }
 		"FULLFEBE" {
 		Create-FULLFEBENSG
@@ -3968,19 +4417,61 @@ Function Diag-Create {
 switch ($netdiagoptions)
 	{
 		"nsgdiag" {
-		Set-NSGDiagnostics-NoArchive -ResourceGroupName $vnetrg -ResourceName $NSGName
+		Set-NSGDiagnostics-OMS-NoArchive -ResourceGroupName $vnetrg -ResourceName $NSGName
 }
 		"lbdiag" {
-		Set-LBDiagnostics-NoArchive -ResourceGroupName $vnetrg -ResourceName $LBName
+		Set-LBDiagnostics-OMS-NoArchive -ResourceGroupName $vnetrg -ResourceName $LBName
+}
+		"nsgdiagarchive" {
+		Set-NSGDiagnostics-OMS-Archive -ResourceGroupName $vnetrg -ResourceName $NSGName -storerg $storerg
+}
+		"lbdiagarchive" {
+		Set-LBDiagnostics-OMS-Archive -ResourceGroupName $vnetrg -ResourceName $LBName -storerg $storerg
+}
+
+		default{"An unsupported NetDiag was used"}
+	}
+}
+
+Function LBDiag-Create {
+	param(
+		[string]$lbdiagoptions = $lbdiagoptions
+	)
+
+switch ($lbdiagoptions)
+	{
+		"lbdiagoms" {
+		Set-LBDiagnostics-OMS-NoArchive -ResourceGroupName $vnetrg -ResourceName $LBName
+}
+		"lbdiagomsarchive" {
+		Set-LBDiagnostics-OMS-Archive -ResourceGroupName $vnetrg -ResourceName $LBName -storerg $storerg
+}
+		"lbdiagarchive" {
+		Set-LBDiagnostics-Archive -ResourceGroupName $vnetrg -ResourceName $LBName -storerg $storerg
+}
+
+		default{"An unsupported LBDiag was used"}
+	}
+}
+
+Function NSGDiag-Create {
+	param(
+		[string]$nsgdiagoptions = $nsgdiagoptions
+	)
+
+switch ($nsgdiagoptions)
+	{
+		"nsgdiagoms" {
+		Set-NSGDiagnostics-OMS-NoArchive -ResourceGroupName $vnetrg -ResourceName $NSGName
+}
+		"nsgdiagomsarchive" {
+		Set-NSGDiagnostics-OMS-Archive -ResourceGroupName $vnetrg -ResourceName $NSGName -storerg $storerg
 }
 		"nsgdiagarchive" {
 		Set-NSGDiagnostics-Archive -ResourceGroupName $vnetrg -ResourceName $NSGName -storerg $storerg
 }
-		"lbdiagarchive" {
-		Set-NSGDiagnostics-Archive -ResourceGroupName $vnetrg -ResourceName $LBName -storerg $storerg
-}
 
-		default{"An unsupported NetDiag was used"}
+		default{"An unsupported NSGDiag was used"}
 	}
 }
 
@@ -4017,9 +4508,9 @@ param(
 			Set-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $VNet -Name $NSGSubnetName -AddressPrefix $NSGSubnetRange -NetworkSecurityGroup $nsg | Out-Null
 		Write-Host "Associated NSG with Subnet"
 		}
-		if($netdiag)
+		if($nsgdiag -or $batchnsgdiag -eq 'True')
 		{
-					Diag-Create -netdiagoptions 'nsgdiag'
+					NSGDiag-Create -nsgdiagoptions $nsgdiagoptions
 		}
 		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -WarningAction SilentlyContinue | Ft Name,Description,Direction,SourcePortRange,DestinationPortRange,DestinationPortRange,SourceAddressPrefix,Access
 		Write-Host "Network Security Group configuration completed" -ForegroundColor White
@@ -4080,9 +4571,9 @@ param(
 			Set-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $VNet -Name $NSGSubnetName -AddressPrefix $NSGSubnetRange -NetworkSecurityGroup $nsg | Out-Null
 		Write-Host "Associated NSG with Subnet"
 		}
-		if($netdiag)
+		if($nsgdiag -or $batchnsgdiag -eq 'True')
 		{
-					Diag-Create -netdiagoptions 'nsgdiag'
+					NSGDiag-Create -nsgdiagoptions $nsgdiagoptions
 		}
 		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -WarningAction SilentlyContinue | Out-Null
 		Write-Host "Network Security Group configuration completed" -ForegroundColor White
@@ -4116,8 +4607,8 @@ param(
 	{
 			Write-Host "RDP/SSH Network Security Group Preparation in Process.."
 		$diagrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_Diag_NSG" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "65503-65534" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 187
-		$intrule = New-AzureRmNetworkSecurityRuleConfig -Name "InternalAllowIn" -Description "InternalAllowIn" -Protocol * -SourcePortRange "*" -DestinationPortRange "*" -SourceAddressPrefix $destinationaddprefix -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 190
-		$extrule = New-AzureRmNetworkSecurityRuleConfig -Name "InternalAllowOut" -Description "InternalAllowOut" -Protocol * -SourcePortRange "*" -DestinationPortRange "*" -SourceAddressPrefix $destinationaddprefix -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Outbound ` -Priority 191
+		$intrule = New-AzureRmNetworkSecurityRuleConfig -Name "InternalAllowIn" -Description "InternalAllowIn" -Protocol * -SourcePortRange "*" -DestinationPortRange "*" -SourceAddressPrefix $destinationaddprefix -DestinationAddressPrefix * -Access Allow -Direction Inbound ` -Priority 198
+		$extrule = New-AzureRmNetworkSecurityRuleConfig -Name "InternalAllowOut" -Description "InternalAllowOut" -Protocol * -SourcePortRange "*" -DestinationPortRange "*" -SourceAddressPrefix $destinationaddprefix -DestinationAddressPrefix * -Access Allow -Direction Outbound ` -Priority 199
 
 		$sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_SSH" -Description "SSH Exception for Web frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 200
 		$rdprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_RDP" -Description "RDP Exception for frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "3389" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 201
@@ -4135,9 +4626,9 @@ param(
 			Set-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $VNet -Name $NSGSubnetName -AddressPrefix $NSGSubnetRange -NetworkSecurityGroup $nsg | Out-Null
 		Write-Host "Associated NSG with Subnet"
 		}
-		if($netdiag)
+		if($nsgdiag -or $batchnsgdiag -eq 'True')
 		{
-					Diag-Create -netdiagoptions 'nsgdiag'
+					NSGDiag-Create -nsgdiagoptions $nsgdiagoptions
 		}
 		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -WarningAction SilentlyContinue | Out-Null
 		Write-Host "Network Security Group configuration completed" -ForegroundColor White
@@ -4174,8 +4665,8 @@ param(
 	{
 			Write-Host "Internal Allow Network Security Group Preparation in Process.."
 		$diagrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_Diag_NSG" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "65503-65534" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 187
-		$intrule = New-AzureRmNetworkSecurityRuleConfig -Name "InternalAllowIn" -Description "InternalAllowIn" -Protocol * -SourcePortRange "*" -DestinationPortRange "*" -SourceAddressPrefix $destinationaddprefix -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 200
-		$extrule = New-AzureRmNetworkSecurityRuleConfig -Name "InternalAllowOut" -Description "InternalAllowOut" -Protocol * -SourcePortRange "*" -DestinationPortRange "*" -SourceAddressPrefix $destinationaddprefix -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Outbound ` -Priority 201
+		$intrule = New-AzureRmNetworkSecurityRuleConfig -Name "InternalAllowIn" -Description "InternalAllowIn" -Protocol * -SourcePortRange "*" -DestinationPortRange "*" -SourceAddressPrefix $destinationaddprefix -DestinationAddressPrefix * -Access Allow -Direction Inbound ` -Priority 200
+		$extrule = New-AzureRmNetworkSecurityRuleConfig -Name "InternalAllowOut" -Description "InternalAllowOut" -Protocol * -SourcePortRange "*" -DestinationPortRange "*" -SourceAddressPrefix $destinationaddprefix -DestinationAddressPrefix * -Access Allow -Direction Outbound ` -Priority 201
 		$sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_SSH" -Description "SSH Exception for Web frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 202
 		$rdprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_RDP" -Description "RDP Exception for frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "3389" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 203
 		$httpsrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_https" -Description "HTTPS Exception for frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "443" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 204
@@ -4192,9 +4683,9 @@ param(
 			Set-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $VNet -Name $NSGSubnetName -AddressPrefix $NSGSubnetRange -NetworkSecurityGroup $nsg | Out-Null
 		Write-Host "Associated NSG with Subnet"
 		}
-		if($netdiag)
+		if($nsgdiag -or $batchnsgdiag -eq 'True')
 		{
-					Diag-Create -netdiagoptions 'nsgdiag'
+					NSGDiag-Create -nsgdiagoptions $nsgdiagoptions
 		}
 		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -WarningAction SilentlyContinue | Out-Null
 		Write-Host "Network Security Group configuration completed" -ForegroundColor White
@@ -4230,11 +4721,11 @@ param(
 	{
 			Write-Host "Application Network Security Group Preparation in Process.."
 		$diagrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_Diag_NSG" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "65503-65534" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 187
-		$intrule = New-AzureRmNetworkSecurityRuleConfig -Name "InternalAllowIn" -Description "InternalAllowIn" -Protocol * -SourcePortRange "*" -DestinationPortRange "*" -SourceAddressPrefix $destinationaddprefix -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 200
-		$extrule = New-AzureRmNetworkSecurityRuleConfig -Name "InternalAllowOut" -Description "InternalAllowOut" -Protocol * -SourcePortRange "*" -DestinationPortRange "*" -SourceAddressPrefix $destinationaddprefix -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Outbound ` -Priority 201
+		$intrule = New-AzureRmNetworkSecurityRuleConfig -Name "InternalAllowIn" -Description "InternalAllowIn" -Protocol * -SourcePortRange "*" -DestinationPortRange "*" -SourceAddressPrefix $destinationaddprefix -DestinationAddressPrefix * -Access Allow -Direction Inbound ` -Priority 198
+		$extrule = New-AzureRmNetworkSecurityRuleConfig -Name "InternalAllowOut" -Description "InternalAllowOut" -Protocol * -SourcePortRange "*" -DestinationPortRange "*" -SourceAddressPrefix $destinationaddprefix -DestinationAddressPrefix * -Access Allow -Direction Outbound ` -Priority 201
 
 		$httprule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTP" -Description "HTTP Exception for Web frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "8080" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 202
-		$httpsrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTPS" -Description "HTTPS Exception for Web frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "4434" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 203
+		$httpsrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_HTTPS" -Description "HTTPS Exception for Web frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "8443" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound -Priority 203
 		$sshrule = New-AzureRmNetworkSecurityRuleConfig -Name "FrontEnd_SSH" -Description "SSH Exception for Web frontends" -Protocol Tcp -SourcePortRange "*" -DestinationPortRange "22" -SourceAddressPrefix "*" -DestinationAddressPrefix $destinationaddprefix -Access Allow -Direction Inbound ` -Priority 204
 
 		$nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $vnetrg -Location $Location -Name $NSGName -SecurityRules $httprule,$httpsrule,$sshrule,$diagrule,$intrule,$extrule –Confirm:$false -WarningAction SilentlyContinue -Force | Out-Null
@@ -4249,9 +4740,9 @@ param(
 			Set-AzureRmVirtualNetworkSubnetConfig -VirtualNetwork $VNet -Name $NSGSubnetName -AddressPrefix $NSGSubnetRange -NetworkSecurityGroup $nsg | Out-Null
 		Write-Host "Associated NSG with Subnet"
 		}
-		if($netdiag)
+		if($nsgdiag -or $batchnsgdiag -eq 'True')
 		{
-					Diag-Create -netdiagoptions 'nsgdiag'
+					NSGDiag-Create -nsgdiagoptions $nsgdiagoptions
 		}
 			$LogOut = "Security Rules added for $NSGName"
 			Log-Command -Description $LogOut -LogFile $LogOutFile
@@ -4304,9 +4795,9 @@ param(
 		Write-Host "Associated NSG with Subnet"
 		}
 
-		if($netdiag)
+		if($nsgdiag -or $batchnsgdiag -eq 'True')
 		{
-					Diag-Create -netdiagoptions 'nsgdiag'
+					NSGDiag-Create -nsgdiagoptions $nsgdiagoptions
 		}
 		Get-AzureRmNetworkSecurityGroup -Name $NSGName -ResourceGroupName $vnetrg -WarningAction SilentlyContinue | Out-Null
 		Write-Host "Network Security Group configuration completed" -ForegroundColor White
@@ -4610,11 +5101,21 @@ $enablediag = $enablebootdiag
 
 )
 
-if($enablebootdiag -or $batchenablebootdiag -eq 'True' )
+if($StorageType -eq 'Premium_LRS')
 	{
-Write-Host "Setting Boot Diags"
+	Write-Host "Configuring Boot Diag"
+	}
+
+if($enablebootdiag -or $batchenablebootdiag -eq 'True' -and $StorageType -ne 'Premium_LRS')
+	{
+Write-Host "Setting Boot Diags to use VM Storage"
 $script:VirtualMachine = Set-AzureRmVMBootDiagnostics -VM $VirtualMachine -Enable -ResourceGroupName $rg -StorageAccountNam $script:StorageNameVerified
 	}
+	elseif($enablebootdiag -or $batchenablebootdiag -eq 'True' -and $StorageType -eq 'Premium_LRS')
+		{
+			CreateDiag-Storage
+			Write-Host "Setting Boot Diags to use Diagnostics Storage"
+			$script:VirtualMachine = Set-AzureRmVMBootDiagnostics -VM $VirtualMachine -Enable -ResourceGroupName $rg -StorageAccountNam $script:diagstore }
 	else
 	{
 		Write-Host "Setting Boot Diags to disabled"
@@ -4900,7 +5401,7 @@ Function Create-VM {
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
 
-						Set-BootDiag
+			Set-BootDiag
 			Provision-Vm
 }
 		"*free*" {
@@ -4912,7 +5413,7 @@ Function Create-VM {
 			Set-NicConfiguration # Adds Network Interfaces
 			Configure-Image # Completes Image Creation
 
-						Set-BootDiag
+			Set-BootDiag
 			Provision-Vm
 }
 		"*red72*" {
@@ -5674,6 +6175,22 @@ Function Create-VM {
 }
 #endregion
 
+function Check-linuxaccess-NullValues {
+if($extname -eq 'linaccess' -and !$accesstype) {
+Write-Host "Please select -accesstype before running this command" -ForegroundColor Red
+exit
+}
+	elseif($extname -eq 'linaccess' -and $linuxpatchtype -eq 'AddUser') {
+	Write-Host "Adding user to $VMName"
+	}
+				elseif($extname -eq 'linaccess' -and $linuxpatchtype -eq 'RemoveUser')  {
+	Write-Host "Removing user from $VMName"
+				}
+					elseif($extname -eq 'linaccess' -and $linuxpatchtype -eq 'AddUser_ResetSSH') {
+	Write-Host "Add user reset SSH"
+					}
+}
+
 Function Register-DSCLinux {
 	param(
 	$primary = $primary,
@@ -6085,14 +6602,8 @@ switch ($extname)
 }
 		"linaccess" {
 				Verify-ExtLinux
-				Write-Host "Linux VM Access Agent VM Image Preparation in Process"
-				$PublicSetting = "{}"
-
-				$PrivateSetting = "{`"username`":`"$locadmin`",`"password`":`"$locpassword`",`"ssh_key`":`"$sshPublicKey`",`"reset_ssh`":`"True`"}"
-
-				Set-AzureRmVMExtension -VMName $VMName -ResourceGroupName $rg -Location $Location -Name "VMAccessForLinux" -ExtensionType "VMAccessForLinux" -Publisher "Microsoft.OSTCExtensions" -typeHandlerVersion "1.4" -InformationAction SilentlyContinue -Verbose -ProtectedSettingString $PrivateSetting | Out-Null
-				$LogOut = "VM Access Agent Deployed to $VMName"
-				Log-Command -Description $LogOut -LogFile $LogOutFile
+				Check-linuxaccess-NullValues
+				VMAccess-Linux
 						Write-Results
 }
 
@@ -6432,11 +6943,13 @@ Function Action-Type {
 							{
 								Get-OMSInfo
 								Check-NSGSub
+								Check-NSG-Diag
 								NSG-Create
 							} # Creates NSG and Security Groups
 					if($CreateLoadBalancer -or $BatchCreateLB -eq 'True' -and $LBType -eq 'external')
 							{
 							Get-OMSInfo
+							Check-NSG-Diag
 							Check-CreateLB
 							Create-LB
 							}
@@ -6450,6 +6963,7 @@ Function Action-Type {
 							}
 					Verify-NIC
 					Check-Vnet
+					Align-Storage
 					Create-VM # Configure Image
 					if($addmngdatadisk -or $batchaddmngdatadisk -eq 'True')
 							{
@@ -6556,8 +7070,8 @@ if(Get-Module -ListAvailable |
 		select version -ExpandProperty version
 		Write-Host "current Azure PowerShell Version:" $ver
 	$currentver = $ver
-		if($currentver-le '4.0.0'){
-		Write-Host "expected version 4.0.1 found $ver" -ForegroundColor DarkRed
+		if($currentver-le '4.2.0'){
+		Write-Host "expected version 4.2.1 found $ver" -ForegroundColor DarkRed
 		exit
 			}
 }
@@ -6641,6 +7155,8 @@ Write-Output $strreport
 Write-Host "Managed Storage accounts in $rg" -ForegroundColor Blue
 Write-Host "---------------------------------------------" -ForegroundColor Blue
 Write-Output $diskreport
+
+Write-FinalState
 }
 
 Function Script-Verinfo {
@@ -6711,7 +7227,7 @@ Function Eval-extdepends
 }
 
 Function Register-ResourceProviders {
-	 $resourceProviders = @("microsoft.compute","microsoft.network","microsoft.storage");
+	 $resourceProviders = @("microsoft.compute","microsoft.network","microsoft.storage","microsoft.keyvault");
  if($resourceProviders.length) {
 	Write-Host "Registering resource providers"
 	foreach($resourceProvider in $resourceProviders) {
@@ -6762,7 +7278,7 @@ Create-SSHFile
 
 if($csvimport) { csv-run }
 Get-Dependencies
-
+Check-StrVmType
 if($summaryinfo)
 	{
 Write-Summary
