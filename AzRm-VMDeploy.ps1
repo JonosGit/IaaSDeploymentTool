@@ -540,7 +540,7 @@ $SubnetNameAddPrefix6 = "monitoring",
 $vnetdns,
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
-$VNETDNS1 = '40.90.4.7',
+$VNETDNS1 = '8.8.8.8',
 [Parameter(Mandatory=$False,ValueFromPipelinebyPropertyName=$true)]
 [string]
 $VNETDNS2 = '8.8.4.4',
